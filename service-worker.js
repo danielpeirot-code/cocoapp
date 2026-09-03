@@ -1,11 +1,11 @@
-const CACHE_NAME = "coco-campo-v8";
+const CACHE_NAME = "coco-campo-v9";
 const APP_SHELL = [
-  "/",
-  "/manifest.json",
-  "/icon-192.png",
-  "/icon-512.png",
-  "/icon-192-maskable.png",
-  "/icon-512-maskable.png",
+  "./",
+  "manifest.json",
+  "icon-192.png",
+  "icon-512.png",
+  "icon-192-maskable.png",
+  "icon-512-maskable.png",
 ];
 
 self.addEventListener("install", (event) => {

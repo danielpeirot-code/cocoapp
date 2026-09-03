@@ -436,10 +436,27 @@ function setSaveStatus(area, status) {
   S.saveStatus[area] = status;
   const pill = document.getElementById("savingPill-" + area);
   if (!pill) return;
-  pill.className = "saving-pill" + (status === "offline" ? " offline" : status === "saved" ? " saved" : "");
+  pill.className = "saving-pill" + (status === "offline" ? " offline" : status === "saved" ? " saved" : status === "erro" ? " offline" : "");
   pill.textContent = status === "saving" ? "salvando…" :
     status === "offline" ? "sem internet — vai sincronizar sozinho" :
-    status === "saved" ? "salvo ✓" : "";
+    status === "saved" ? "salvo ✓" :
+    status === "erro" ? "⚠️ não salvou — veja o aviso" : "";
+}
+
+// Antes, todo erro ao salvar (permissão negada, domínio não autorizado, etc.) só ia pro console
+// escondido, e a pílula ficava travada em "salvando…" pra sempre, sem a pessoa saber que o dado
+// não foi salvo de verdade. Agora, qualquer falha mostra um aviso claro na tela.
+function tratarErroSalvamento(area, err) {
+  console.error(err);
+  setSaveStatus(area, "erro");
+  const codigo = String((err && err.code) || err || "");
+  if (codigo.includes("permission") || codigo.includes("unauthorized") || codigo.includes("auth/")) {
+    alert("Não salvou — parece um problema de permissão/autorização no servidor. Avise quem cuida do app (pode ser o domínio não autorizado no Firebase).");
+  } else if (!navigator.onLine) {
+    alert("Sem internet no momento. Os dados desta tela podem não ter sido salvos — confira quando a conexão voltar.");
+  } else {
+    alert("Não consegui salvar agora. Verifica a internet e tenta de novo. Se continuar, avise quem cuida do app.");
+  }
 }
 
 // Cada lançamento (carga, bag, registro de descarte, linha contada) vira o SEU PRÓPRIO documento
@@ -939,7 +956,7 @@ window.removerFotoPendenteUI = async function (id) {
 
 window.removerFotoCarga = function (fotoId, fileId) {
   if (!confirm("Excluir esta foto?")) return;
-  deleteDoc(doc(db, "cargaFotos", fotoId)).catch((e) => console.error(e));
+  deleteDoc(doc(db, "cargaFotos", fotoId)).catch((e) => tratarErroSalvamento("romaneio", e));
   if (fileId) {
     fetch(BACKUP_SHEETS_URL, {
       method: "POST",
@@ -1061,7 +1078,7 @@ window.criarCarga = function () {
   S._novaCarga = { numero: "", data: todayISO(), encarregado: S._novaCarga.encarregado };
   S._novaLinha = novaLinhaVazia();
   marcarSalvando("romaneio");
-  setDoc(ref, payload).then(() => { if (navigator.onLine) setSaveStatus("romaneio", "saved"); }).catch((e) => console.error(e));
+  setDoc(ref, payload).then(() => { if (navigator.onLine) setSaveStatus("romaneio", "saved"); }).catch((e) => tratarErroSalvamento("romaneio", e));
   renderRomaneio();
 };
 window.toggleCarga = function (id) {
@@ -1081,13 +1098,13 @@ window.addLinha = function (cargaId) {
   const payload = { cargaId, ...S._novaLinha };
   S._novaLinha = novaLinhaVazia();
   marcarSalvando("romaneio");
-  addDoc(collection(db, "bags"), payload).then(() => { if (navigator.onLine) setSaveStatus("romaneio", "saved"); }).catch((e) => console.error(e));
+  addDoc(collection(db, "bags"), payload).then(() => { if (navigator.onLine) setSaveStatus("romaneio", "saved"); }).catch((e) => tratarErroSalvamento("romaneio", e));
   renderRomaneio();
 };
 window.removeLinha = function (cargaId, linhaId) {
   if (S._editandoLinha && S._editandoLinha.linhaId === linhaId) S._editandoLinha = null;
   marcarSalvando("romaneio");
-  deleteDoc(doc(db, "bags", linhaId)).then(() => { if (navigator.onLine) setSaveStatus("romaneio", "saved"); }).catch((e) => console.error(e));
+  deleteDoc(doc(db, "bags", linhaId)).then(() => { if (navigator.onLine) setSaveStatus("romaneio", "saved"); }).catch((e) => tratarErroSalvamento("romaneio", e));
   renderRomaneio();
 };
 window.abrirEdicaoLinha = function (cargaId, linhaId) {
@@ -1112,7 +1129,7 @@ window.salvarEdicaoLinha = function () {
   const { idBagLabel, ...patch } = S._editLinha;
   S._editandoLinha = null;
   marcarSalvando("romaneio");
-  updateDoc(doc(db, "bags", linhaId), patch).then(() => { if (navigator.onLine) setSaveStatus("romaneio", "saved"); }).catch((e) => console.error(e));
+  updateDoc(doc(db, "bags", linhaId), patch).then(() => { if (navigator.onLine) setSaveStatus("romaneio", "saved"); }).catch((e) => tratarErroSalvamento("romaneio", e));
   renderRomaneio();
 };
 window.removeCarga = function (cargaId) {
@@ -1131,18 +1148,18 @@ window.removeCarga = function (cargaId) {
           body: JSON.stringify({ action: "excluirFoto", fileId: f.fileId }),
         }).catch((e) => console.warn("Não consegui apagar uma foto no Drive (pode ter que remover na mão):", e))
       : Promise.resolve()),
-  ]).then(() => { if (navigator.onLine) setSaveStatus("romaneio", "saved"); }).catch((e) => console.error(e));
+  ]).then(() => { if (navigator.onLine) setSaveStatus("romaneio", "saved"); }).catch((e) => tratarErroSalvamento("romaneio", e));
   renderRomaneio();
 };
 window.arquivarCarga = function (cargaId) {
   S._openCarga = null;
   marcarSalvando("romaneio");
-  updateDoc(doc(db, "cargas", cargaId), { status: "arquivada" }).then(() => { if (navigator.onLine) setSaveStatus("romaneio", "saved"); }).catch((e) => console.error(e));
+  updateDoc(doc(db, "cargas", cargaId), { status: "arquivada" }).then(() => { if (navigator.onLine) setSaveStatus("romaneio", "saved"); }).catch((e) => tratarErroSalvamento("romaneio", e));
   renderRomaneio();
 };
 window.reabrirCarga = function (cargaId) {
   marcarSalvando("romaneio");
-  updateDoc(doc(db, "cargas", cargaId), { status: "aberta" }).then(() => { if (navigator.onLine) setSaveStatus("romaneio", "saved"); }).catch((e) => console.error(e));
+  updateDoc(doc(db, "cargas", cargaId), { status: "aberta" }).then(() => { if (navigator.onLine) setSaveStatus("romaneio", "saved"); }).catch((e) => tratarErroSalvamento("romaneio", e));
   renderRomaneio();
 };
 
@@ -1232,12 +1249,12 @@ window.addDescarte = function () {
   const { id, ...payload } = S._formDescarte;
   S._formDescarte = descarteVazio();
   marcarSalvando("descartes");
-  addDoc(collection(db, "descartes"), payload).then(() => { if (navigator.onLine) setSaveStatus("descartes", "saved"); }).catch((e) => console.error(e));
+  addDoc(collection(db, "descartes"), payload).then(() => { if (navigator.onLine) setSaveStatus("descartes", "saved"); }).catch((e) => tratarErroSalvamento("descartes", e));
   renderDescartes();
 };
 window.removeDescarte = function (id) {
   marcarSalvando("descartes");
-  deleteDoc(doc(db, "descartes", id)).then(() => { if (navigator.onLine) setSaveStatus("descartes", "saved"); }).catch((e) => console.error(e));
+  deleteDoc(doc(db, "descartes", id)).then(() => { if (navigator.onLine) setSaveStatus("descartes", "saved"); }).catch((e) => tratarErroSalvamento("descartes", e));
   renderDescartes();
 };
 
@@ -1501,12 +1518,12 @@ window.salvarLinhaContagem = function () {
   ctg.numLinha = "";
   ctg.valores = Array.from({ length: Number(ctg.qtdPlantas) || 0 }, () => "");
   marcarSalvando("contagem");
-  addDoc(collection(db, "contagemLinhas"), payload).then(() => { if (navigator.onLine) setSaveStatus("contagem", "saved"); }).catch((e) => console.error(e));
+  addDoc(collection(db, "contagemLinhas"), payload).then(() => { if (navigator.onLine) setSaveStatus("contagem", "saved"); }).catch((e) => tratarErroSalvamento("contagem", e));
   renderContagem();
 };
 window.removerLinhaContagem = function (id) {
   marcarSalvando("contagem");
-  deleteDoc(doc(db, "contagemLinhas", id)).then(() => { if (navigator.onLine) setSaveStatus("contagem", "saved"); }).catch((e) => console.error(e));
+  deleteDoc(doc(db, "contagemLinhas", id)).then(() => { if (navigator.onLine) setSaveStatus("contagem", "saved"); }).catch((e) => tratarErroSalvamento("contagem", e));
   renderContagem();
 };
 
@@ -1635,7 +1652,7 @@ window.atualizarAplic = function (setor, tipo, campo, valor, rowId) {
   _aplicTimers[k] = setTimeout(() => {
     setDoc(doc(db, "aplicacoes", k), novoRegistro)
       .then(() => { if (navigator.onLine) setSaveStatus("aplicacoes", "saved"); })
-      .catch((e) => console.error(e));
+      .catch((e) => tratarErroSalvamento("aplicacoes", e));
   }, 500);
 };
 
@@ -2062,7 +2079,7 @@ window.criarProgramacao = function () {
 };
 window.removerProgramacao = function (id) {
   S._progAberta = null;
-  deleteDoc(doc(db, "programacao", id)).catch((e) => console.error(e));
+  deleteDoc(doc(db, "programacao", id)).catch((e) => tratarErroSalvamento("programacao", e));
 };
 window.duplicarProgramacao = function (id) {
   const item = S.programacao.find((p) => p.id === id);
@@ -2106,7 +2123,7 @@ window.atualizarProgDia = function (id, tipo, diaKey, valor) {
   _progTimers[k] = setTimeout(() => {
     updateDoc(doc(db, "programacao", id), { [tipo]: item[tipo] })
       .then(() => { if (navigator.onLine) setSaveStatus("programacao", "saved"); })
-      .catch((e) => console.error(e));
+      .catch((e) => tratarErroSalvamento("programacao", e));
   }, 500);
 };
 
@@ -2316,24 +2333,24 @@ window.criarInsumo = function () {
   setSaveStatus("estoque", "saving");
   addDoc(collection(db, "insumos"), { ...S._novoInsumo })
     .then(() => { if (navigator.onLine) setSaveStatus("estoque", "saved"); })
-    .catch((e) => console.error(e));
+    .catch((e) => tratarErroSalvamento("estoque", e));
   S._novoInsumo = { nome: "", categoria: "Defensivo", unidade: "", estoqueMinimo: "" };
   renderEstoque();
 };
 window.removerInsumo = function (id) {
-  deleteDoc(doc(db, "insumos", id)).catch((e) => console.error(e));
+  deleteDoc(doc(db, "insumos", id)).catch((e) => tratarErroSalvamento("estoque", e));
 };
 window.criarSolicitacao = function () {
   if (!S._novaSolicitacao.insumoNome || !S._novaSolicitacao.quantidade) { alert("Escolhe o produto e a quantidade."); return; }
   setSaveStatus("estoque", "saving");
   addDoc(collection(db, "solicitacoes"), { ...S._novaSolicitacao, status: "solicitado" })
     .then(() => { if (navigator.onLine) setSaveStatus("estoque", "saved"); })
-    .catch((e) => console.error(e));
+    .catch((e) => tratarErroSalvamento("estoque", e));
   S._novaSolicitacao = { insumoNome: "", quantidade: "", dataPedido: todayISO(), dataPrevista: "" };
   renderEstoque();
 };
 window.removerSolicitacao = function (id) {
-  deleteDoc(doc(db, "solicitacoes", id)).catch((e) => console.error(e));
+  deleteDoc(doc(db, "solicitacoes", id)).catch((e) => tratarErroSalvamento("estoque", e));
 };
 window.abrirRecebimento = function (id, quantidadePadrao) {
   S._recebendoId = id;
@@ -2348,10 +2365,10 @@ window.confirmarRecebimento = function (id) {
   setSaveStatus("estoque", "saving");
   addDoc(collection(db, "estoqueMovs"), {
     insumoNome: sol.insumoNome, tipo: "entrada", quantidade: qtd, data, origem: "compra", solicitacaoId: id,
-  }).catch((e) => console.error(e));
+  }).catch((e) => tratarErroSalvamento("estoque", e));
   updateDoc(doc(db, "solicitacoes", id), { status: "recebido", quantidadeRecebida: qtd, dataRecebido: data })
     .then(() => { if (navigator.onLine) setSaveStatus("estoque", "saved"); })
-    .catch((e) => console.error(e));
+    .catch((e) => tratarErroSalvamento("estoque", e));
   S._recebendoId = null;
   renderEstoque();
 };
@@ -2360,7 +2377,7 @@ window.registrarSaidaEstoque = function () {
   setSaveStatus("estoque", "saving");
   addDoc(collection(db, "estoqueMovs"), { ...S._novaSaida, tipo: "saida", origem: "ajuste" })
     .then(() => { if (navigator.onLine) setSaveStatus("estoque", "saved"); })
-    .catch((e) => console.error(e));
+    .catch((e) => tratarErroSalvamento("estoque", e));
   S._novaSaida = { insumoNome: "", quantidade: "", data: todayISO(), setor: "" };
   renderEstoque();
 };

@@ -215,7 +215,7 @@
     <div>
       <div class="title">Controle de Campo — Coco</div>
       <div id="statusLine" class="status offline">verificando conexão…</div>
-      <div style="font-size:9px; color:#a8a29e; margin-top:1px;">v22</div>
+      <div style="font-size:9px; color:#a8a29e; margin-top:1px;">v23</div>
     </div>
     <div class="spacer"></div>
     <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
@@ -383,31 +383,42 @@ signInAnonymously(auth).catch((e) => console.error("Erro login anônimo:", e));
 onAuthStateChanged(auth, (user) => {
   if (!user) return;
 
+  // Em todo listener abaixo: quando O PRÓPRIO app faz uma gravação (ex: digitando num campo que
+  // salva sozinho), o Firestore "ecoa" de volta quase na hora, com hasPendingWrites=true — antes
+  // de vir do servidor de verdade. Se a gente redesenha a tela nesse eco, o campo que a pessoa
+  // estava digitando perde o foco (é preciso clicar de novo pra continuar escrevendo). Como o
+  // estado já foi atualizado na hora (otimisticamente) por quem chamou a gravação, não precisa
+  // redesenhar nesse eco — só quando a mudança realmente vier confirmada (ou de outro aparelho).
   onSnapshot(collection(db, "cargas"), (snap) => {
     S.cargas = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     setSaveStatus("romaneio", "saved");
+    if (snap.metadata.hasPendingWrites) return;
     if (S.currentTab === "romaneio") renderTab();
   }, (err) => console.error(err));
 
   onSnapshot(collection(db, "bags"), (snap) => {
     S.bags = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    if (snap.metadata.hasPendingWrites) return;
     if (S.currentTab === "romaneio") renderTab();
   }, (err) => console.error(err));
 
   onSnapshot(collection(db, "cargaFotos"), (snap) => {
     S.cargaFotos = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    if (snap.metadata.hasPendingWrites) return;
     if (S.currentTab === "romaneio") renderTab();
   }, (err) => console.error(err));
 
   onSnapshot(collection(db, "descartes"), (snap) => {
     S.registrosDescarte = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     setSaveStatus("descartes", "saved");
+    if (snap.metadata.hasPendingWrites) return;
     if (S.currentTab === "romaneio") renderTab(); // Descartes agora vive dentro da aba Romaneio
   }, (err) => console.error(err));
 
   onSnapshot(collection(db, "contagemLinhas"), (snap) => {
     S.contagemLinhas = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     setSaveStatus("contagem", "saved");
+    if (snap.metadata.hasPendingWrites) return;
     if (S.currentTab === "contagem") renderTab();
   }, (err) => console.error(err));
 
@@ -416,6 +427,7 @@ onAuthStateChanged(auth, (user) => {
     snap.docs.forEach((d) => { obj[d.id] = d.data(); });
     S.aplicacoesDados = obj;
     setSaveStatus("aplicacoes", "saved");
+    if (snap.metadata.hasPendingWrites) return;
     // A aba de Estoque mostra previsão de consumo calculada a partir das aplicações/adubações,
     // então também precisa re-renderizar quando esses dados mudam (ex: outro tablet lançou algo).
     if (S.currentTab === "aplicacoes" || S.currentTab === "estoque") renderTab();
@@ -426,34 +438,40 @@ onAuthStateChanged(auth, (user) => {
     snap.docs.forEach((d) => { obj[d.id] = d.data(); });
     S.setoresInfo = obj;
     setSaveStatus("setores", "saved");
+    if (snap.metadata.hasPendingWrites) return;
     if (S.currentTab === "setores") renderTab();
   }, (err) => console.error(err));
 
   onSnapshot(collection(db, "ocorrencias"), (snap) => {
     S.ocorrencias = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     setSaveStatus("ocorrencias", "saved");
+    if (snap.metadata.hasPendingWrites) return;
     if (S.currentTab === "ocorrencias") renderTab();
   }, (err) => console.error(err));
 
   onSnapshot(collection(db, "programacao"), (snap) => {
     S.programacao = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     setSaveStatus("programacao", "saved");
+    if (snap.metadata.hasPendingWrites) return;
     if (S.currentTab === "programacao") renderTab();
   }, (err) => console.error(err));
 
   onSnapshot(collection(db, "insumos"), (snap) => {
     S.insumos = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     setSaveStatus("estoque", "saved");
+    if (snap.metadata.hasPendingWrites) return;
     if (S.currentTab === "estoque") renderTab();
   }, (err) => console.error(err));
 
   onSnapshot(collection(db, "estoqueMovs"), (snap) => {
     S.estoqueMovs = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    if (snap.metadata.hasPendingWrites) return;
     if (S.currentTab === "estoque") renderTab();
   }, (err) => console.error(err));
 
   onSnapshot(collection(db, "solicitacoes"), (snap) => {
     S.solicitacoes = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    if (snap.metadata.hasPendingWrites) return;
     if (S.currentTab === "estoque") renderTab();
   }, (err) => console.error(err));
 

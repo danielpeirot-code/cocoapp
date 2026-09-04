@@ -215,7 +215,7 @@
     <div>
       <div class="title">Controle de Campo — Coco</div>
       <div id="statusLine" class="status offline">verificando conexão…</div>
-      <div style="font-size:9px; color:#a8a29e; margin-top:1px;">v23</div>
+      <div style="font-size:9px; color:#a8a29e; margin-top:1px;">v24</div>
     </div>
     <div class="spacer"></div>
     <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
@@ -229,6 +229,7 @@
   </div>
 
   <div class="tabs">
+    <button class="tab-btn" id="tabbtn-dashboard" onclick="mudarAba('dashboard')"><span class="ic">🏠</span>Painel</button>
     <button class="tab-btn active" id="tabbtn-romaneio" onclick="mudarAba('romaneio')"><span class="ic">🚛</span>Romaneio</button>
     <button class="tab-btn" id="tabbtn-contagem" onclick="mudarAba('contagem')"><span class="ic">🌱</span>Contagem</button>
     <button class="tab-btn" id="tabbtn-aplicacoes" onclick="mudarAba('aplicacoes')"><span class="ic">🧴</span>Aplic./Adub.</button>
@@ -393,13 +394,13 @@ onAuthStateChanged(auth, (user) => {
     S.cargas = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     setSaveStatus("romaneio", "saved");
     if (snap.metadata.hasPendingWrites) return;
-    if (S.currentTab === "romaneio") renderTab();
+    if (S.currentTab === "romaneio" || S.currentTab === "dashboard") renderTab();
   }, (err) => console.error(err));
 
   onSnapshot(collection(db, "bags"), (snap) => {
     S.bags = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     if (snap.metadata.hasPendingWrites) return;
-    if (S.currentTab === "romaneio") renderTab();
+    if (S.currentTab === "romaneio" || S.currentTab === "dashboard") renderTab();
   }, (err) => console.error(err));
 
   onSnapshot(collection(db, "cargaFotos"), (snap) => {
@@ -412,14 +413,14 @@ onAuthStateChanged(auth, (user) => {
     S.registrosDescarte = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     setSaveStatus("descartes", "saved");
     if (snap.metadata.hasPendingWrites) return;
-    if (S.currentTab === "romaneio") renderTab(); // Descartes agora vive dentro da aba Romaneio
+    if (S.currentTab === "romaneio" || S.currentTab === "dashboard") renderTab(); // Descartes agora vive dentro da aba Romaneio
   }, (err) => console.error(err));
 
   onSnapshot(collection(db, "contagemLinhas"), (snap) => {
     S.contagemLinhas = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     setSaveStatus("contagem", "saved");
     if (snap.metadata.hasPendingWrites) return;
-    if (S.currentTab === "contagem") renderTab();
+    if (S.currentTab === "contagem" || S.currentTab === "dashboard") renderTab();
   }, (err) => console.error(err));
 
   onSnapshot(collection(db, "aplicacoes"), (snap) => {
@@ -430,7 +431,7 @@ onAuthStateChanged(auth, (user) => {
     if (snap.metadata.hasPendingWrites) return;
     // A aba de Estoque mostra previsão de consumo calculada a partir das aplicações/adubações,
     // então também precisa re-renderizar quando esses dados mudam (ex: outro tablet lançou algo).
-    if (S.currentTab === "aplicacoes" || S.currentTab === "estoque") renderTab();
+    if (S.currentTab === "aplicacoes" || S.currentTab === "estoque" || S.currentTab === "dashboard") renderTab();
   }, (err) => console.error(err));
 
   onSnapshot(collection(db, "setoresInfo"), (snap) => {
@@ -446,27 +447,27 @@ onAuthStateChanged(auth, (user) => {
     S.ocorrencias = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     setSaveStatus("ocorrencias", "saved");
     if (snap.metadata.hasPendingWrites) return;
-    if (S.currentTab === "ocorrencias") renderTab();
+    if (S.currentTab === "ocorrencias" || S.currentTab === "dashboard") renderTab();
   }, (err) => console.error(err));
 
   onSnapshot(collection(db, "programacao"), (snap) => {
     S.programacao = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     setSaveStatus("programacao", "saved");
     if (snap.metadata.hasPendingWrites) return;
-    if (S.currentTab === "programacao") renderTab();
+    if (S.currentTab === "programacao" || S.currentTab === "dashboard") renderTab();
   }, (err) => console.error(err));
 
   onSnapshot(collection(db, "insumos"), (snap) => {
     S.insumos = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     setSaveStatus("estoque", "saved");
     if (snap.metadata.hasPendingWrites) return;
-    if (S.currentTab === "estoque") renderTab();
+    if (S.currentTab === "estoque" || S.currentTab === "dashboard") renderTab();
   }, (err) => console.error(err));
 
   onSnapshot(collection(db, "estoqueMovs"), (snap) => {
     S.estoqueMovs = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     if (snap.metadata.hasPendingWrites) return;
-    if (S.currentTab === "estoque") renderTab();
+    if (S.currentTab === "estoque" || S.currentTab === "dashboard") renderTab();
   }, (err) => console.error(err));
 
   onSnapshot(collection(db, "solicitacoes"), (snap) => {
@@ -586,14 +587,15 @@ function calcAplicacao(reg, tipo) {
    ========================================================================= */
 window.mudarAba = function (tab) {
   S.currentTab = tab;
-  ["romaneio", "contagem", "aplicacoes", "indicadores", "programacao", "estoque", "setores", "ocorrencias"].forEach((t) => {
+  ["dashboard", "romaneio", "contagem", "aplicacoes", "indicadores", "programacao", "estoque", "setores", "ocorrencias"].forEach((t) => {
     document.getElementById("tabbtn-" + t).classList.toggle("active", t === tab);
   });
   renderTab();
 };
 
 function renderTab() {
-  if (S.currentTab === "romaneio") renderRomaneio();
+  if (S.currentTab === "dashboard") renderDashboard();
+  else if (S.currentTab === "romaneio") renderRomaneio();
   else if (S.currentTab === "contagem") renderContagem();
   else if (S.currentTab === "aplicacoes") renderAplicacoes();
   else if (S.currentTab === "indicadores") renderIndicadores();
@@ -1804,6 +1806,124 @@ function calcIndicadoresMes(mes) {
 
 function calcEstoqueAtual() {
   return S.bags.filter((b) => !calcLinhaRomaneio(b).temCarregado).reduce((s, b) => s + (Number(b.estocado1) || 0), 0);
+}
+
+/* =========================================================================
+   PAINEL (DASHBOARD)
+   Resumo geral + alertas — junta o que já existe nas outras abas (estoque,
+   aplicações, programação, ocorrências) num só lugar, pra bater o olho rápido
+   no que precisa de atenção sem precisar entrar em cada aba.
+   ========================================================================= */
+function montarAlertas() {
+  const alertas = [];
+
+  // Estoque baixo ou previsto pra acabar logo
+  S.insumos.forEach((ins) => {
+    const atual = estoqueAtual(ins.nome);
+    const minimo = Number(ins.estoqueMinimo) || 0;
+    if (minimo > 0 && atual <= minimo) {
+      alertas.push({ cor: "vermelho", texto: `${ins.nome} abaixo do estoque mínimo (${fmt(atual,1)} ${ins.unidade})` });
+    } else {
+      const prev = previsaoConsumo(ins.nome);
+      if (prev && prev.diasRestantes > 0 && prev.diasRestantes <= 14) {
+        alertas.push({ cor: "amarelo", texto: `${ins.nome}: previsão de acabar em ~${prev.diasRestantes} dia${prev.diasRestantes===1?"":"s"}` });
+      }
+    }
+  });
+
+  // Aplicações/Adubações atrasadas em algum setor
+  TALHOES.forEach((talhao) => {
+    [...TIPOS_APLICACAO, ...TIPOS_ADUBACAO].forEach(({ tipo }) => {
+      const reg = S.aplicacoesDados[chaveAplic(talhao, tipo)];
+      const calc = calcAplicacao(reg, tipo);
+      if (calc.cor === "vermelho") alertas.push({ cor: "vermelho", texto: `${tipo} atrasada no setor ${talhao}` });
+    });
+  });
+
+  // Programação da semana atual — atividades com dias já passados sem execução completa
+  const semanaAtual = segundaDaSemana(todayISO());
+  const hojeIdx = (new Date().getDay() + 6) % 7; // segunda=0 ... domingo=6
+  S.programacao.filter((p) => p.semana === semanaAtual).forEach((p) => {
+    let temPendencia = false;
+    DIAS_SEMANA.forEach((d, i) => {
+      if (i > hojeIdx) return;
+      const planejado = Number(p.prog[d.key]) || 0;
+      const executado = Number(p.exec[d.key]) || 0;
+      if (planejado > 0 && executado < planejado) temPendencia = true;
+    });
+    if (temPendencia) alertas.push({ cor: "amarelo", texto: `Programação "${p.atividade || "atividade"}" (${p.setor}) com pendência essa semana` });
+  });
+
+  // Ocorrências dos últimos 7 dias
+  const seteDiasAtras = new Date(); seteDiasAtras.setDate(seteDiasAtras.getDate() - 7);
+  const seteDiasISO = seteDiasAtras.toISOString().slice(0, 10);
+  S.ocorrencias.filter((o) => (o.data || "") >= seteDiasISO).forEach((o) => {
+    alertas.push({ cor: "vermelho", texto: `Ocorrência: ${o.tipo}${o.setor ? " — " + o.setor : ""} (${brDate(o.data)})` });
+  });
+
+  return alertas;
+}
+
+function renderDashboard() {
+  const mesAtual = todayISO().slice(0, 7);
+  const ind = calcIndicadoresMes(mesAtual);
+  const estoqueEmEspera = calcEstoqueAtual();
+
+  const totalPlantasContadas = S.contagemLinhas.reduce((s, l) => s + (l.valores ? l.valores.length : 0), 0);
+  const totalFrutasContadas = S.contagemLinhas.reduce((s, l) => s + (Number(l.total) || 0), 0);
+
+  let normais = 0, baixos = 0;
+  S.insumos.forEach((ins) => {
+    const atual = estoqueAtual(ins.nome);
+    const minimo = Number(ins.estoqueMinimo) || 0;
+    if (minimo > 0 && atual <= minimo) baixos++; else normais++;
+  });
+
+  const alertas = montarAlertas();
+  const alertasOrdenados = alertas.filter((a) => a.cor === "vermelho").concat(alertas.filter((a) => a.cor === "amarelo"));
+
+  let html = `<div class="card" style="padding:10px 12px;">
+    <span class="muted" style="font-size:12px;">🏠 Visão geral da fazenda — resumo de ${esc(mesLabel(mesAtual))} e o que precisa de atenção agora.</span>
+  </div>`;
+
+  if (alertasOrdenados.length > 0) {
+    html += `<div class="card">
+      <h3 style="margin-bottom:8px;">🚨 Alertas (${alertasOrdenados.length})</h3>`;
+    alertasOrdenados.forEach((a) => {
+      html += `<div style="padding:5px 0; font-size:13px; display:flex; align-items:center; gap:6px;">
+        <span class="status-pill ${a.cor}" style="font-size:9.5px;">${a.cor === "vermelho" ? "urgente" : "atenção"}</span>
+        <span>${esc(a.texto)}</span>
+      </div>`;
+    });
+    html += `</div>`;
+  } else {
+    html += `<div class="card" style="text-align:center; color:#166534; font-weight:700; padding:16px;">✅ Tudo em dia — nenhum alerta no momento.</div>`;
+  }
+
+  html += `<div class="grid grid-2">
+    <div class="card">
+      <h3 style="margin-bottom:8px;">🥥 Produção (${esc(mesLabel(mesAtual))})</h3>
+      <div class="stat-box" style="margin-bottom:6px;"><div class="lbl">Produzido</div><div class="val">${fmt(ind.producaoKg,0)} kg</div></div>
+      <div class="stat-box" style="margin-bottom:6px;"><div class="lbl">Expedido</div><div class="val">${fmt(ind.expedidoKg,0)} kg</div></div>
+      <div class="stat-box"><div class="lbl">Descarte</div><div class="val">${fmt(ind.descarteKg,0)} kg</div></div>
+    </div>
+    <div class="card">
+      <h3 style="margin-bottom:8px;">🌴 Campo</h3>
+      <div class="stat-box" style="margin-bottom:6px;"><div class="lbl">Plantas avaliadas</div><div class="val">${fmt(totalPlantasContadas,0)}</div></div>
+      <div class="stat-box"><div class="lbl">Frutas contadas</div><div class="val">${fmt(totalFrutasContadas,0)}</div></div>
+    </div>
+    <div class="card">
+      <h3 style="margin-bottom:8px;">📦 Estoque</h3>
+      <div class="stat-box green" style="margin-bottom:6px;"><div class="lbl">Produtos normais</div><div class="val">${normais}</div></div>
+      <div class="stat-box"><div class="lbl">Estoque baixo</div><div class="val" style="color:${baixos>0?"#dc2626":"#292524"};">${baixos}</div></div>
+    </div>
+    <div class="card">
+      <h3 style="margin-bottom:8px;">🚛 Romaneio</h3>
+      <div class="stat-box"><div class="lbl">Estocado aguardando carregamento</div><div class="val">${fmt(estoqueEmEspera,0)} kg</div></div>
+    </div>
+  </div>`;
+
+  document.getElementById("tabContent").innerHTML = html;
 }
 
 function renderIndicadores() {

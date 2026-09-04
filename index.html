@@ -215,7 +215,7 @@
     <div>
       <div class="title">Controle de Campo — Coco</div>
       <div id="statusLine" class="status offline">verificando conexão…</div>
-      <div style="font-size:9px; color:#a8a29e; margin-top:1px;">v21</div>
+      <div style="font-size:9px; color:#a8a29e; margin-top:1px;">v22</div>
     </div>
     <div class="spacer"></div>
     <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
@@ -757,6 +757,10 @@ function renderCargaCard(carga, linhasCalc, totalEstocado, totalCarregado, total
       html += `<div class="muted" style="font-size:11.5px; margin-bottom:10px;">Nenhuma foto ainda.</div>`;
     }
 
+    // Descarte dessa carga — ligado direto pelo ID da carga (não precisa mais digitar o número
+    // de romaneio de novo; é a mesma carga, então o descarte já nasce vinculado a ela).
+    html += renderDescarteDaCargaHTML(carga);
+
     html += `<div style="display:flex; justify-content:flex-end; gap:8px; margin-top:10px; flex-wrap:wrap;">`;
     html += `<button class="btn ghost" style="width:auto; color:#128C7E; border:1px solid #128C7E;" onclick="compartilharCargaWhatsapp('${carga.id}')">📲 Compartilhar</button>`;
     if (!arquivada) {
@@ -1122,16 +1126,6 @@ function renderRomaneio() {
     }
   }
 
-  // Descartes — vive aqui dentro do Romaneio porque, na prática, o descarte é lançado
-  // logo depois de fechar o romaneio, pegando os dados dele. Fica retrátil pra não poluir.
-  html += `<div class="aplic-section" style="margin-top:16px;"><div class="card" style="padding:6px 4px 4px;">
-    <button class="aplic-section-hdr" style="width:100%; background:none; border:none; cursor:pointer;" onclick="toggleDescartesSecao()">
-      <span style="flex:1; text-align:left;">🗑️ Descartes ${S.registrosDescarte.length ? `<span class="muted" style="font-weight:400; font-size:11px;">(${S.registrosDescarte.length} registro${S.registrosDescarte.length>1?"s":""})</span>` : ""}</span>
-      <span class="muted" style="font-size:13px;">${S._descartesColapsado ? "▸ abrir" : "▾ fechar"}</span>
-    </button>
-    ${!S._descartesColapsado ? `<div style="padding:4px;">${renderDescartesHTML()}</div>` : ""}
-  </div></div>`;
-
   document.getElementById("tabContent").innerHTML = html;
   setSaveStatus("romaneio", S.saveStatus.romaneio);
   setSaveStatus("descartes", S.saveStatus.descartes);
@@ -1231,34 +1225,78 @@ window.reabrirCarga = function (cargaId) {
 };
 
 /* =========================================================================
-   DESCARTES — vive dentro da aba Romaneio agora (o descarte é lançado logo
-   depois de fechar o romaneio, então faz sentido ficar junto, numa seção
-   retrátil, em vez de ser uma aba própria).
+   DESCARTES — vive dentro de cada carga agora, ligado direto pelo ID dela
+   (não precisa mais digitar o número de romaneio pra "achar" o descarte
+   certo — é a mesma carga, então nasce vinculado automaticamente).
    ========================================================================= */
-function descarteVazio() {
+function descarteDaCarga(carga) {
+  // Registros novos ficam ligados por cargaId. Registros antigos (de antes dessa mudança)
+  // só tinham o número digitado à mão — continuam aparecendo certinho pelo número batendo.
+  return S.registrosDescarte.find((r) => r.cargaId === carga.id)
+    || S.registrosDescarte.find((r) => !r.cargaId && String(r.numeroRomaneio) === String(carga.numero));
+}
+
+function descarteVazioPara(carga) {
   const cats = {};
   CATS_DESCARTES.forEach((c) => (cats[c.key] = { kg: "", unid: "" }));
-  return { id: uid(), data: todayISO(), numeroRomaneio: "", descartesUnid: "", cats };
+  return { cargaId: carga.id, numeroRomaneio: carga.numero, data: carga.data || todayISO(), descartesUnid: "", cats };
 }
-S._formDescarte = descarteVazio();
-S._descartesColapsado = true;
 
-window.toggleDescartesSecao = function () {
-  S._descartesColapsado = !S._descartesColapsado;
-  renderRomaneio();
-};
+function renderDescarteDaCargaHTML(carga) {
+  const existente = descarteDaCarga(carga);
+  let html = `<div style="font-size:11px; font-weight:700; text-transform:uppercase; color:#78716c; margin:14px 0 6px;">🗑️ Descarte desta carga</div>`;
 
-function renderDescartesHTML() {
+  if (existente) {
+    const c = calcDescarte(existente);
+    html += `<div class="card" style="padding:10px;">
+      <div class="row-flex" style="margin-bottom:8px;">
+        <span id="savingPill-descartes" class="saving-pill"></span>
+        <button class="x-btn" onclick="removeDescarte('${existente.id}')">✕ Remover</button>
+      </div>
+      <div class="tbl-wrap"><table class="tbl" style="min-width:460px;"><thead><tr>
+        <th style="text-align:left;">Categoria</th><th>Kg</th><th>Unid</th><th>% Kg</th><th>% Unid</th>
+      </tr></thead><tbody>
+        <tr>
+          <td style="text-align:left; font-weight:600;">Descartes</td>
+          <td>—</td><td>${fmt(Number(existente.descartesUnid)||0,0)}</td><td>—</td><td>${fmtPct(c.pctDescartesUnid)}</td>
+        </tr>`;
+    CATS_DESCARTES.forEach((cat) => {
+      html += `<tr>
+          <td style="text-align:left; font-weight:600;">${cat.label}</td>
+          <td>${fmt(Number(existente.cats[cat.key].kg)||0,0)}</td>
+          <td>${fmt(Number(existente.cats[cat.key].unid)||0,0)}</td>
+          <td>${fmtPct(c.pctKg[cat.key])}</td>
+          <td>${fmtPct(c.pctUnid[cat.key])}</td>
+        </tr>`;
+    });
+    html += `<tr style="font-weight:700; background:#fafaf9;">
+          <td style="text-align:left;">TOTAL</td>
+          <td>${fmt(c.totalKg,0)}</td><td>${fmt(c.totalUnid,0)}</td><td>100%</td><td>100%</td>
+        </tr>
+      </tbody></table></div>
+      <div class="grid grid-4" style="margin-top:10px;">
+        <div class="stat-box"><div class="lbl">Broto %</div><div class="val">${fmtPct(c.brotoPct)}</div></div>
+        <div class="stat-box"><div class="lbl">Perda até 350g</div><div class="val" style="color:#dc2626;">${fmtPct(c.perda350)}</div></div>
+        <div class="stat-box green"><div class="lbl">Aproveit. até 350g</div><div class="val">${fmtPct(c.aprov350)}</div></div>
+        <div class="stat-box"><div class="lbl">Perda até 400g</div><div class="val" style="color:#dc2626;">${fmtPct(c.perda400)}</div></div>
+        <div class="stat-box green" style="grid-column:span 3;"><div class="lbl">Aproveit. até 400g</div><div class="val">${fmtPct(c.aprov400)}</div></div>
+      </div>
+    </div>`;
+    return html;
+  }
+
+  // Sem registro ainda pra essa carga — mostra o formulário, já com data e carga vinculados,
+  // sem precisar digitar número nenhum.
+  if (!S._formDescarte || S._formDescarte.cargaId !== carga.id) S._formDescarte = descarteVazioPara(carga);
   const f = S._formDescarte;
-  let html = `
-  <div class="card">
+
+  html += `<div class="card" style="padding:10px;">
     <div class="row-flex" style="margin-bottom:10px;">
-      <h3>➕ Novo registro de descarte</h3>
+      <span class="muted" style="font-size:12px;">Nenhum descarte lançado pra essa carga ainda.</span>
       <span id="savingPill-descartes" class="saving-pill"></span>
     </div>
     <div class="grid grid-2" style="margin-bottom:10px;">
       <label class="field"><span>Data</span><input type="date" value="${esc(f.data)}" oninput="S._formDescarte.data=this.value"/></label>
-      <label class="field"><span>Nº romaneio</span><input type="number" value="${esc(f.numeroRomaneio)}" oninput="S._formDescarte.numeroRomaneio=this.value"/></label>
       <label class="field"><span>Descartes (unid)</span><input type="number" value="${esc(f.descartesUnid)}" oninput="S._formDescarte.descartesUnid=this.value"/></label>
     </div>
     <div class="tbl-wrap"><table class="tbl" style="min-width:400px;"><thead><tr><th style="text-align:left;">Categoria</th><th>Kg</th><th>Unidades</th></tr></thead><tbody>`;
@@ -1270,58 +1308,16 @@ function renderDescartesHTML() {
     </tr>`;
   });
   html += `</tbody></table></div>
-    <div style="margin-top:10px;"><button class="btn" onclick="addDescarte()">➕ Salvar registro</button></div>
+    <div style="margin-top:10px;"><button class="btn" onclick="addDescarte('${carga.id}')">➕ Salvar descarte desta carga</button></div>
   </div>`;
-
-  if (S.registrosDescarte.length === 0) {
-    html += `<div class="empty">Nenhum registro ainda.</div>`;
-  } else {
-    S.registrosDescarte.forEach((r) => {
-      const c = calcDescarte(r);
-      html += `<div class="card">
-        <div class="row-flex" style="margin-bottom:8px;">
-          <b>Romaneio Nº ${esc(r.numeroRomaneio)} <span class="muted" style="font-weight:400;">${brDate(r.data)}</span></b>
-          <button class="x-btn" onclick="removeDescarte('${r.id}')">✕</button>
-        </div>
-        <div class="tbl-wrap"><table class="tbl" style="min-width:460px;"><thead><tr>
-          <th style="text-align:left;">Categoria</th><th>Kg</th><th>Unid</th><th>% Kg</th><th>% Unid</th>
-        </tr></thead><tbody>
-          <tr>
-            <td style="text-align:left; font-weight:600;">Descartes</td>
-            <td>—</td><td>${fmt(Number(r.descartesUnid)||0,0)}</td><td>—</td><td>${fmtPct(c.pctDescartesUnid)}</td>
-          </tr>`;
-      CATS_DESCARTES.forEach((cat) => {
-        html += `<tr>
-            <td style="text-align:left; font-weight:600;">${cat.label}</td>
-            <td>${fmt(Number(r.cats[cat.key].kg)||0,0)}</td>
-            <td>${fmt(Number(r.cats[cat.key].unid)||0,0)}</td>
-            <td>${fmtPct(c.pctKg[cat.key])}</td>
-            <td>${fmtPct(c.pctUnid[cat.key])}</td>
-          </tr>`;
-      });
-      html += `<tr style="font-weight:700; background:#fafaf9;">
-            <td style="text-align:left;">TOTAL</td>
-            <td>${fmt(c.totalKg,0)}</td><td>${fmt(c.totalUnid,0)}</td><td>100%</td><td>100%</td>
-          </tr>
-        </tbody></table></div>
-        <div class="grid grid-4" style="margin-top:10px;">
-          <div class="stat-box"><div class="lbl">Broto %</div><div class="val">${fmtPct(c.brotoPct)}</div></div>
-          <div class="stat-box"><div class="lbl">Perda até 350g</div><div class="val" style="color:#dc2626;">${fmtPct(c.perda350)}</div></div>
-          <div class="stat-box green"><div class="lbl">Aproveit. até 350g</div><div class="val">${fmtPct(c.aprov350)}</div></div>
-          <div class="stat-box"><div class="lbl">Perda até 400g</div><div class="val" style="color:#dc2626;">${fmtPct(c.perda400)}</div></div>
-          <div class="stat-box green" style="grid-column:span 3;"><div class="lbl">Aproveit. até 400g</div><div class="val">${fmtPct(c.aprov400)}</div></div>
-        </div>
-      </div>`;
-    });
-  }
 
   return html;
 }
 
-window.addDescarte = function () {
-  if (!S._formDescarte.numeroRomaneio) return;
-  const { id, ...payload } = S._formDescarte;
-  S._formDescarte = descarteVazio();
+window.addDescarte = function (cargaId) {
+  if (!S._formDescarte || S._formDescarte.cargaId !== cargaId) return;
+  const payload = { ...S._formDescarte };
+  S._formDescarte = null;
   marcarSalvando("descartes");
   addDoc(collection(db, "descartes"), payload).then(() => { if (navigator.onLine) setSaveStatus("descartes", "saved"); }).catch((e) => tratarErroSalvamento("descartes", e));
   renderRomaneio();

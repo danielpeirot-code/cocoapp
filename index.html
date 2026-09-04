@@ -215,6 +215,7 @@
     <div>
       <div class="title">Controle de Campo — Coco</div>
       <div id="statusLine" class="status offline">verificando conexão…</div>
+      <div style="font-size:9px; color:#a8a29e; margin-top:1px;">v18</div>
     </div>
     <div class="spacer"></div>
     <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
@@ -235,6 +236,8 @@
     <button class="tab-btn" id="tabbtn-indicadores" onclick="mudarAba('indicadores')"><span class="ic">📈</span>Indicadores</button>
     <button class="tab-btn" id="tabbtn-programacao" onclick="mudarAba('programacao')"><span class="ic">🗓️</span>Programação</button>
     <button class="tab-btn" id="tabbtn-estoque" onclick="mudarAba('estoque')"><span class="ic">📦</span>Estoque</button>
+    <button class="tab-btn" id="tabbtn-setores" onclick="mudarAba('setores')"><span class="ic">🗺️</span>Setores</button>
+    <button class="tab-btn" id="tabbtn-ocorrencias" onclick="mudarAba('ocorrencias')"><span class="ic">⚠️</span>Ocorrências</button>
   </div>
 
   <div class="content">
@@ -244,6 +247,7 @@
     </div>
     <div id="tabContent"></div>
     <input type="file" id="inputFotoCarga" accept="image/*" capture="environment" multiple style="display:none" onchange="onFotosCargaSelecionadas(this)"/>
+    <input type="file" id="inputFotoOcorrencia" accept="image/*" capture="environment" style="display:none" onchange="onFotoOcorrenciaSelecionada(this)"/>
   </div>
 </div>
 
@@ -291,21 +295,32 @@ window.__state = {
   insumos: [],
   estoqueMovs: [],
   solicitacoes: [],
+  setoresInfo: {},
+  ocorrencias: [],
   currentTab: "romaneio",
   contagem: { tipo: "Híbrido", setor: "A3A4", numLinha: "", qtdPlantas: 78, valores: [] },
   _vozAtivo: false,
   _vozIndiceAtual: 0,
   _aplicColapsado: {},
+  _setoresColapsado: {},
+  _novaOcorrencia: { tipo: "Praga", setor: "", data: "", responsavel: "", descricao: "", providencia: "" },
+  _ocorrenciaFotoEnviando: null,
   _uploadCargaId: null,
   _uploadTipoFoto: "Carga geral",
   _fotosEnviando: 0,
   _fotosPendentes: [],
-  saveStatus: { romaneio: "idle", descartes: "idle", contagem: "idle", aplicacoes: "idle", programacao: "idle", estoque: "idle" },
+  saveStatus: { romaneio: "idle", descartes: "idle", contagem: "idle", aplicacoes: "idle", programacao: "idle", estoque: "idle", setores: "idle", ocorrencias: "idle" },
 };
 const S = window.__state;
 window.S = S; // necessário para os campos de formulário (oninput="S...") funcionarem
 
 const TALHOES = ["A3A4", "B3B4", "C1C2", "C3C4", "D1", "D2", "D3", "D4"];
+
+const TIPOS_OCORRENCIA = [
+  "Incêndio", "Praga", "Doença", "Falha de irrigação", "Quebra de equipamento",
+  "Falta de funcionário", "Problema de aplicação", "Problema de balança",
+  "Planta morta", "Danos climáticos", "Outros",
+];
 const BAGS = Array.from({ length: 60 }, (_, i) => i + 1); // BAG 1 até BAG 60 (fixos da fazenda)
 const TIPOS_CONTAGEM = {
   "Híbrido": { setores: ["A3A4", "B3B4", "C1C2", "C3C4"], linhasPorSetor: 40, plantasPadrao: 78 },
@@ -405,6 +420,20 @@ onAuthStateChanged(auth, (user) => {
     // A aba de Estoque mostra previsão de consumo calculada a partir das aplicações/adubações,
     // então também precisa re-renderizar quando esses dados mudam (ex: outro tablet lançou algo).
     if (S.currentTab === "aplicacoes" || S.currentTab === "estoque") renderTab();
+  }, (err) => console.error(err));
+
+  onSnapshot(collection(db, "setoresInfo"), (snap) => {
+    const obj = {};
+    snap.docs.forEach((d) => { obj[d.id] = d.data(); });
+    S.setoresInfo = obj;
+    setSaveStatus("setores", "saved");
+    if (S.currentTab === "setores") renderTab();
+  }, (err) => console.error(err));
+
+  onSnapshot(collection(db, "ocorrencias"), (snap) => {
+    S.ocorrencias = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    setSaveStatus("ocorrencias", "saved");
+    if (S.currentTab === "ocorrencias") renderTab();
   }, (err) => console.error(err));
 
   onSnapshot(collection(db, "programacao"), (snap) => {
@@ -540,7 +569,7 @@ function calcAplicacao(reg, tipo) {
    ========================================================================= */
 window.mudarAba = function (tab) {
   S.currentTab = tab;
-  ["romaneio", "descartes", "contagem", "aplicacoes", "indicadores", "programacao", "estoque"].forEach((t) => {
+  ["romaneio", "descartes", "contagem", "aplicacoes", "indicadores", "programacao", "estoque", "setores", "ocorrencias"].forEach((t) => {
     document.getElementById("tabbtn-" + t).classList.toggle("active", t === tab);
   });
   renderTab();
@@ -553,6 +582,8 @@ function renderTab() {
   else if (S.currentTab === "aplicacoes") renderAplicacoes();
   else if (S.currentTab === "indicadores") renderIndicadores();
   else if (S.currentTab === "programacao") renderProgramacao();
+  else if (S.currentTab === "setores") renderSetores();
+  else if (S.currentTab === "ocorrencias") renderOcorrencias();
   else renderEstoque();
 }
 
@@ -564,6 +595,7 @@ S._novaLinha = {};
 S._openCarga = null;
 S._verArquivadas = false;
 S._editandoLinha = null; // { cargaId, linhaId }
+S._novaOcorrencia.data = todayISO();
 S._editLinha = {};
 
 function novaLinhaVazia() {
@@ -2427,6 +2459,210 @@ window.registrarSaidaEstoque = function () {
 };
 
 /* =========================================================================
+   ABA SETORES — mapa/ficha de cada talhão
+   Ficha com os dados fixos de cada setor (área, variedade, plantas, idade,
+   irrigação). Serve de base pro Histórico por Setor mais pra frente, que vai
+   cruzar isso com aplicações, descartes e contagens já registrados em cada um.
+   ========================================================================= */
+const _setorTimers = {};
+
+function getInfoSetor(talhao) {
+  return S.setoresInfo[talhao] || { area: "", variedade: "", numPlantas: "", idade: "", irrigacao: "", localizacao: "", observacoes: "" };
+}
+
+window.toggleSetorCard = function (talhao) {
+  S._setoresColapsado[talhao] = !((talhao in S._setoresColapsado) ? S._setoresColapsado[talhao] : true);
+  renderSetores();
+};
+
+// Autosave campo a campo, sem re-renderizar a tela — igual o resto do app, pra não perder
+// o foco do campo a cada letra digitada.
+window.atualizarSetor = function (talhao, campo, valor) {
+  const atual = getInfoSetor(talhao);
+  const novo = { ...atual, [campo]: valor };
+  S.setoresInfo = { ...S.setoresInfo, [talhao]: novo };
+
+  marcarSalvando("setores");
+  clearTimeout(_setorTimers[talhao]);
+  _setorTimers[talhao] = setTimeout(() => {
+    setDoc(doc(db, "setoresInfo", talhao), novo)
+      .then(() => { if (navigator.onLine) setSaveStatus("setores", "saved"); })
+      .catch((e) => tratarErroSalvamento("setores", e));
+  }, 500);
+};
+
+function renderSetores() {
+  let html = `<div class="card" style="padding:10px 12px;">
+    <div class="row-flex">
+      <span class="muted" style="font-size:12px;">🗺️ Ficha de cada talhão — área, variedade, nº de plantas e outras informações fixas. Preenche e salva sozinho.</span>
+      <span id="savingPill-setores" class="saving-pill"></span>
+    </div>
+  </div>`;
+
+  TALHOES.forEach((talhao) => {
+    const info = getInfoSetor(talhao);
+    const colapsado = (talhao in S._setoresColapsado) ? S._setoresColapsado[talhao] : true;
+    const resumoBits = [info.area ? `${info.area} ha` : "", info.variedade || "", info.numPlantas ? `${info.numPlantas} plantas` : ""].filter(Boolean).join(" • ");
+
+    html += `<div class="aplic-section"><div class="card" style="padding:6px 4px 4px;">
+      <button class="aplic-section-hdr" style="width:100%; background:none; border:none; cursor:pointer;" onclick="toggleSetorCard('${talhao}')">
+        <span style="flex:1; text-align:left;">🌴 ${esc(talhao)} ${resumoBits ? `<span class="muted" style="font-weight:400; font-size:11px;">— ${esc(resumoBits)}</span>` : ""}</span>
+        <span class="muted" style="font-size:13px;">${colapsado ? "▸ abrir" : "▾ fechar"}</span>
+      </button>`;
+
+    if (!colapsado) {
+      html += `<div class="grid grid-4" style="padding:0 4px 10px;">
+        <label class="field"><span>Área (ha)</span><input type="number" value="${esc(info.area)}" oninput="atualizarSetor('${talhao}','area',this.value)"/></label>
+        <label class="field"><span>Variedade</span><input type="text" value="${esc(info.variedade)}" oninput="atualizarSetor('${talhao}','variedade',this.value)"/></label>
+        <label class="field"><span>Nº de plantas</span><input type="number" value="${esc(info.numPlantas)}" oninput="atualizarSetor('${talhao}','numPlantas',this.value)"/></label>
+        <label class="field"><span>Idade (anos)</span><input type="number" value="${esc(info.idade)}" oninput="atualizarSetor('${talhao}','idade',this.value)"/></label>
+        <label class="field"><span>Sistema de irrigação</span><input type="text" value="${esc(info.irrigacao)}" oninput="atualizarSetor('${talhao}','irrigacao',this.value)"/></label>
+        <label class="field" style="grid-column:span 2;"><span>Localização (opcional)</span><input type="text" placeholder="ex: coordenadas, referência" value="${esc(info.localizacao)}" oninput="atualizarSetor('${talhao}','localizacao',this.value)"/></label>
+        <label class="field" style="grid-column:span 4;"><span>Observações</span><input type="text" value="${esc(info.observacoes)}" oninput="atualizarSetor('${talhao}','observacoes',this.value)"/></label>
+      </div>`;
+    }
+    html += `</div></div>`;
+  });
+
+  document.getElementById("tabContent").innerHTML = html;
+  setSaveStatus("setores", S.saveStatus.setores);
+}
+
+/* =========================================================================
+   ABA OCORRÊNCIAS
+   Registro de incêndio, praga, doença, quebra de equipamento, etc. — com
+   foto, setor, data, responsável, descrição e providência tomada. Vai servir
+   de base pro Histórico por Setor mais pra frente.
+   ========================================================================= */
+window.criarOcorrencia = function () {
+  const oc = S._novaOcorrencia;
+  if (!oc.tipo || !oc.data) { alert("Escolhe pelo menos o tipo e a data da ocorrência."); return; }
+  marcarSalvando("ocorrencias");
+  addDoc(collection(db, "ocorrencias"), { ...oc, criadoEm: new Date().toISOString() })
+    .then(() => { if (navigator.onLine) setSaveStatus("ocorrencias", "saved"); })
+    .catch((e) => tratarErroSalvamento("ocorrencias", e));
+  S._novaOcorrencia = { tipo: "Praga", setor: "", data: todayISO(), responsavel: "", descricao: "", providencia: "" };
+  renderOcorrencias();
+};
+
+window.removerOcorrencia = function (id, fileId) {
+  if (!confirm("Excluir esta ocorrência?")) return;
+  deleteDoc(doc(db, "ocorrencias", id)).catch((e) => console.error(e));
+  if (fileId) {
+    fetch(BACKUP_SHEETS_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ action: "excluirFoto", fileId }),
+    }).catch((e) => console.warn("Não consegui apagar a foto no Drive:", e));
+  }
+};
+
+// Foto de ocorrência é mais simples que a de carga: uma só por registro, sem fila offline
+// (ocorrência não costuma ser lançada em série rápida como fotos de carregamento). Se falhar,
+// só avisa e a pessoa tenta de novo — o registro em si (texto) já está salvo de qualquer jeito.
+window.selecionarFotoOcorrencia = function (ocorrenciaId) {
+  S._ocorrenciaFotoEnviando = ocorrenciaId;
+  const input = document.getElementById("inputFotoOcorrencia");
+  if (input) input.click();
+};
+
+window.onFotoOcorrenciaSelecionada = async function (input) {
+  const ocorrenciaId = S._ocorrenciaFotoEnviando;
+  const file = (input.files || [])[0];
+  input.value = "";
+  if (!ocorrenciaId || !file) return;
+
+  marcarSalvando("ocorrencias");
+  renderOcorrencias();
+  try {
+    if (!navigator.onLine) throw new Error("sem-internet");
+    const blob = await comprimirImagem(file);
+    const base64 = await blobParaBase64(blob);
+    const nomeArquivo = `${Date.now()}.jpg`;
+
+    const res = await comTimeout(fetch(BACKUP_SHEETS_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ action: "uploadFoto", pasta: "ocorrencia_" + ocorrenciaId, base64, nomeArquivo, mimeType: "image/jpeg" }),
+    }), 30000, "envio-demorou");
+    const data = await res.json();
+    if (!data || !data.ok) throw new Error((data && data.erro) || "falha desconhecida no envio");
+
+    await updateDoc(doc(db, "ocorrencias", ocorrenciaId), { fotoUrl: data.url, fotoFileId: data.fileId });
+  } catch (e) {
+    console.error("Falha ao enviar foto da ocorrência:", e);
+    alert(!navigator.onLine
+      ? "Sem internet no momento — tenta anexar a foto de novo quando tiver sinal."
+      : "Não consegui enviar essa foto agora. Tenta de novo em instantes.");
+  } finally {
+    S._ocorrenciaFotoEnviando = null;
+    setSaveStatus("ocorrencias", "saved");
+    renderOcorrencias();
+  }
+};
+
+function renderOcorrencias() {
+  const oc = S._novaOcorrencia;
+  let html = `<div class="card">
+    <div class="row-flex" style="margin-bottom:10px;">
+      <h3>⚠️ Nova ocorrência</h3>
+      <span id="savingPill-ocorrencias" class="saving-pill"></span>
+    </div>
+    <div class="grid grid-4">
+      <label class="field"><span>Tipo</span>
+        <select onchange="S._novaOcorrencia.tipo=this.value">
+          ${TIPOS_OCORRENCIA.map((t) => `<option value="${t}" ${oc.tipo===t?"selected":""}>${t}</option>`).join("")}
+        </select>
+      </label>
+      <label class="field"><span>Setor</span>
+        <select onchange="S._novaOcorrencia.setor=this.value">
+          <option value="" ${!oc.setor?"selected":""}>Geral (não é de um setor só)</option>
+          ${TALHOES.map((t) => `<option value="${t}" ${oc.setor===t?"selected":""}>${t}</option>`).join("")}
+        </select>
+      </label>
+      <label class="field"><span>Data</span><input type="date" value="${esc(oc.data)}" oninput="S._novaOcorrencia.data=this.value"/></label>
+      <label class="field"><span>Responsável</span><input type="text" value="${esc(oc.responsavel)}" oninput="S._novaOcorrencia.responsavel=this.value"/></label>
+      <label class="field" style="grid-column:span 2;"><span>Descrição</span><input type="text" value="${esc(oc.descricao)}" oninput="S._novaOcorrencia.descricao=this.value"/></label>
+      <label class="field" style="grid-column:span 2;"><span>Providência tomada</span><input type="text" value="${esc(oc.providencia)}" oninput="S._novaOcorrencia.providencia=this.value"/></label>
+    </div>
+    <div style="margin-top:10px;"><button class="btn" style="background:#b91c1c;" onclick="criarOcorrencia()">⚠️ Registrar ocorrência</button></div>
+  </div>`;
+
+  const lista = S.ocorrencias.slice().sort((a, b) => (b.data || "").localeCompare(a.data || "") || (b.criadoEm||"").localeCompare(a.criadoEm||""));
+
+  if (lista.length === 0) {
+    html += `<div class="empty">Nenhuma ocorrência registrada ainda.</div>`;
+  }
+
+  lista.forEach((o) => {
+    const enviandoFoto = S._ocorrenciaFotoEnviando === o.id;
+    html += `<div class="card" style="margin-bottom:10px;">
+      <div class="row-flex" style="align-items:flex-start;">
+        <div>
+          <span class="status-pill vermelho">${esc(o.tipo)}</span>
+          ${o.setor ? `<span class="muted" style="margin-left:6px;">📍 ${esc(o.setor)}</span>` : ""}
+          <span class="muted" style="margin-left:6px;">${brDate(o.data)}</span>
+          ${o.responsavel ? `<div class="muted" style="margin-top:2px;">Responsável: ${esc(o.responsavel)}</div>` : ""}
+          ${o.descricao ? `<div style="margin-top:4px;">${esc(o.descricao)}</div>` : ""}
+          ${o.providencia ? `<div class="muted" style="margin-top:4px;">✅ Providência: ${esc(o.providencia)}</div>` : ""}
+        </div>
+        <button class="x-btn" onclick="removerOcorrencia('${o.id}','${esc(o.fotoFileId||"")}')">✕</button>
+      </div>
+      <div style="margin-top:8px;">
+        ${o.fotoUrl
+          ? `<div class="foto-item" style="width:100px; height:100px;"><img src="${esc(o.fotoUrl)}" loading="lazy" onclick="window.open('${esc(o.fotoUrl)}','_blank')"/></div>`
+          : enviandoFoto
+            ? `<div class="foto-item foto-uploading" style="width:100px; height:100px;">⏳<br/>enviando…</div>`
+            : `<div class="fotos-carga-btns"><button onclick="selecionarFotoOcorrencia('${o.id}')">📷 Anexar foto</button></div>`}
+      </div>
+    </div>`;
+  });
+
+  document.getElementById("tabContent").innerHTML = html;
+  setSaveStatus("ocorrencias", S.saveStatus.ocorrencias);
+}
+
+/* =========================================================================
    EXPORTAR PARA EXCEL
    ========================================================================= */
 function montarLinhasRomaneio() {
@@ -2530,6 +2766,39 @@ function montarLinhasSolicitacoes() {
   }));
 }
 
+function montarLinhasSetores() {
+  return TALHOES.map((talhao) => {
+    const info = getInfoSetor(talhao);
+    return {
+      "Talhão": talhao, "Área (ha)": info.area, "Variedade": info.variedade, "Nº de Plantas": info.numPlantas,
+      "Idade (anos)": info.idade, "Irrigação": info.irrigacao, "Localização": info.localizacao, "Observações": info.observacoes,
+    };
+  });
+}
+
+function montarLinhasFotos() {
+  return S.cargaFotos
+    .slice()
+    .sort((a, b) => (a.criadoEm || "").localeCompare(b.criadoEm || ""))
+    .map((f) => {
+      const carga = S.cargas.find((c) => c.id === f.cargaId);
+      return {
+        "Carga Nº": carga ? carga.numero : f.cargaId, "Tipo": f.tipo, "Data": (f.criadoEm || "").slice(0, 10),
+        "Link da foto": f.url,
+      };
+    });
+}
+
+function montarLinhasOcorrencias() {
+  return S.ocorrencias
+    .slice()
+    .sort((a, b) => (a.data || "").localeCompare(b.data || ""))
+    .map((o) => ({
+      "Data": o.data, "Tipo": o.tipo, "Setor": o.setor || "Geral", "Responsável": o.responsavel,
+      "Descrição": o.descricao, "Providência": o.providencia, "Link da foto": o.fotoUrl || "",
+    }));
+}
+
 function montarLinhasContagem() {
   return S.contagemLinhas.map((l) => ({
     "Tipo": l.tipo, "Setor": l.setor, "Linha": l.numero, "Nº Plantas": l.valores.length, "Total Frutas": l.total,
@@ -2564,6 +2833,9 @@ window.exportarExcel = function () {
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(montarLinhasInsumos()), "Insumos");
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(montarLinhasEstoqueMovs()), "Estoque Movimentações");
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(montarLinhasSolicitacoes()), "Solicitações");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(montarLinhasSetores()), "Setores");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(montarLinhasFotos()), "Fotos");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(montarLinhasOcorrencias()), "Ocorrências");
   XLSX.writeFile(wb, `coco_dados_${new Date().toISOString().slice(0,10)}.xlsx`);
 };
 
@@ -2586,6 +2858,9 @@ window.enviarBackupSheets = async function () {
         "Insumos": montarLinhasInsumos(),
         "Estoque Movimentações": montarLinhasEstoqueMovs(),
         "Solicitações": montarLinhasSolicitacoes(),
+        "Setores": montarLinhasSetores(),
+        "Fotos": montarLinhasFotos(),
+        "Ocorrências": montarLinhasOcorrencias(),
       },
     };
     const res = await fetch(BACKUP_SHEETS_URL, {

@@ -36,6 +36,11 @@
   .tab-btn.active { color:#065f46; border-bottom-color:#065f46; }
   .tab-btn .ic { display:block; font-size:17px; margin-bottom:2px; }
 
+  .tabs.subtabs { top:96px; background:#fafaf9; border-bottom:1px solid #e7e5e4; }
+  .tabs.subtabs .tab-btn { min-width:0; padding:6px 12px; font-size:10px; }
+  .tabs.subtabs .tab-btn .ic { font-size:13px; margin-bottom:0; display:inline; margin-right:3px; }
+  body[data-tema="escuro"] .tabs.subtabs { background:#181f1c; }
+
   .content { max-width: 720px; margin: 0 auto; padding: 12px; }
   .card { background:#fff; border:1px solid #e7e5e4; border-radius:12px; padding:14px; margin-bottom:14px; box-shadow:0 1px 2px rgba(0,0,0,.03); }
   .card h3 { margin:0 0 10px; font-size:13px; font-weight:700; color:#44403c; display:flex; align-items:center; gap:6px; }
@@ -215,7 +220,7 @@
     <div>
       <div class="title">Controle de Campo — Coco</div>
       <div id="statusLine" class="status offline">verificando conexão…</div>
-      <div style="font-size:9px; color:#a8a29e; margin-top:1px;">v24</div>
+      <div style="font-size:9px; color:#a8a29e; margin-top:1px;">v25</div>
     </div>
     <div class="spacer"></div>
     <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
@@ -228,17 +233,8 @@
     </div>
   </div>
 
-  <div class="tabs">
-    <button class="tab-btn" id="tabbtn-dashboard" onclick="mudarAba('dashboard')"><span class="ic">🏠</span>Painel</button>
-    <button class="tab-btn active" id="tabbtn-romaneio" onclick="mudarAba('romaneio')"><span class="ic">🚛</span>Romaneio</button>
-    <button class="tab-btn" id="tabbtn-contagem" onclick="mudarAba('contagem')"><span class="ic">🌱</span>Contagem</button>
-    <button class="tab-btn" id="tabbtn-aplicacoes" onclick="mudarAba('aplicacoes')"><span class="ic">🧴</span>Aplic./Adub.</button>
-    <button class="tab-btn" id="tabbtn-indicadores" onclick="mudarAba('indicadores')"><span class="ic">📈</span>Indicadores</button>
-    <button class="tab-btn" id="tabbtn-programacao" onclick="mudarAba('programacao')"><span class="ic">🗓️</span>Programação</button>
-    <button class="tab-btn" id="tabbtn-estoque" onclick="mudarAba('estoque')"><span class="ic">📦</span>Estoque</button>
-    <button class="tab-btn" id="tabbtn-setores" onclick="mudarAba('setores')"><span class="ic">🗺️</span>Setores</button>
-    <button class="tab-btn" id="tabbtn-ocorrencias" onclick="mudarAba('ocorrencias')"><span class="ic">⚠️</span>Ocorrências</button>
-  </div>
+  <div class="tabs" id="tabsCategoria"></div>
+  <div class="tabs subtabs" id="tabsSub" style="display:none;"></div>
 
   <div class="content">
     <div id="installBanner" class="install-banner">
@@ -383,6 +379,8 @@ signInAnonymously(auth).catch((e) => console.error("Erro login anônimo:", e));
 
 onAuthStateChanged(auth, (user) => {
   if (!user) return;
+
+  renderNav(); // desenha a barra de navegação (categorias + sub-abas) assim que loga
 
   // Em todo listener abaixo: quando O PRÓPRIO app faz uma gravação (ex: digitando num campo que
   // salva sozinho), o Firestore "ecoa" de volta quase na hora, com hasPendingWrites=true — antes
@@ -584,14 +582,64 @@ function calcAplicacao(reg, tipo) {
 
 /* =========================================================================
    NAVEGAÇÃO ENTRE ABAS
+   Organizada em categorias — cada categoria vira um botão na fileira de cima;
+   quando ela tem mais de uma aba dentro, aparece uma segunda fileira embaixo
+   pra escolher qual. Categorias com uma aba só (Estoque, Planejamento, etc.)
+   vão direto, sem precisar de segunda fileira.
    ========================================================================= */
+const CATEGORIAS_NAV = [
+  { id: "dashboard", label: "Painel", icon: "🏠", tabs: [{ id: "dashboard", label: "Painel", icon: "🏠" }] },
+  { id: "producao", label: "Produção", icon: "🌴", tabs: [
+    { id: "romaneio", label: "Romaneio", icon: "🚛" },
+    { id: "contagem", label: "Contagem", icon: "🌱" },
+  ] },
+  { id: "manejo", label: "Manejo", icon: "🌱", tabs: [
+    { id: "aplicacoes", label: "Aplic./Adub.", icon: "🧴" },
+    { id: "ocorrencias", label: "Ocorrências", icon: "⚠️" },
+  ] },
+  { id: "estoque", label: "Estoque", icon: "📦", tabs: [{ id: "estoque", label: "Estoque", icon: "📦" }] },
+  { id: "planejamento", label: "Planejamento", icon: "📅", tabs: [{ id: "programacao", label: "Programação", icon: "🗓️" }] },
+  { id: "fazenda", label: "Fazenda", icon: "🗺️", tabs: [{ id: "setores", label: "Setores", icon: "🗺️" }] },
+  { id: "relatorios", label: "Relatórios", icon: "📊", tabs: [{ id: "indicadores", label: "Indicadores", icon: "📈" }] },
+];
+
+function categoriaDaAba(tab) {
+  return CATEGORIAS_NAV.find((c) => c.tabs.some((t) => t.id === tab)) || CATEGORIAS_NAV[0];
+}
+
+window.mudarCategoria = function (categoriaId) {
+  const cat = CATEGORIAS_NAV.find((c) => c.id === categoriaId);
+  if (!cat) return;
+  mudarAba(cat.tabs[0].id); // entra direto na primeira aba daquela categoria
+};
+
 window.mudarAba = function (tab) {
   S.currentTab = tab;
-  ["dashboard", "romaneio", "contagem", "aplicacoes", "indicadores", "programacao", "estoque", "setores", "ocorrencias"].forEach((t) => {
-    document.getElementById("tabbtn-" + t).classList.toggle("active", t === tab);
-  });
+  renderNav();
   renderTab();
 };
+
+function renderNav() {
+  const catAtiva = categoriaDaAba(S.currentTab);
+
+  const catHtml = CATEGORIAS_NAV.map((c) => `
+    <button class="tab-btn ${c.id === catAtiva.id ? "active" : ""}" onclick="mudarCategoria('${c.id}')">
+      <span class="ic">${c.icon}</span>${c.label}
+    </button>`).join("");
+  document.getElementById("tabsCategoria").innerHTML = catHtml;
+
+  const subEl = document.getElementById("tabsSub");
+  if (catAtiva.tabs.length > 1) {
+    subEl.style.display = "flex";
+    subEl.innerHTML = catAtiva.tabs.map((t) => `
+      <button class="tab-btn ${t.id === S.currentTab ? "active" : ""}" onclick="mudarAba('${t.id}')">
+        <span class="ic">${t.icon}</span>${t.label}
+      </button>`).join("");
+  } else {
+    subEl.style.display = "none";
+    subEl.innerHTML = "";
+  }
+}
 
 function renderTab() {
   if (S.currentTab === "dashboard") renderDashboard();

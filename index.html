@@ -215,7 +215,7 @@
     <div>
       <div class="title">Controle de Campo — Coco</div>
       <div id="statusLine" class="status offline">verificando conexão…</div>
-      <div style="font-size:9px; color:#a8a29e; margin-top:1px;">v19</div>
+      <div style="font-size:9px; color:#a8a29e; margin-top:1px;">v20</div>
     </div>
     <div class="spacer"></div>
     <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
@@ -2491,6 +2491,36 @@ window.atualizarSetor = function (talhao, campo, valor) {
   }, 500);
 };
 
+// Antes o "histórico" seria uma aba própria, mas o app já tem várias abas — faz mais sentido
+// mostrar direto aqui dentro da ficha do setor, cruzando o que já existe em Contagem, Aplicações/
+// Adubações e Ocorrências (nada disso é digitado de novo, só é lido e agrupado por talhão).
+function historicoDoSetor(talhao) {
+  const contagens = S.contagemLinhas
+    .filter((l) => l.setor === talhao)
+    .sort((a, b) => (b.id || "").localeCompare(a.id || ""));
+
+  const ocorrenciasSetor = S.ocorrencias
+    .filter((o) => o.setor === talhao)
+    .sort((a, b) => (b.data || "").localeCompare(a.data || ""));
+
+  const aplicacoesSetor = [];
+  [...TIPOS_APLICACAO, ...TIPOS_ADUBACAO].forEach(({ tipo }) => {
+    const reg = S.aplicacoesDados[chaveAplic(talhao, tipo)];
+    if (reg && (reg.dataAplicada || reg.produtoInsumo)) aplicacoesSetor.push({ tipo, ...reg });
+  });
+  aplicacoesSetor.sort((a, b) => (b.dataAplicada || "").localeCompare(a.dataAplicada || ""));
+
+  const consumoPorProduto = {};
+  aplicacoesSetor.forEach((a) => {
+    const qtd = Number(a.quantidade) || 0;
+    if (a.produtoInsumo && a.dataAplicada && qtd > 0) {
+      consumoPorProduto[a.produtoInsumo] = (consumoPorProduto[a.produtoInsumo] || 0) + qtd;
+    }
+  });
+
+  return { contagens, ocorrenciasSetor, aplicacoesSetor, consumoPorProduto };
+}
+
 function renderSetores() {
   let html = `<div class="card" style="padding:10px 12px;">
     <div class="row-flex">
@@ -2520,6 +2550,56 @@ function renderSetores() {
         <label class="field" style="grid-column:span 2;"><span>Localização (opcional)</span><input type="text" placeholder="ex: coordenadas, referência" value="${esc(info.localizacao)}" oninput="atualizarSetor('${talhao}','localizacao',this.value)"/></label>
         <label class="field" style="grid-column:span 4;"><span>Observações</span><input type="text" value="${esc(info.observacoes)}" oninput="atualizarSetor('${talhao}','observacoes',this.value)"/></label>
       </div>`;
+
+      const h = historicoDoSetor(talhao);
+      html += `<div style="padding:4px 4px 12px; border-top:1px solid #f0efee; margin-top:4px;">
+        <div style="font-size:11px; font-weight:700; text-transform:uppercase; color:#78716c; margin:10px 0 6px;">📖 Histórico deste talhão</div>`;
+
+      // Aplicações e adubações — a mais recente de cada tipo já lançado nesse setor
+      if (h.aplicacoesSetor.length > 0) {
+        html += `<div class="muted" style="font-size:11px; font-weight:700; margin-bottom:3px;">💧 Aplicações / Adubações</div>
+        <div style="margin-bottom:10px;">` +
+          h.aplicacoesSetor.map((a) => {
+            const calc = calcAplicacao(a, a.tipo);
+            return `<div style="font-size:12px; padding:2px 0;">
+              <span class="status-pill ${calc.cor}" style="font-size:9.5px;">${calc.status}</span>
+              <b>${esc(a.tipo)}</b>${a.produtoInsumo ? ` — ${esc(a.produtoInsumo)}` : ""}
+              ${a.dataAplicada ? `<span class="muted">(${brDate(a.dataAplicada)})</span>` : ""}
+            </div>`;
+          }).join("") + `</div>`;
+      }
+
+      // Consumo de insumos — total já usado nesse setor, somando as aplicações lançadas
+      const produtos = Object.keys(h.consumoPorProduto);
+      if (produtos.length > 0) {
+        html += `<div class="muted" style="font-size:11px; font-weight:700; margin-bottom:3px;">📦 Consumo de produtos</div>
+        <div style="margin-bottom:10px;">` +
+          produtos.map((p) => `<div style="font-size:12px; padding:2px 0;">${esc(p)}: <b>${fmt(h.consumoPorProduto[p], 1)}</b></div>`).join("") +
+          `</div>`;
+      }
+
+      // Contagens de campo já feitas nesse setor
+      if (h.contagens.length > 0) {
+        const totalFrutas = h.contagens.reduce((s, l) => s + (Number(l.total) || 0), 0);
+        html += `<div class="muted" style="font-size:11px; font-weight:700; margin-bottom:3px;">🥥 Contagem de campo</div>
+        <div style="font-size:12px; margin-bottom:10px;">${h.contagens.length} linha${h.contagens.length>1?"s":""} contada${h.contagens.length>1?"s":""} — total de ${fmt(totalFrutas,0)} frutas registradas</div>`;
+      }
+
+      // Ocorrências já registradas nesse setor
+      if (h.ocorrenciasSetor.length > 0) {
+        html += `<div class="muted" style="font-size:11px; font-weight:700; margin-bottom:3px;">⚠️ Ocorrências</div>
+        <div style="margin-bottom:4px;">` +
+          h.ocorrenciasSetor.map((o) => `<div style="font-size:12px; padding:2px 0;">
+            <span class="status-pill vermelho" style="font-size:9.5px;">${esc(o.tipo)}</span> ${brDate(o.data)}
+            ${o.descricao ? `<span class="muted"> — ${esc(o.descricao)}</span>` : ""}
+          </div>`).join("") + `</div>`;
+      }
+
+      if (h.aplicacoesSetor.length === 0 && produtos.length === 0 && h.contagens.length === 0 && h.ocorrenciasSetor.length === 0) {
+        html += `<div class="muted" style="font-size:12px;">Nada lançado ainda pra esse setor nas outras abas.</div>`;
+      }
+
+      html += `</div>`;
     }
     html += `</div></div>`;
   });

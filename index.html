@@ -129,6 +129,7 @@
   .fotos-carga-btns button { width:auto; padding:7px 11px; font-size:12px; border-radius:8px; border:1px solid #d6d3d1; background:#f5f5f4; color:#44403c; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:5px; }
   .fotos-carga-btns button.seco { border-color:#fde68a; background:#fffbeb; color:#92400e; }
   .fotos-carga-btns button.verde { border-color:#a7f3d0; background:#ecfdf5; color:#065f46; }
+  .fotos-carga-btns button.balanca { border-color:#bfdbfe; background:#eff6ff; color:#1d4ed8; }
   .fotos-grid { display:grid; grid-template-columns: repeat(3, 1fr); gap:8px; margin-bottom:12px; }
   @media (min-width:520px) { .fotos-grid { grid-template-columns: repeat(5, 1fr); } }
   .foto-item { position:relative; aspect-ratio:1/1; border-radius:8px; overflow:hidden; background:#f0efee; border:1px solid #e7e5e4; }
@@ -136,6 +137,7 @@
   .foto-tipo-badge { position:absolute; left:3px; bottom:3px; font-size:8.5px; font-weight:700; padding:2px 5px; border-radius:99px; background:rgba(0,0,0,.55); color:#fff; white-space:nowrap; }
   .foto-tipo-badge.seco { background:rgba(180,83,9,.85); }
   .foto-tipo-badge.verde { background:rgba(6,95,70,.85); }
+  .foto-tipo-badge.balanca { background:rgba(29,78,216,.85); }
   .foto-del { position:absolute; top:2px; right:2px; background:rgba(0,0,0,.55); color:#fff; border:none; border-radius:99px; width:20px; height:20px; font-size:12px; line-height:1; cursor:pointer; }
   .foto-uploading { display:flex; align-items:center; justify-content:center; font-size:9px; color:#78716c; text-align:center; padding:4px; }
 
@@ -176,6 +178,7 @@
   body[data-tema="escuro"] .fotos-carga-btns button { background:#232b27; color:#c7ccc9; border-color:#3a453f; }
   body[data-tema="escuro"] .fotos-carga-btns button.seco { background:#3a3018; border-color:#5a4a1f; color:#fcd34d; }
   body[data-tema="escuro"] .fotos-carga-btns button.verde { background:#0f3324; border-color:#1e5a42; color:#6ee7b7; }
+  body[data-tema="escuro"] .fotos-carga-btns button.balanca { background:#1e2a4a; border-color:#2d3f6b; color:#93c5fd; }
   body[data-tema="escuro"] .foto-item { background:#1f2723; border-color:#2d3733; }
 
   /* ===================== ALTO CONTRASTE ===================== */
@@ -597,6 +600,16 @@ function renderCargaCard(carga, linhasCalc, totalEstocado, totalCarregado, total
   if (aberto) {
     html += `<div class="carga-body">`;
 
+    html += `<div style="font-size:11px; font-weight:700; text-transform:uppercase; color:#78716c; margin-bottom:6px;">🚛 Transporte</div>
+      <div class="grid grid-4" style="margin-bottom:14px;">
+        <label class="field"><span>Motorista</span><input type="text" value="${esc(carga.motorista)}" oninput="atualizarCarga('${carga.id}','motorista',this.value)"/></label>
+        <label class="field"><span>Telefone do motorista</span><input type="tel" value="${esc(carga.telefoneMotorista)}" oninput="atualizarCarga('${carga.id}','telefoneMotorista',this.value)"/></label>
+        <label class="field"><span>Placa do caminhão</span><input type="text" style="text-transform:uppercase;" value="${esc(carga.placa)}" oninput="atualizarCarga('${carga.id}','placa',this.value.toUpperCase())"/></label>
+        <label class="field"><span>Destino da carga</span><input type="text" value="${esc(carga.destino)}" oninput="atualizarCarga('${carga.id}','destino',this.value)"/></label>
+        <label class="field"><span>Horário de saída</span><input type="time" value="${esc(carga.horarioSaida)}" oninput="atualizarCarga('${carga.id}','horarioSaida',this.value)"/></label>
+        <label class="field"><span>NF / CT-e (opcional)</span><input type="text" value="${esc(carga.nfCte)}" oninput="atualizarCarga('${carga.id}','nfCte',this.value)"/></label>
+      </div>`;
+
     if (!arquivada) {
       const bagsUsados = new Set(bagsDaCarga(carga.id).map((l) => String(l.idBag)));
       html += `<div style="font-size:11px; font-weight:700; text-transform:uppercase; color:#78716c; margin-bottom:6px;">🌴 Descasca do dia — adicionar bag novo</div>
@@ -669,8 +682,9 @@ function renderCargaCard(carga, linhasCalc, totalEstocado, totalCarregado, total
       html += `</tbody></table></div>`;
     }
 
-    // Fotos do carregamento — o responsável tira na hora de carregar o caminhão, pra dar
-    // pra ver depois como saiu a carga (separado por coco seco / coco verde / geral).
+    // Fotos do carregamento — o responsável tira na hora de carregar o caminhão, pra dar pra ver
+    // depois como saiu a carga (coco seco / coco verde / geral), mais as fotos da aferição da
+    // balança no dia da pesagem.
     const fotos = fotosDaCarga(carga.id);
     const pendentes = (S._fotosPendentes || []).filter((p) => p.cargaId === carga.id);
     const enviando = S._uploadCargaId === carga.id ? S._fotosEnviando : 0;
@@ -679,12 +693,13 @@ function renderCargaCard(carga, linhasCalc, totalEstocado, totalCarregado, total
         <button onclick="selecionarFotosCarga('${carga.id}','Carga geral')">📷 Carga geral</button>
         <button class="seco" onclick="selecionarFotosCarga('${carga.id}','Coco seco')">📷 Coco seco</button>
         <button class="verde" onclick="selecionarFotosCarga('${carga.id}','Coco verde')">📷 Coco verde</button>
+        <button class="balanca" onclick="selecionarFotosCarga('${carga.id}','Aferição da balança')">⚖️ Aferição da balança</button>
       </div>`;
 
     if (fotos.length > 0 || enviando > 0 || pendentes.length > 0) {
       html += `<div class="fotos-grid">`;
       fotos.forEach((f) => {
-        const classeTipo = f.tipo === "Coco seco" ? "seco" : f.tipo === "Coco verde" ? "verde" : "";
+        const classeTipo = classeTipoFoto(f.tipo);
         html += `<div class="foto-item">
           <img src="${esc(f.url)}" loading="lazy" onclick="window.open('${esc(f.url)}','_blank')"/>
           <span class="foto-tipo-badge ${classeTipo}">${esc(f.tipo || "Geral")}</span>
@@ -697,7 +712,7 @@ function renderCargaCard(carga, linhasCalc, totalEstocado, totalCarregado, total
       // Fotos guardadas no celular esperando internet — usa a própria foto (base64) como prévia,
       // já que ainda não tem link do Drive; funciona mesmo com o app totalmente offline.
       pendentes.forEach((p) => {
-        const classeTipo = p.tipo === "Coco seco" ? "seco" : p.tipo === "Coco verde" ? "verde" : "";
+        const classeTipo = classeTipoFoto(p.tipo);
         html += `<div class="foto-item">
           <img src="data:image/jpeg;base64,${p.base64}" loading="lazy"/>
           <span class="foto-tipo-badge ${classeTipo}">⏳ ${esc(p.tipo || "Geral")}</span>
@@ -746,6 +761,12 @@ function fotosDaCarga(cargaId) {
   return S.cargaFotos
     .filter((f) => f.cargaId === cargaId)
     .sort((a, b) => (a.criadoEm || "").localeCompare(b.criadoEm || ""));
+}
+function classeTipoFoto(tipo) {
+  if (tipo === "Coco seco") return "seco";
+  if (tipo === "Coco verde") return "verde";
+  if (tipo === "Aferição da balança") return "balanca";
+  return "";
 }
 
 // Reduz a foto antes de enviar (câmeras de celular tiram fotos enormes e o sinal no
@@ -982,6 +1003,11 @@ window.compartilharCargaWhatsapp = async function (cargaId) {
 
   const texto = `🌴 *Carga Nº ${carga.numero}* — ${brDate(carga.data)}\n` +
     (carga.encarregado ? `Encarregado: ${carga.encarregado}\n` : "") +
+    (carga.motorista ? `Motorista: ${carga.motorista}${carga.telefoneMotorista ? " (" + carga.telefoneMotorista + ")" : ""}\n` : "") +
+    (carga.placa ? `Placa: ${carga.placa}\n` : "") +
+    (carga.destino ? `Destino: ${carga.destino}\n` : "") +
+    (carga.horarioSaida ? `Saída: ${carga.horarioSaida}\n` : "") +
+    (carga.nfCte ? `NF/CT-e: ${carga.nfCte}\n` : "") +
     `Bags: ${linhasCalc.length}\n` +
     `Quantidade: ${fmt(totalCoco, 0)} cocos\n` +
     `Estocado: ${fmt(totalEstocado, 0)} kg\n` +
@@ -1632,6 +1658,24 @@ function renderAplicacoes() {
 }
 
 const _aplicTimers = {};
+const _cargaTimers = {};
+
+// Autosave dos dados de transporte (motorista, placa, destino, horário) — cada campo salva
+// sozinho meio segundo depois de parar de digitar, sem re-renderizar a tela (senão perderia
+// o foco do campo a cada letra digitada).
+window.atualizarCarga = function (cargaId, campo, valor) {
+  const idx = S.cargas.findIndex((c) => c.id === cargaId);
+  if (idx >= 0) S.cargas[idx] = { ...S.cargas[idx], [campo]: valor };
+
+  marcarSalvando("romaneio");
+  const chave = cargaId + "__" + campo;
+  clearTimeout(_cargaTimers[chave]);
+  _cargaTimers[chave] = setTimeout(() => {
+    updateDoc(doc(db, "cargas", cargaId), { [campo]: valor })
+      .then(() => { if (navigator.onLine) setSaveStatus("romaneio", "saved"); })
+      .catch((e) => tratarErroSalvamento("romaneio", e));
+  }, 500);
+};
 window.atualizarAplic = function (setor, tipo, campo, valor, rowId) {
   const k = chaveAplic(setor, tipo);
   const atual = getRegistroAplic(setor, tipo);
@@ -2393,6 +2437,8 @@ function montarLinhasRomaneio() {
       rows.push({
         "Nº Carga": carga.numero, "Status": carga.status === "arquivada" ? "Arquivada" : "Em andamento",
         "Data da Carga": carga.data, "Encarregado": carga.encarregado,
+        "Motorista": carga.motorista, "Telefone Motorista": carga.telefoneMotorista, "Placa": carga.placa,
+        "Destino": carga.destino, "Horário Saída": carga.horarioSaida, "NF/CT-e": carga.nfCte,
         "Nº Bag": l.idBag, "Data Descasca": l.dataDescasca, "Talhão": l.talhao, "Coco 1ª (frutos)": l.coco1,
         "Estocado 1ª (kg)": l.estocado1, "Data Carregamento": l.dataCarregamento, "Carregado 1ª (kg)": l.carregado1,
         "Diferença (kg)": calc.diferenca, "5 cocos carregado (g)": l.cincoCocosG,

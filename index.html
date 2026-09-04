@@ -215,7 +215,7 @@
     <div>
       <div class="title">Controle de Campo — Coco</div>
       <div id="statusLine" class="status offline">verificando conexão…</div>
-      <div style="font-size:9px; color:#a8a29e; margin-top:1px;">v20</div>
+      <div style="font-size:9px; color:#a8a29e; margin-top:1px;">v21</div>
     </div>
     <div class="spacer"></div>
     <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
@@ -230,7 +230,6 @@
 
   <div class="tabs">
     <button class="tab-btn active" id="tabbtn-romaneio" onclick="mudarAba('romaneio')"><span class="ic">🚛</span>Romaneio</button>
-    <button class="tab-btn" id="tabbtn-descartes" onclick="mudarAba('descartes')"><span class="ic">🗑️</span>Descartes</button>
     <button class="tab-btn" id="tabbtn-contagem" onclick="mudarAba('contagem')"><span class="ic">🌱</span>Contagem</button>
     <button class="tab-btn" id="tabbtn-aplicacoes" onclick="mudarAba('aplicacoes')"><span class="ic">🧴</span>Aplic./Adub.</button>
     <button class="tab-btn" id="tabbtn-indicadores" onclick="mudarAba('indicadores')"><span class="ic">📈</span>Indicadores</button>
@@ -403,7 +402,7 @@ onAuthStateChanged(auth, (user) => {
   onSnapshot(collection(db, "descartes"), (snap) => {
     S.registrosDescarte = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     setSaveStatus("descartes", "saved");
-    if (S.currentTab === "descartes") renderTab();
+    if (S.currentTab === "romaneio") renderTab(); // Descartes agora vive dentro da aba Romaneio
   }, (err) => console.error(err));
 
   onSnapshot(collection(db, "contagemLinhas"), (snap) => {
@@ -569,7 +568,7 @@ function calcAplicacao(reg, tipo) {
    ========================================================================= */
 window.mudarAba = function (tab) {
   S.currentTab = tab;
-  ["romaneio", "descartes", "contagem", "aplicacoes", "indicadores", "programacao", "estoque", "setores", "ocorrencias"].forEach((t) => {
+  ["romaneio", "contagem", "aplicacoes", "indicadores", "programacao", "estoque", "setores", "ocorrencias"].forEach((t) => {
     document.getElementById("tabbtn-" + t).classList.toggle("active", t === tab);
   });
   renderTab();
@@ -577,7 +576,6 @@ window.mudarAba = function (tab) {
 
 function renderTab() {
   if (S.currentTab === "romaneio") renderRomaneio();
-  else if (S.currentTab === "descartes") renderDescartes();
   else if (S.currentTab === "contagem") renderContagem();
   else if (S.currentTab === "aplicacoes") renderAplicacoes();
   else if (S.currentTab === "indicadores") renderIndicadores();
@@ -1124,8 +1122,19 @@ function renderRomaneio() {
     }
   }
 
+  // Descartes — vive aqui dentro do Romaneio porque, na prática, o descarte é lançado
+  // logo depois de fechar o romaneio, pegando os dados dele. Fica retrátil pra não poluir.
+  html += `<div class="aplic-section" style="margin-top:16px;"><div class="card" style="padding:6px 4px 4px;">
+    <button class="aplic-section-hdr" style="width:100%; background:none; border:none; cursor:pointer;" onclick="toggleDescartesSecao()">
+      <span style="flex:1; text-align:left;">🗑️ Descartes ${S.registrosDescarte.length ? `<span class="muted" style="font-weight:400; font-size:11px;">(${S.registrosDescarte.length} registro${S.registrosDescarte.length>1?"s":""})</span>` : ""}</span>
+      <span class="muted" style="font-size:13px;">${S._descartesColapsado ? "▸ abrir" : "▾ fechar"}</span>
+    </button>
+    ${!S._descartesColapsado ? `<div style="padding:4px;">${renderDescartesHTML()}</div>` : ""}
+  </div></div>`;
+
   document.getElementById("tabContent").innerHTML = html;
   setSaveStatus("romaneio", S.saveStatus.romaneio);
+  setSaveStatus("descartes", S.saveStatus.descartes);
 }
 
 window.criarCarga = function () {
@@ -1222,7 +1231,9 @@ window.reabrirCarga = function (cargaId) {
 };
 
 /* =========================================================================
-   ABA DESCARTES
+   DESCARTES — vive dentro da aba Romaneio agora (o descarte é lançado logo
+   depois de fechar o romaneio, então faz sentido ficar junto, numa seção
+   retrátil, em vez de ser uma aba própria).
    ========================================================================= */
 function descarteVazio() {
   const cats = {};
@@ -1230,8 +1241,14 @@ function descarteVazio() {
   return { id: uid(), data: todayISO(), numeroRomaneio: "", descartesUnid: "", cats };
 }
 S._formDescarte = descarteVazio();
+S._descartesColapsado = true;
 
-function renderDescartes() {
+window.toggleDescartesSecao = function () {
+  S._descartesColapsado = !S._descartesColapsado;
+  renderRomaneio();
+};
+
+function renderDescartesHTML() {
   const f = S._formDescarte;
   let html = `
   <div class="card">
@@ -1298,8 +1315,7 @@ function renderDescartes() {
     });
   }
 
-  document.getElementById("tabContent").innerHTML = html;
-  setSaveStatus("descartes", S.saveStatus.descartes);
+  return html;
 }
 
 window.addDescarte = function () {
@@ -1308,12 +1324,12 @@ window.addDescarte = function () {
   S._formDescarte = descarteVazio();
   marcarSalvando("descartes");
   addDoc(collection(db, "descartes"), payload).then(() => { if (navigator.onLine) setSaveStatus("descartes", "saved"); }).catch((e) => tratarErroSalvamento("descartes", e));
-  renderDescartes();
+  renderRomaneio();
 };
 window.removeDescarte = function (id) {
   marcarSalvando("descartes");
   deleteDoc(doc(db, "descartes", id)).then(() => { if (navigator.onLine) setSaveStatus("descartes", "saved"); }).catch((e) => tratarErroSalvamento("descartes", e));
-  renderDescartes();
+  renderRomaneio();
 };
 
 /* =========================================================================

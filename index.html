@@ -215,7 +215,6 @@
     <div>
       <div class="title">Controle de Campo — Coco</div>
       <div id="statusLine" class="status offline">verificando conexão…</div>
-      <div style="font-size:9px; color:#a8a29e; margin-top:1px;">v18</div>
     </div>
     <div class="spacer"></div>
     <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
@@ -236,7 +235,6 @@
     <button class="tab-btn" id="tabbtn-indicadores" onclick="mudarAba('indicadores')"><span class="ic">📈</span>Indicadores</button>
     <button class="tab-btn" id="tabbtn-programacao" onclick="mudarAba('programacao')"><span class="ic">🗓️</span>Programação</button>
     <button class="tab-btn" id="tabbtn-estoque" onclick="mudarAba('estoque')"><span class="ic">📦</span>Estoque</button>
-    <button class="tab-btn" id="tabbtn-setores" onclick="mudarAba('setores')"><span class="ic">🗺️</span>Setores</button>
   </div>
 
   <div class="content">
@@ -293,18 +291,16 @@ window.__state = {
   insumos: [],
   estoqueMovs: [],
   solicitacoes: [],
-  setoresInfo: {},
   currentTab: "romaneio",
   contagem: { tipo: "Híbrido", setor: "A3A4", numLinha: "", qtdPlantas: 78, valores: [] },
   _vozAtivo: false,
   _vozIndiceAtual: 0,
   _aplicColapsado: {},
-  _setoresColapsado: {},
   _uploadCargaId: null,
   _uploadTipoFoto: "Carga geral",
   _fotosEnviando: 0,
   _fotosPendentes: [],
-  saveStatus: { romaneio: "idle", descartes: "idle", contagem: "idle", aplicacoes: "idle", programacao: "idle", estoque: "idle", setores: "idle" },
+  saveStatus: { romaneio: "idle", descartes: "idle", contagem: "idle", aplicacoes: "idle", programacao: "idle", estoque: "idle" },
 };
 const S = window.__state;
 window.S = S; // necessário para os campos de formulário (oninput="S...") funcionarem
@@ -409,14 +405,6 @@ onAuthStateChanged(auth, (user) => {
     // A aba de Estoque mostra previsão de consumo calculada a partir das aplicações/adubações,
     // então também precisa re-renderizar quando esses dados mudam (ex: outro tablet lançou algo).
     if (S.currentTab === "aplicacoes" || S.currentTab === "estoque") renderTab();
-  }, (err) => console.error(err));
-
-  onSnapshot(collection(db, "setoresInfo"), (snap) => {
-    const obj = {};
-    snap.docs.forEach((d) => { obj[d.id] = d.data(); });
-    S.setoresInfo = obj;
-    setSaveStatus("setores", "saved");
-    if (S.currentTab === "setores") renderTab();
   }, (err) => console.error(err));
 
   onSnapshot(collection(db, "programacao"), (snap) => {
@@ -552,7 +540,7 @@ function calcAplicacao(reg, tipo) {
    ========================================================================= */
 window.mudarAba = function (tab) {
   S.currentTab = tab;
-  ["romaneio", "descartes", "contagem", "aplicacoes", "indicadores", "programacao", "estoque", "setores"].forEach((t) => {
+  ["romaneio", "descartes", "contagem", "aplicacoes", "indicadores", "programacao", "estoque"].forEach((t) => {
     document.getElementById("tabbtn-" + t).classList.toggle("active", t === tab);
   });
   renderTab();
@@ -565,7 +553,6 @@ function renderTab() {
   else if (S.currentTab === "aplicacoes") renderAplicacoes();
   else if (S.currentTab === "indicadores") renderIndicadores();
   else if (S.currentTab === "programacao") renderProgramacao();
-  else if (S.currentTab === "setores") renderSetores();
   else renderEstoque();
 }
 
@@ -2440,76 +2427,6 @@ window.registrarSaidaEstoque = function () {
 };
 
 /* =========================================================================
-   ABA SETORES — mapa/ficha de cada talhão
-   Ficha com os dados fixos de cada setor (área, variedade, plantas, idade,
-   irrigação). Serve de base pro Histórico por Setor mais pra frente, que vai
-   cruzar isso com aplicações, descartes e contagens já registrados em cada um.
-   ========================================================================= */
-const _setorTimers = {};
-
-function getInfoSetor(talhao) {
-  return S.setoresInfo[talhao] || { area: "", variedade: "", numPlantas: "", idade: "", irrigacao: "", localizacao: "", observacoes: "" };
-}
-
-window.toggleSetorCard = function (talhao) {
-  S._setoresColapsado[talhao] = !((talhao in S._setoresColapsado) ? S._setoresColapsado[talhao] : true);
-  renderSetores();
-};
-
-// Autosave campo a campo, sem re-renderizar a tela — igual o resto do app, pra não perder
-// o foco do campo a cada letra digitada.
-window.atualizarSetor = function (talhao, campo, valor) {
-  const atual = getInfoSetor(talhao);
-  const novo = { ...atual, [campo]: valor };
-  S.setoresInfo = { ...S.setoresInfo, [talhao]: novo };
-
-  marcarSalvando("setores");
-  clearTimeout(_setorTimers[talhao]);
-  _setorTimers[talhao] = setTimeout(() => {
-    setDoc(doc(db, "setoresInfo", talhao), novo)
-      .then(() => { if (navigator.onLine) setSaveStatus("setores", "saved"); })
-      .catch((e) => tratarErroSalvamento("setores", e));
-  }, 500);
-};
-
-function renderSetores() {
-  let html = `<div class="card" style="padding:10px 12px;">
-    <div class="row-flex">
-      <span class="muted" style="font-size:12px;">🗺️ Ficha de cada talhão — área, variedade, nº de plantas e outras informações fixas. Preenche e salva sozinho.</span>
-      <span id="savingPill-setores" class="saving-pill"></span>
-    </div>
-  </div>`;
-
-  TALHOES.forEach((talhao) => {
-    const info = getInfoSetor(talhao);
-    const colapsado = (talhao in S._setoresColapsado) ? S._setoresColapsado[talhao] : true;
-    const resumoBits = [info.area ? `${info.area} ha` : "", info.variedade || "", info.numPlantas ? `${info.numPlantas} plantas` : ""].filter(Boolean).join(" • ");
-
-    html += `<div class="aplic-section"><div class="card" style="padding:6px 4px 4px;">
-      <button class="aplic-section-hdr" style="width:100%; background:none; border:none; cursor:pointer;" onclick="toggleSetorCard('${talhao}')">
-        <span style="flex:1; text-align:left;">🌴 ${esc(talhao)} ${resumoBits ? `<span class="muted" style="font-weight:400; font-size:11px;">— ${esc(resumoBits)}</span>` : ""}</span>
-        <span class="muted" style="font-size:13px;">${colapsado ? "▸ abrir" : "▾ fechar"}</span>
-      </button>`;
-
-    if (!colapsado) {
-      html += `<div class="grid grid-4" style="padding:0 4px 10px;">
-        <label class="field"><span>Área (ha)</span><input type="number" value="${esc(info.area)}" oninput="atualizarSetor('${talhao}','area',this.value)"/></label>
-        <label class="field"><span>Variedade</span><input type="text" value="${esc(info.variedade)}" oninput="atualizarSetor('${talhao}','variedade',this.value)"/></label>
-        <label class="field"><span>Nº de plantas</span><input type="number" value="${esc(info.numPlantas)}" oninput="atualizarSetor('${talhao}','numPlantas',this.value)"/></label>
-        <label class="field"><span>Idade (anos)</span><input type="number" value="${esc(info.idade)}" oninput="atualizarSetor('${talhao}','idade',this.value)"/></label>
-        <label class="field"><span>Sistema de irrigação</span><input type="text" value="${esc(info.irrigacao)}" oninput="atualizarSetor('${talhao}','irrigacao',this.value)"/></label>
-        <label class="field" style="grid-column:span 2;"><span>Localização (opcional)</span><input type="text" placeholder="ex: coordenadas, referência" value="${esc(info.localizacao)}" oninput="atualizarSetor('${talhao}','localizacao',this.value)"/></label>
-        <label class="field" style="grid-column:span 4;"><span>Observações</span><input type="text" value="${esc(info.observacoes)}" oninput="atualizarSetor('${talhao}','observacoes',this.value)"/></label>
-      </div>`;
-    }
-    html += `</div></div>`;
-  });
-
-  document.getElementById("tabContent").innerHTML = html;
-  setSaveStatus("setores", S.saveStatus.setores);
-}
-
-/* =========================================================================
    EXPORTAR PARA EXCEL
    ========================================================================= */
 function montarLinhasRomaneio() {
@@ -2613,16 +2530,6 @@ function montarLinhasSolicitacoes() {
   }));
 }
 
-function montarLinhasSetores() {
-  return TALHOES.map((talhao) => {
-    const info = getInfoSetor(talhao);
-    return {
-      "Talhão": talhao, "Área (ha)": info.area, "Variedade": info.variedade, "Nº de Plantas": info.numPlantas,
-      "Idade (anos)": info.idade, "Irrigação": info.irrigacao, "Localização": info.localizacao, "Observações": info.observacoes,
-    };
-  });
-}
-
 function montarLinhasContagem() {
   return S.contagemLinhas.map((l) => ({
     "Tipo": l.tipo, "Setor": l.setor, "Linha": l.numero, "Nº Plantas": l.valores.length, "Total Frutas": l.total,
@@ -2657,7 +2564,6 @@ window.exportarExcel = function () {
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(montarLinhasInsumos()), "Insumos");
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(montarLinhasEstoqueMovs()), "Estoque Movimentações");
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(montarLinhasSolicitacoes()), "Solicitações");
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(montarLinhasSetores()), "Setores");
   XLSX.writeFile(wb, `coco_dados_${new Date().toISOString().slice(0,10)}.xlsx`);
 };
 
@@ -2680,7 +2586,6 @@ window.enviarBackupSheets = async function () {
         "Insumos": montarLinhasInsumos(),
         "Estoque Movimentações": montarLinhasEstoqueMovs(),
         "Solicitações": montarLinhasSolicitacoes(),
-        "Setores": montarLinhasSetores(),
       },
     };
     const res = await fetch(BACKUP_SHEETS_URL, {

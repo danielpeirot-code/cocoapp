@@ -17,32 +17,32 @@
   html, body { margin:0; padding:0; background:#f5f5f4; font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif; color:#292524; }
   #app { min-height:100vh; padding-bottom: 40px; }
 
-  .header { background:#064e3b; color:#fff; padding:12px 16px; display:flex; align-items:center; gap:10px; position:sticky; top:0; z-index:20; }
-  .header .title { font-weight:700; font-size:15px; line-height:1.2; }
-  .header .status { font-size:11px; line-height:1.3; display:flex; align-items:center; gap:5px; margin-top:2px; }
+  .header { background:#064e3b; color:#fff; padding:8px 14px; display:flex; align-items:center; gap:8px; position:sticky; top:0; z-index:20; }
+  .header .title { font-weight:700; font-size:13.5px; line-height:1.15; }
+  .header .status { font-size:10px; line-height:1.2; display:flex; align-items:center; gap:5px; margin-top:1px; }
   .status.online { color:#a7f3d0; }
   .status.offline { color:#fcd34d; font-weight:600; }
   .header .spacer { flex:1; }
-  .btn-export { background:rgba(255,255,255,.18); color:#fff; border:none; border-radius:7px; padding:7px 10px; font-size:12px; font-weight:700; display:flex; align-items:center; gap:5px; cursor:pointer; }
+  .btn-export { background:rgba(255,255,255,.18); color:#fff; border:none; border-radius:7px; padding:6px 9px; font-size:11px; font-weight:700; display:flex; align-items:center; gap:5px; cursor:pointer; }
   .btn-export:active { background:rgba(255,255,255,.3); }
-  .backup-pill { font-size:10px; color:#d1fae5; min-height:12px; }
+  .backup-pill { font-size:9.5px; color:#d1fae5; min-height:11px; }
   .backup-pill.enviando { color:#fcd34d; }
   .backup-pill.ok { color:#a7f3d0; font-weight:700; }
   .backup-pill.erro { color:#fca5a5; font-weight:700; }
 
-  .tabs { display:flex; background:#fff; border-bottom:1px solid #e7e5e4; position:sticky; top:52px; z-index:19; overflow-x:auto; -webkit-overflow-scrolling:touch; }
+  .tabs { display:flex; background:#fff; border-bottom:1px solid #e7e5e4; position:sticky; top:44px; z-index:19; overflow-x:auto; -webkit-overflow-scrolling:touch; }
   .tabs::-webkit-scrollbar { display:none; }
-  .tab-btn { flex: 0 0 auto; min-width:78px; text-align:center; padding:8px 6px; font-size:10.5px; font-weight:700; color:#a8a29e; background:none; border:none; border-bottom:3px solid transparent; cursor:pointer; line-height:1.15; white-space:nowrap; }
+  .tab-btn { flex: 0 0 auto; min-width:68px; text-align:center; padding:6px 5px; font-size:10px; font-weight:700; color:#a8a29e; background:none; border:none; border-bottom:3px solid transparent; cursor:pointer; line-height:1.1; white-space:nowrap; }
   .tab-btn.active { color:#065f46; border-bottom-color:#065f46; }
-  .tab-btn .ic { display:block; font-size:17px; margin-bottom:2px; }
+  .tab-btn .ic { display:block; font-size:15px; margin-bottom:1px; }
 
-  .tabs.subtabs { top:96px; background:#fafaf9; border-bottom:1px solid #e7e5e4; }
-  .tabs.subtabs .tab-btn { min-width:0; padding:6px 12px; font-size:10px; }
-  .tabs.subtabs .tab-btn .ic { font-size:13px; margin-bottom:0; display:inline; margin-right:3px; }
+  .tabs.subtabs { top:82px; background:#fafaf9; border-bottom:1px solid #e7e5e4; }
+  .tabs.subtabs .tab-btn { min-width:0; padding:5px 11px; font-size:9.5px; }
+  .tabs.subtabs .tab-btn .ic { font-size:12px; margin-bottom:0; display:inline; margin-right:3px; }
   body[data-tema="escuro"] .tabs.subtabs { background:#181f1c; }
 
-  .content { max-width: 720px; margin: 0 auto; padding: 12px; }
-  .card { background:#fff; border:1px solid #e7e5e4; border-radius:12px; padding:14px; margin-bottom:14px; box-shadow:0 1px 2px rgba(0,0,0,.03); }
+  .content { max-width: 720px; margin: 0 auto; padding: 10px; }
+  .card { background:#fff; border:1px solid #e7e5e4; border-radius:11px; padding:11px; margin-bottom:10px; box-shadow:0 1px 2px rgba(0,0,0,.03); }
   .card h3 { margin:0 0 10px; font-size:13px; font-weight:700; color:#44403c; display:flex; align-items:center; gap:6px; }
   .saving-pill { font-size:11px; color:#78716c; margin-left:auto; }
   .saving-pill.offline { color:#d97706; font-weight:700; }
@@ -92,7 +92,7 @@
   .bag-pendente-btn:active { background:#fde68a; }
   .x-btn:active { color:#dc2626; }
 
-  .stat-box { background:#f5f5f4; border-radius:9px; padding:10px; text-align:center; }
+  .stat-box { background:#f5f5f4; border-radius:8px; padding:8px; text-align:center; }
   .stat-box .lbl { font-size:10px; text-transform:uppercase; color:#a8a29e; }
   .stat-box .val { font-size:17px; font-weight:700; color:#292524; }
   .stat-box.green { background:#ecfdf5; }
@@ -101,7 +101,7 @@
 
   .status-pill { display:inline-block; padding:3px 9px; border-radius:99px; font-size:11px; font-weight:700; white-space:nowrap; }
   .status-pill.verde { background:#C6EFCE; color:#065f46; }
-  .status-pill.amarelo { background:#FFEB9C; color:#7a5b00; }
+  .status-pill.amarelo { background:#FED7AA; color:#9a3412; }
   .status-pill.vermelho { background:#FFC7CE; color:#9c0006; }
   .status-pill.azul { background:#D9E1F2; color:#1e3a6e; }
   .status-pill.cinza { background:#e7e5e4; color:#57534e; }
@@ -216,11 +216,11 @@
 
 <div id="app">
   <div class="header">
-    <span style="font-size:20px;">🌴</span>
+    <span style="font-size:17px;">🌴</span>
     <div>
       <div class="title">Controle de Campo — Coco</div>
       <div id="statusLine" class="status offline">verificando conexão…</div>
-      <div style="font-size:9px; color:#a8a29e; margin-top:1px;">v25</div>
+      <div style="font-size:9px; color:#a8a29e; margin-top:1px;">v27</div>
     </div>
     <div class="spacer"></div>
     <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
@@ -293,6 +293,7 @@ window.__state = {
   solicitacoes: [],
   setoresInfo: {},
   ocorrencias: [],
+  atividadesPadrao: {},
   currentTab: "romaneio",
   contagem: { tipo: "Híbrido", setor: "A3A4", numLinha: "", qtdPlantas: 78, valores: [] },
   _vozAtivo: false,
@@ -305,7 +306,7 @@ window.__state = {
   _uploadTipoFoto: "Carga geral",
   _fotosEnviando: 0,
   _fotosPendentes: [],
-  saveStatus: { romaneio: "idle", descartes: "idle", contagem: "idle", aplicacoes: "idle", programacao: "idle", estoque: "idle", setores: "idle", ocorrencias: "idle" },
+  saveStatus: { romaneio: "idle", descartes: "idle", contagem: "idle", aplicacoes: "idle", programacao: "idle", estoque: "idle", setores: "idle", ocorrencias: "idle", rendimento: "idle" },
 };
 const S = window.__state;
 window.S = S; // necessário para os campos de formulário (oninput="S...") funcionarem
@@ -446,6 +447,15 @@ onAuthStateChanged(auth, (user) => {
     setSaveStatus("ocorrencias", "saved");
     if (snap.metadata.hasPendingWrites) return;
     if (S.currentTab === "ocorrencias" || S.currentTab === "dashboard") renderTab();
+  }, (err) => console.error(err));
+
+  onSnapshot(collection(db, "atividadesPadrao"), (snap) => {
+    const obj = {};
+    snap.docs.forEach((d) => { obj[d.id] = d.data(); });
+    S.atividadesPadrao = obj;
+    setSaveStatus("rendimento", "saved");
+    if (snap.metadata.hasPendingWrites) return;
+    if (S.currentTab === "rendimento") renderTab();
   }, (err) => console.error(err));
 
   onSnapshot(collection(db, "programacao"), (snap) => {
@@ -598,7 +608,10 @@ const CATEGORIAS_NAV = [
     { id: "ocorrencias", label: "Ocorrências", icon: "⚠️" },
   ] },
   { id: "estoque", label: "Estoque", icon: "📦", tabs: [{ id: "estoque", label: "Estoque", icon: "📦" }] },
-  { id: "planejamento", label: "Planejamento", icon: "📅", tabs: [{ id: "programacao", label: "Programação", icon: "🗓️" }] },
+  { id: "planejamento", label: "Planejamento", icon: "📅", tabs: [
+    { id: "programacao", label: "Programação", icon: "🗓️" },
+    { id: "rendimento", label: "Rendimento", icon: "📐" },
+  ] },
   { id: "fazenda", label: "Fazenda", icon: "🗺️", tabs: [{ id: "setores", label: "Setores", icon: "🗺️" }] },
   { id: "relatorios", label: "Relatórios", icon: "📊", tabs: [{ id: "indicadores", label: "Indicadores", icon: "📈" }] },
 ];
@@ -648,6 +661,7 @@ function renderTab() {
   else if (S.currentTab === "aplicacoes") renderAplicacoes();
   else if (S.currentTab === "indicadores") renderIndicadores();
   else if (S.currentTab === "programacao") renderProgramacao();
+  else if (S.currentTab === "rendimento") renderRendimento();
   else if (S.currentTab === "setores") renderSetores();
   else if (S.currentTab === "ocorrencias") renderOcorrencias();
   else renderEstoque();
@@ -1870,11 +1884,11 @@ function montarAlertas() {
     const atual = estoqueAtual(ins.nome);
     const minimo = Number(ins.estoqueMinimo) || 0;
     if (minimo > 0 && atual <= minimo) {
-      alertas.push({ cor: "vermelho", texto: `${ins.nome} abaixo do estoque mínimo (${fmt(atual,1)} ${ins.unidade})` });
+      alertas.push({ cor: "vermelho", categoria: "estoque", texto: `${ins.nome} abaixo do estoque mínimo (${fmt(atual,1)} ${ins.unidade})` });
     } else {
       const prev = previsaoConsumo(ins.nome);
       if (prev && prev.diasRestantes > 0 && prev.diasRestantes <= 14) {
-        alertas.push({ cor: "amarelo", texto: `${ins.nome}: previsão de acabar em ~${prev.diasRestantes} dia${prev.diasRestantes===1?"":"s"}` });
+        alertas.push({ cor: "amarelo", categoria: "estoque", texto: `${ins.nome}: previsão de acabar em ~${prev.diasRestantes} dia${prev.diasRestantes===1?"":"s"}` });
       }
     }
   });
@@ -1884,7 +1898,7 @@ function montarAlertas() {
     [...TIPOS_APLICACAO, ...TIPOS_ADUBACAO].forEach(({ tipo }) => {
       const reg = S.aplicacoesDados[chaveAplic(talhao, tipo)];
       const calc = calcAplicacao(reg, tipo);
-      if (calc.cor === "vermelho") alertas.push({ cor: "vermelho", texto: `${tipo} atrasada no setor ${talhao}` });
+      if (calc.cor === "vermelho") alertas.push({ cor: "vermelho", categoria: "aplicacao", texto: `${tipo} atrasada no setor ${talhao}` });
     });
   });
 
@@ -1899,17 +1913,42 @@ function montarAlertas() {
       const executado = Number(p.exec[d.key]) || 0;
       if (planejado > 0 && executado < planejado) temPendencia = true;
     });
-    if (temPendencia) alertas.push({ cor: "amarelo", texto: `Programação "${p.atividade || "atividade"}" (${p.setor}) com pendência essa semana` });
+    if (temPendencia) alertas.push({ cor: "amarelo", categoria: "programacao", texto: `Programação "${p.atividade || "atividade"}" (${p.setor}) com pendência essa semana` });
   });
 
-  // Ocorrências dos últimos 7 dias
+  // Ocorrências dos últimos 7 dias — entram como "atenção" (não necessariamente urgente),
+  // já que registrar a ocorrência não significa que ainda está sem solução.
   const seteDiasAtras = new Date(); seteDiasAtras.setDate(seteDiasAtras.getDate() - 7);
   const seteDiasISO = seteDiasAtras.toISOString().slice(0, 10);
   S.ocorrencias.filter((o) => (o.data || "") >= seteDiasISO).forEach((o) => {
-    alertas.push({ cor: "vermelho", texto: `Ocorrência: ${o.tipo}${o.setor ? " — " + o.setor : ""} (${brDate(o.data)})` });
+    alertas.push({ cor: "amarelo", categoria: "ocorrencia", texto: `Ocorrência: ${o.tipo}${o.setor ? " — " + o.setor : ""} (${brDate(o.data)})` });
   });
 
   return alertas;
+}
+
+// Traduz os alertas num resumo em linguagem natural, tipo o que um supervisor diria de cabeça
+// ao chegar de manhã — situação geral + contagem por tipo de problema.
+function montarResumoSupervisor(alertas) {
+  const criticos = alertas.filter((a) => a.cor === "vermelho").length;
+  const atencao = alertas.filter((a) => a.cor === "amarelo").length;
+  const porCategoria = {};
+  alertas.forEach((a) => { porCategoria[a.categoria] = (porCategoria[a.categoria] || 0) + 1; });
+
+  let situacao;
+  if (criticos > 0) situacao = { cor: "vermelho", label: "CRÍTICO" };
+  else if (atencao > 0) situacao = { cor: "amarelo", label: "ATENÇÃO" };
+  else situacao = { cor: "verde", label: "NORMAL" };
+
+  const linhas = [];
+  if (alertas.length > 0) linhas.push({ cor: "amarelo", texto: `${alertas.length} pendência${alertas.length>1?"s":""} identificada${alertas.length>1?"s":""}.` });
+  if (porCategoria.estoque) linhas.push({ cor: "vermelho", texto: `${porCategoria.estoque} item${porCategoria.estoque>1?"s":""} de estoque em situação crítica ou de atenção.` });
+  if (porCategoria.aplicacao) linhas.push({ cor: "vermelho", texto: `${porCategoria.aplicacao} aplicação${porCategoria.aplicacao>1?"ões":""} atrasada${porCategoria.aplicacao>1?"s":""}.` });
+  if (porCategoria.programacao) linhas.push({ cor: "amarelo", texto: `${porCategoria.programacao} atividade${porCategoria.programacao>1?"s":""} da programação com pendência essa semana.` });
+  if (porCategoria.ocorrencia) linhas.push({ cor: "amarelo", texto: `${porCategoria.ocorrencia} ocorrência${porCategoria.ocorrencia>1?"s":""} recente${porCategoria.ocorrencia>1?"s":""} registrada${porCategoria.ocorrencia>1?"s":""}.` });
+  if (alertas.length === 0) linhas.push({ cor: "verde", texto: "Nenhuma pendência identificada — tudo dentro do esperado." });
+
+  return { situacao, linhas };
 }
 
 function renderDashboard() {
@@ -1928,24 +1967,29 @@ function renderDashboard() {
   });
 
   const alertas = montarAlertas();
+  const resumo = montarResumoSupervisor(alertas);
   const alertasOrdenados = alertas.filter((a) => a.cor === "vermelho").concat(alertas.filter((a) => a.cor === "amarelo"));
 
-  let html = `<div class="card" style="padding:10px 12px;">
-    <span class="muted" style="font-size:12px;">🏠 Visão geral da fazenda — resumo de ${esc(mesLabel(mesAtual))} e o que precisa de atenção agora.</span>
-  </div>`;
+  const emojiSituacao = { vermelho: "🔴", amarelo: "🟠", verde: "🟢" }[resumo.situacao.cor];
+  let html = `<div class="card">
+    <div style="font-size:11px; font-weight:700; text-transform:uppercase; color:#78716c; margin-bottom:6px;">📋 Resumo do Supervisor</div>
+    <div style="font-weight:800; font-size:15px; margin-bottom:6px;">${emojiSituacao} Situação geral: ${resumo.situacao.label}</div>`;
+  resumo.linhas.forEach((l) => {
+    const emoji = { vermelho: "🔴", amarelo: "🟠", verde: "🟢" }[l.cor];
+    html += `<div style="font-size:12.5px; padding:2px 0;">${emoji} ${esc(l.texto)}</div>`;
+  });
+  html += `</div>`;
 
   if (alertasOrdenados.length > 0) {
     html += `<div class="card">
-      <h3 style="margin-bottom:8px;">🚨 Alertas (${alertasOrdenados.length})</h3>`;
+      <h3 style="margin-bottom:6px; font-size:13px;">Detalhe dos alertas (${alertasOrdenados.length})</h3>`;
     alertasOrdenados.forEach((a) => {
-      html += `<div style="padding:5px 0; font-size:13px; display:flex; align-items:center; gap:6px;">
-        <span class="status-pill ${a.cor}" style="font-size:9.5px;">${a.cor === "vermelho" ? "urgente" : "atenção"}</span>
+      html += `<div style="padding:4px 0; font-size:12.5px; display:flex; align-items:center; gap:6px;">
+        <span class="status-pill ${a.cor}" style="font-size:9px; padding:2px 7px;">${a.cor === "vermelho" ? "urgente" : "atenção"}</span>
         <span>${esc(a.texto)}</span>
       </div>`;
     });
     html += `</div>`;
-  } else {
-    html += `<div class="card" style="text-align:center; color:#166534; font-weight:700; padding:16px;">✅ Tudo em dia — nenhum alerta no momento.</div>`;
   }
 
   html += `<div class="grid grid-2">
@@ -2371,6 +2415,124 @@ window.duplicarProgramacao = function (id) {
   if (typeof window.scrollTo === "function") window.scrollTo(0, 0);
   renderProgramacao();
 };
+
+/* =========================================================================
+   RENDIMENTO POR ATIVIDADE
+   Cadastro do rendimento padrão de cada atividade (unidade livre — ha/dia,
+   plantas/dia, kg/dia, o que fizer sentido pra ela) e comparação com o que
+   foi realmente executado, cruzando com o que já é lançado na Programação.
+   ========================================================================= */
+S._novaAtividadePadrao = { nome: "", unidade: "", rendimentoPadrao: "" };
+S._editandoAtividadePadrao = null; // chave da atividade sendo editada, ou null = formulário novo
+
+function calcRendimentoAtividade(nomeAtividade) {
+  const nomeNormalizado = (nomeAtividade || "").trim().toLowerCase();
+  let somaExec = 0, diasComExec = 0;
+
+  S.programacao
+    .filter((p) => (p.atividade || "").trim().toLowerCase() === nomeNormalizado)
+    .forEach((p) => {
+      DIAS_SEMANA.forEach((d) => {
+        const exec = Number(p.exec[d.key]) || 0;
+        if (exec > 0) { somaExec += exec; diasComExec++; }
+      });
+    });
+
+  const mediaRealizada = diasComExec > 0 ? somaExec / diasComExec : null;
+  return { mediaRealizada, diasComExec, somaExec };
+}
+
+window.editarAtividadePadrao = function (chave) {
+  const item = S.atividadesPadrao[chave];
+  if (!item) return;
+  S._editandoAtividadePadrao = chave;
+  S._novaAtividadePadrao = { ...item };
+  renderRendimento();
+};
+
+window.cancelarEdicaoAtividadePadrao = function () {
+  S._editandoAtividadePadrao = null;
+  S._novaAtividadePadrao = { nome: "", unidade: "", rendimentoPadrao: "" };
+  renderRendimento();
+};
+
+window.salvarAtividadePadrao = function () {
+  if (!S._novaAtividadePadrao.nome) { alert("Digita o nome da atividade."); return; }
+  const chave = S._novaAtividadePadrao.nome.trim().toLowerCase();
+  marcarSalvando("rendimento");
+  setDoc(doc(db, "atividadesPadrao", chave), { ...S._novaAtividadePadrao })
+    .then(() => { if (navigator.onLine) setSaveStatus("rendimento", "saved"); })
+    .catch((e) => tratarErroSalvamento("rendimento", e));
+  S._editandoAtividadePadrao = null;
+  S._novaAtividadePadrao = { nome: "", unidade: "", rendimentoPadrao: "" };
+  renderRendimento();
+};
+
+window.removerAtividadePadrao = function (chave) {
+  if (!confirm("Excluir esse padrão de rendimento?")) return;
+  marcarSalvando("rendimento");
+  deleteDoc(doc(db, "atividadesPadrao", chave))
+    .then(() => { if (navigator.onLine) setSaveStatus("rendimento", "saved"); })
+    .catch((e) => tratarErroSalvamento("rendimento", e));
+};
+
+function renderRendimento() {
+  const f = S._novaAtividadePadrao;
+  let html = `<div class="card" style="padding:10px 12px;">
+    <div class="row-flex">
+      <span class="muted" style="font-size:12px;">📐 Cadastre o rendimento esperado de cada atividade e compare com o que já foi executado na Programação.</span>
+      <span id="savingPill-rendimento" class="saving-pill"></span>
+    </div>
+  </div>`;
+
+  html += `<div class="card">
+    <h3 style="margin-bottom:8px; font-size:13px;">${S._editandoAtividadePadrao ? "✏️ Editando padrão" : "➕ Novo padrão de atividade"}</h3>
+    <div class="grid grid-2" style="margin-bottom:10px;">
+      <label class="field" style="grid-column:span 2;"><span>Nome da atividade</span><input type="text" ${S._editandoAtividadePadrao ? "disabled" : ""} value="${esc(f.nome)}" oninput="S._novaAtividadePadrao.nome=this.value"/></label>
+      <label class="field"><span>Rendimento padrão</span><input type="number" value="${esc(f.rendimentoPadrao)}" oninput="S._novaAtividadePadrao.rendimentoPadrao=this.value"/></label>
+      <label class="field"><span>Unidade</span><input type="text" placeholder="ex: ha/dia, plantas/dia, kg/dia" value="${esc(f.unidade)}" oninput="S._novaAtividadePadrao.unidade=this.value"/></label>
+    </div>
+    <div style="display:flex; gap:8px;">
+      <button class="btn" onclick="salvarAtividadePadrao()">${S._editandoAtividadePadrao ? "💾 Salvar alteração" : "➕ Cadastrar"}</button>
+      ${S._editandoAtividadePadrao ? `<button class="btn ghost" style="width:auto;" onclick="cancelarEdicaoAtividadePadrao()">Cancelar</button>` : ""}
+    </div>
+  </div>`;
+
+  const chaves = Object.keys(S.atividadesPadrao).sort((a, b) => a.localeCompare(b, "pt-BR"));
+
+  if (chaves.length === 0) {
+    html += `<div class="empty">Nenhuma atividade cadastrada ainda.</div>`;
+  } else {
+    chaves.forEach((chave) => {
+      const item = S.atividadesPadrao[chave];
+      const padrao = Number(item.rendimentoPadrao) || 0;
+      const r = calcRendimentoAtividade(item.nome);
+      let corPct = "cinza", pctTexto = "sem execução lançada ainda";
+      if (r.mediaRealizada !== null && padrao > 0) {
+        const pct = r.mediaRealizada / padrao;
+        pctTexto = `${fmtPct(pct)} do padrão (média de ${fmt(r.mediaRealizada,1)} ${esc(item.unidade)})`;
+        corPct = pct >= 0.9 ? "verde" : pct >= 0.7 ? "amarelo" : "vermelho";
+      }
+      html += `<div class="card">
+        <div class="row-flex">
+          <div>
+            <b>${esc(item.nome)}</b>
+            <span class="muted" style="font-size:11.5px;"> — padrão: ${fmt(padrao,1)} ${esc(item.unidade)}</span>
+          </div>
+          <div style="display:flex; gap:6px;">
+            <button class="btn ghost" style="width:auto; padding:4px 8px; font-size:11px;" onclick="editarAtividadePadrao('${chave}')">✏️</button>
+            <button class="x-btn" onclick="removerAtividadePadrao('${chave}')">✕</button>
+          </div>
+        </div>
+        <div style="margin-top:6px;"><span class="status-pill ${corPct}" style="font-size:10.5px;">${pctTexto}</span></div>
+      </div>`;
+    });
+  }
+
+  document.getElementById("tabContent").innerHTML = html;
+  setSaveStatus("rendimento", S.saveStatus.rendimento);
+}
+
 let _progTimers = {};
 window.atualizarProgDia = function (id, tipo, diaKey, valor) {
   const item = S.programacao.find((p) => p.id === id);
@@ -3077,6 +3239,18 @@ function montarLinhasOcorrencias() {
     }));
 }
 
+function montarLinhasRendimento() {
+  return Object.keys(S.atividadesPadrao).sort((a, b) => a.localeCompare(b, "pt-BR")).map((chave) => {
+    const item = S.atividadesPadrao[chave];
+    const r = calcRendimentoAtividade(item.nome);
+    return {
+      "Atividade": item.nome, "Rendimento Padrão": item.rendimentoPadrao, "Unidade": item.unidade,
+      "Média Realizada": r.mediaRealizada !== null ? Number(r.mediaRealizada.toFixed(2)) : "",
+      "Dias com Execução": r.diasComExec,
+    };
+  });
+}
+
 function montarLinhasContagem() {
   return S.contagemLinhas.map((l) => ({
     "Tipo": l.tipo, "Setor": l.setor, "Linha": l.numero, "Nº Plantas": l.valores.length, "Total Frutas": l.total,
@@ -3114,6 +3288,7 @@ window.exportarExcel = function () {
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(montarLinhasSetores()), "Setores");
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(montarLinhasFotos()), "Fotos");
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(montarLinhasOcorrencias()), "Ocorrências");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(montarLinhasRendimento()), "Rendimento");
   XLSX.writeFile(wb, `coco_dados_${new Date().toISOString().slice(0,10)}.xlsx`);
 };
 
@@ -3139,6 +3314,7 @@ window.enviarBackupSheets = async function () {
         "Setores": montarLinhasSetores(),
         "Fotos": montarLinhasFotos(),
         "Ocorrências": montarLinhasOcorrencias(),
+        "Rendimento": montarLinhasRendimento(),
       },
     };
     const res = await fetch(BACKUP_SHEETS_URL, {

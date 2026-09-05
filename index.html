@@ -220,7 +220,7 @@
     <div>
       <div class="title">Controle de Campo — Coco</div>
       <div id="statusLine" class="status offline">verificando conexão…</div>
-      <div style="font-size:9px; color:#a8a29e; margin-top:1px;">v27</div>
+      <div style="font-size:9px; color:#a8a29e; margin-top:1px;">v29</div>
     </div>
     <div class="spacer"></div>
     <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
@@ -322,7 +322,10 @@ const BAGS = Array.from({ length: 60 }, (_, i) => i + 1); // BAG 1 até BAG 60 (
 const TIPOS_CONTAGEM = {
   "Híbrido": { setores: ["A3A4", "B3B4", "C1C2", "C3C4"], linhasPorSetor: 40, plantasPadrao: 78 },
   "Anão Seco": { setores: ["D1", "D2", "D3", "D4"], linhasPorSetor: 52, plantasPadrao: 45 },
-  "Anão Verde": { setores: ["D1", "D2", "D3", "D4"], linhasPorSetor: 52, plantasPadrao: 45 },
+  // "censoCompleto": no Anão Verde não se faz amostragem — todas as 52 linhas são contadas de
+  // verdade, uma por vez (uma atrás da outra). Por isso o resumo mostra soma real + progresso,
+  // em vez da média×linhas que faz sentido só quando é estimativa por amostra.
+  "Anão Verde": { setores: ["D1", "D2", "D3", "D4"], linhasPorSetor: 52, plantasPadrao: 45, censoCompleto: true },
 };
 const CATS_DESCARTES = [
   { key: "brotos", label: "Brotos" },
@@ -722,6 +725,24 @@ function renderCargaCard(carga, linhasCalc, totalEstocado, totalCarregado, total
         <label class="field"><span>NF / CT-e (opcional)</span><input type="text" value="${esc(carga.nfCte)}" oninput="atualizarCarga('${carga.id}','nfCte',this.value)"/></label>
       </div>`;
 
+    // Amostra de volume de água (coco seco) — pega alguns frutos antes de carregar e mede em
+    // ml cada um; o app calcula a média sozinho conforme você vai adicionando as leituras.
+    const amostras = carga.amostrasAgua || [];
+    const mediaAgua = amostras.length ? amostras.reduce((s, v) => s + v, 0) / amostras.length : null;
+    html += `<div style="font-size:11px; font-weight:700; text-transform:uppercase; color:#78716c; margin-bottom:6px;">💧 Amostra de água (coco seco)</div>
+      <div class="card" style="padding:10px; margin-bottom:14px;">
+        <div class="row-flex" style="margin-bottom:8px; flex-wrap:wrap; gap:8px;">
+          <div style="display:flex; gap:6px; align-items:center;">
+            <input type="number" id="amostraAguaInput-${carga.id}" placeholder="ml deste fruto" style="width:120px; padding:7px 9px; border:1px solid #d6d3d1; border-radius:8px; font-size:13px;" onkeydown="if(event.key==='Enter'){adicionarAmostraAgua('${carga.id}');}"/>
+            <button class="btn ghost" style="width:auto; padding:7px 12px;" onclick="adicionarAmostraAgua('${carga.id}')">➕ Adicionar</button>
+          </div>
+          ${mediaAgua !== null ? `<div style="font-weight:800; font-size:14px;">Média: ${fmt(mediaAgua,1)} ml <span class="muted" style="font-weight:400; font-size:11px;">(${amostras.length} amostra${amostras.length>1?"s":""})</span></div>` : `<span class="muted" style="font-size:12px;">Nenhuma amostra ainda.</span>`}
+        </div>
+        ${amostras.length > 0 ? `<div style="display:flex; flex-wrap:wrap; gap:6px;">` +
+          amostras.map((v, i) => `<span class="status-pill azul" style="display:inline-flex; align-items:center; gap:5px;">${fmt(v,0)} ml <button onclick="removerAmostraAgua('${carga.id}',${i})" style="background:none; border:none; cursor:pointer; color:#1e3a6e; font-weight:900; padding:0;">✕</button></span>`).join("") +
+          `</div>` : ""}
+      </div>`;
+
     if (!arquivada) {
       const bagsUsados = new Set(bagsDaCarga(carga.id).map((l) => String(l.idBag)));
       html += `<div style="font-size:11px; font-weight:700; text-transform:uppercase; color:#78716c; margin-bottom:6px;">🌴 Descasca do dia — adicionar bag novo</div>
@@ -1117,6 +1138,9 @@ window.compartilharCargaWhatsapp = async function (cargaId) {
   const totalCarregado = linhasCalc.reduce((s, l) => s + l.carregado1, 0);
   const totalDiferenca = totalCarregado - totalEstocado;
 
+  const amostrasAgua = carga.amostrasAgua || [];
+  const mediaAgua = amostrasAgua.length ? amostrasAgua.reduce((s, v) => s + v, 0) / amostrasAgua.length : null;
+
   const texto = `🌴 *Carga Nº ${carga.numero}* — ${brDate(carga.data)}\n` +
     (carga.encarregado ? `Encarregado: ${carga.encarregado}\n` : "") +
     (carga.motorista ? `Motorista: ${carga.motorista}${carga.telefoneMotorista ? " (" + carga.telefoneMotorista + ")" : ""}\n` : "") +
@@ -1124,6 +1148,7 @@ window.compartilharCargaWhatsapp = async function (cargaId) {
     (carga.destino ? `Destino: ${carga.destino}\n` : "") +
     (carga.horarioSaida ? `Saída: ${carga.horarioSaida}\n` : "") +
     (carga.nfCte ? `NF/CT-e: ${carga.nfCte}\n` : "") +
+    (mediaAgua !== null ? `Água (amostra): ${fmt(mediaAgua,1)} ml\n` : "") +
     `Bags: ${linhasCalc.length}\n` +
     `Quantidade: ${fmt(totalCoco, 0)} cocos\n` +
     `Estocado: ${fmt(totalEstocado, 0)} kg\n` +
@@ -1422,13 +1447,14 @@ function renderContagem() {
   const registrosSetor = linhasContagem(ctg.tipo, ctg.setor);
   const somaTotal = registrosSetor.reduce((s, l) => s + l.total, 0);
   const media = registrosSetor.length ? somaTotal / registrosSetor.length : null;
-  const estimativa = media !== null ? media * TIPOS_CONTAGEM[ctg.tipo].linhasPorSetor : null;
+  const config = TIPOS_CONTAGEM[ctg.tipo];
+  const estimativa = media !== null ? media * config.linhasPorSetor : null;
+  const linhasRestantes = Math.max(0, config.linhasPorSetor - registrosSetor.length);
   const totalLinha = ctg.valores.reduce((s, v) => s + (Number(v) || 0), 0);
 
   let gridHtml = "";
   ctg.valores.forEach((v, i) => {
-    const atual = S._vozAtivo && i === S._vozIndiceAtual;
-    gridHtml += `<div class="planta-cell${atual?' atual-voz':''}"><span class="n">${i+1}</span><input type="number" value="${esc(v)}" oninput="setValorPlanta(${i}, this.value)"/></div>`;
+    gridHtml += `<div class="planta-cell"><span class="n">${i+1}</span><input type="number" value="${esc(v)}" oninput="setValorPlanta(${i}, this.value)"/></div>`;
   });
 
   let html = `
@@ -1451,27 +1477,32 @@ function renderContagem() {
       <label class="field"><span>Nº da linha</span><input type="number" value="${esc(ctg.numLinha)}" oninput="ctgSet('numLinha', this.value)"/></label>
       <label class="field"><span>Plantas nessa linha</span><input type="number" value="${esc(ctg.qtdPlantas)}" oninput="mudarQtdPlantas(this.value)"/></label>
     </div>
-    <div class="row-flex" style="margin-bottom:6px;">
-      <div style="font-size:10px; font-weight:700; text-transform:uppercase; color:#78716c;">Quantidade de fruta por planta</div>
-      <button class="btn-voz ${S._vozAtivo?'ativo':''}" onclick="toggleContagemVoz()" id="btnVoz">
-        ${S._vozAtivo ? `🔴 Ouvindo… planta ${S._vozIndiceAtual+1} — toque pra parar` : "🎤 Contagem por voz"}
-      </button>
-    </div>
-    <div id="vozAvisoNaoSuportado" class="muted" style="display:none; font-size:11px; margin-bottom:6px;">Esse navegador não tem reconhecimento de voz. Funciona no Chrome do Android.</div>
+    <div style="font-size:10px; font-weight:700; text-transform:uppercase; color:#78716c; margin-bottom:6px;">Quantidade de fruta por planta</div>
     <div class="plantas-grid">${gridHtml}</div>
     <div class="row-flex">
       <span class="muted">Total desta linha: <b style="color:#292524;">${totalLinha}</b></span>
-      <button class="btn" style="width:auto;" onclick="salvarLinhaContagem()">💾 Salvar linha</button>
+      <button class="btn" style="width:auto;" onclick="salvarLinhaContagem()">💾 Salvar linha e ir pra próxima</button>
     </div>
   </div>
 
   <div class="card">
-    <h3>📋 Setor ${esc(ctg.setor)} — ${esc(ctg.tipo)}</h3>
-    <div class="grid" style="grid-template-columns:repeat(3,1fr); margin-bottom:14px;">
+    <h3>📋 Setor ${esc(ctg.setor)} — ${esc(ctg.tipo)}</h3>`;
+
+  if (config.censoCompleto) {
+    // Aqui não é amostra — é contagem de todas as linhas mesmo, então o que importa é o
+    // total real já somado e quantas linhas ainda faltam, não uma estimativa por média.
+    html += `<div class="grid" style="grid-template-columns:repeat(3,1fr); margin-bottom:14px;">
+      <div class="stat-box"><div class="lbl">Linhas contadas</div><div class="val">${registrosSetor.length} / ${config.linhasPorSetor}</div></div>
+      <div class="stat-box"><div class="lbl">Faltam</div><div class="val" style="color:${linhasRestantes>0?'#dc2626':'#166534'};">${linhasRestantes}</div></div>
+      <div class="stat-box green"><div class="lbl">Total contado</div><div class="val">${fmt(somaTotal,0)}</div></div>
+    </div>`;
+  } else {
+    html += `<div class="grid" style="grid-template-columns:repeat(3,1fr); margin-bottom:14px;">
       <div class="stat-box"><div class="lbl">Soma total</div><div class="val">${fmt(somaTotal,0)}</div></div>
       <div class="stat-box"><div class="lbl">Média/linha</div><div class="val">${fmt(media,1)}</div></div>
-      <div class="stat-box green"><div class="lbl">Estim. setor (${TIPOS_CONTAGEM[ctg.tipo].linhasPorSetor} linhas)</div><div class="val">${fmt(estimativa,0)}</div></div>
+      <div class="stat-box green"><div class="lbl">Estim. setor (${config.linhasPorSetor} linhas)</div><div class="val">${fmt(estimativa,0)}</div></div>
     </div>`;
+  }
 
   if (registrosSetor.length === 0) {
     html += `<div class="empty">Nenhuma linha contada ainda neste setor.</div>`;
@@ -1662,12 +1693,14 @@ function pararContagemVoz() {
 }
 
 window.salvarLinhaContagem = function () {
-  pararContagemVoz();
   const ctg = S.contagem;
   if (!ctg.numLinha) return;
   const total = ctg.valores.reduce((s, v) => s + (Number(v) || 0), 0);
   const payload = { tipo: ctg.tipo, setor: ctg.setor, numero: ctg.numLinha, valores: [...ctg.valores], total };
-  ctg.numLinha = "";
+  // Avança pra próxima linha sozinho (se o número for numérico) — quem conta linha atrás de
+  // linha (como no Anão Verde, onde precisa contar todas) não perde tempo digitando de novo.
+  const proximoNumero = Number(ctg.numLinha);
+  ctg.numLinha = Number.isFinite(proximoNumero) && ctg.numLinha !== "" ? String(proximoNumero + 1) : "";
   ctg.valores = Array.from({ length: Number(ctg.qtdPlantas) || 0 }, () => "");
   marcarSalvando("contagem");
   addDoc(collection(db, "contagemLinhas"), payload).then(() => { if (navigator.onLine) setSaveStatus("contagem", "saved"); }).catch((e) => tratarErroSalvamento("contagem", e));
@@ -1802,6 +1835,42 @@ window.atualizarCarga = function (cargaId, campo, valor) {
       .catch((e) => tratarErroSalvamento("romaneio", e));
   }, 500);
 };
+
+// Amostra de água: guarda a lista inteira de leituras (em ml) direto no documento da carga.
+// Cada "adicionar" e "remover" já salva a lista atualizada na hora, sem precisar de botão salvar.
+window.adicionarAmostraAgua = function (cargaId) {
+  const input = document.getElementById("amostraAguaInput-" + cargaId);
+  const valor = Number(input && input.value);
+  if (!valor || valor <= 0) return;
+
+  const carga = S.cargas.find((c) => c.id === cargaId);
+  if (!carga) return;
+  const novasAmostras = [...(carga.amostrasAgua || []), valor];
+  const idx = S.cargas.findIndex((c) => c.id === cargaId);
+  S.cargas[idx] = { ...carga, amostrasAgua: novasAmostras };
+  if (input) input.value = "";
+  renderRomaneio();
+
+  marcarSalvando("romaneio");
+  updateDoc(doc(db, "cargas", cargaId), { amostrasAgua: novasAmostras })
+    .then(() => { if (navigator.onLine) setSaveStatus("romaneio", "saved"); })
+    .catch((e) => tratarErroSalvamento("romaneio", e));
+};
+
+window.removerAmostraAgua = function (cargaId, index) {
+  const carga = S.cargas.find((c) => c.id === cargaId);
+  if (!carga) return;
+  const novasAmostras = (carga.amostrasAgua || []).filter((_, i) => i !== index);
+  const idx = S.cargas.findIndex((c) => c.id === cargaId);
+  S.cargas[idx] = { ...carga, amostrasAgua: novasAmostras };
+  renderRomaneio();
+
+  marcarSalvando("romaneio");
+  updateDoc(doc(db, "cargas", cargaId), { amostrasAgua: novasAmostras })
+    .then(() => { if (navigator.onLine) setSaveStatus("romaneio", "saved"); })
+    .catch((e) => tratarErroSalvamento("romaneio", e));
+};
+
 window.atualizarAplic = function (setor, tipo, campo, valor, rowId) {
   const k = chaveAplic(setor, tipo);
   const atual = getRegistroAplic(setor, tipo);
@@ -3108,6 +3177,8 @@ function renderOcorrencias() {
 function montarLinhasRomaneio() {
   const rows = [];
   S.cargas.forEach((carga) => {
+    const amostras = carga.amostrasAgua || [];
+    const mediaAgua = amostras.length ? amostras.reduce((s, v) => s + v, 0) / amostras.length : "";
     bagsDaCarga(carga.id).forEach((l) => {
       const calc = calcLinhaRomaneio(l);
       rows.push({
@@ -3115,6 +3186,7 @@ function montarLinhasRomaneio() {
         "Data da Carga": carga.data, "Encarregado": carga.encarregado,
         "Motorista": carga.motorista, "Telefone Motorista": carga.telefoneMotorista, "Placa": carga.placa,
         "Destino": carga.destino, "Horário Saída": carga.horarioSaida, "NF/CT-e": carga.nfCte,
+        "Média Água (ml)": mediaAgua !== "" ? Number(mediaAgua.toFixed(1)) : "",
         "Nº Bag": l.idBag, "Data Descasca": l.dataDescasca, "Talhão": l.talhao, "Coco 1ª (frutos)": l.coco1,
         "Estocado 1ª (kg)": l.estocado1, "Data Carregamento": l.dataCarregamento, "Carregado 1ª (kg)": l.carregado1,
         "Diferença (kg)": calc.diferenca, "5 cocos carregado (g)": l.cincoCocosG,

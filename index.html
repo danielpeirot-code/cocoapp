@@ -220,7 +220,7 @@
     <div>
       <div class="title">Controle de Campo — Coco</div>
       <div id="statusLine" class="status offline">verificando conexão…</div>
-      <div style="font-size:9px; color:#a8a29e; margin-top:1px;">v37</div>
+      <div style="font-size:9px; color:#a8a29e; margin-top:1px;">v38</div>
     </div>
     <div class="spacer"></div>
     <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
@@ -651,9 +651,9 @@ const CATEGORIAS_NAV = [
   { id: "dashboard", label: "Painel", icon: "🏠", senha: true, tabs: [{ id: "dashboard", label: "Painel", icon: "🏠" }] },
   { id: "producao", label: "Produção", icon: "🌴", tabs: [
     { id: "colheita", label: "Colheita", icon: "🌾" },
+    { id: "contagem", label: "Contagem", icon: "🌱" },
     { id: "romaneio", label: "Romaneio", icon: "🚛" },
     { id: "romaneioVerde", label: "Rom. Verde", icon: "🥥" },
-    { id: "contagem", label: "Contagem", icon: "🌱" },
   ] },
   { id: "manejo", label: "Manejo", icon: "🌱", senha: true, tabs: [
     { id: "aplicacoes", label: "Aplic./Adub.", icon: "🧴" },
@@ -2199,7 +2199,9 @@ function statusCicloLinhaComMapa(mapa, tipo, setor, numero) {
   const ultimaData = mapa.get(tipo + "__" + setor + "__" + String(numero));
   if (!ultimaData) return { disponivel: true, diasFaltam: 0, ultima: null };
   const dias = diasDesde(ultimaData);
-  const diasFaltam = Math.max(0, CICLO_COLHEITA_DIAS - dias);
+  // O próprio dia da contagem já conta como o 1º dia do descanso — por isso "-1": contando hoje,
+  // já mostra 20 dias faltando (não 21), e completa o ciclo no dia 21 depois da contagem.
+  const diasFaltam = Math.max(0, CICLO_COLHEITA_DIAS - dias - 1);
   return { disponivel: diasFaltam === 0, diasFaltam, ultima: ultimaData };
 }
 

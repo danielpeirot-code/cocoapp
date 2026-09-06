@@ -220,7 +220,7 @@
     <div>
       <div class="title">Controle de Campo — Coco</div>
       <div id="statusLine" class="status offline">verificando conexão…</div>
-      <div style="font-size:9px; color:#a8a29e; margin-top:1px;">v30</div>
+      <div style="font-size:9px; color:#a8a29e; margin-top:1px;">v31</div>
     </div>
     <div class="spacer"></div>
     <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
@@ -294,10 +294,9 @@ window.__state = {
   setoresInfo: {},
   ocorrencias: [],
   atividadesPadrao: {},
-  colheitas: [],
   metasColheita: {},
   currentTab: "romaneio",
-  contagem: { tipo: "Híbrido", setor: "A3A4", numLinha: "", qtdPlantas: 78, valores: [] },
+  contagem: { tipo: "Híbrido", setor: "A3A4", numLinha: "", qtdPlantas: 78, valores: [], numLinhaB: "", valoresB: [] },
   _vozAtivo: false,
   _vozIndiceAtual: 0,
   _aplicColapsado: {},
@@ -424,7 +423,7 @@ onAuthStateChanged(auth, (user) => {
     S.contagemLinhas = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     setSaveStatus("contagem", "saved");
     if (snap.metadata.hasPendingWrites) return;
-    if (S.currentTab === "contagem" || S.currentTab === "dashboard") renderTab();
+    if (S.currentTab === "contagem" || S.currentTab === "dashboard" || S.currentTab === "colheita") renderTab();
   }, (err) => console.error(err));
 
   onSnapshot(collection(db, "aplicacoes"), (snap) => {
@@ -461,13 +460,6 @@ onAuthStateChanged(auth, (user) => {
     setSaveStatus("rendimento", "saved");
     if (snap.metadata.hasPendingWrites) return;
     if (S.currentTab === "rendimento") renderTab();
-  }, (err) => console.error(err));
-
-  onSnapshot(collection(db, "colheitas"), (snap) => {
-    S.colheitas = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-    setSaveStatus("colheita", "saved");
-    if (snap.metadata.hasPendingWrites) return;
-    if (S.currentTab === "colheita") renderTab();
   }, (err) => console.error(err));
 
   onSnapshot(collection(db, "metasColheita"), (snap) => {
@@ -1470,6 +1462,7 @@ function renderContagem() {
   const estimativa = media !== null ? media * config.linhasPorSetor : null;
   const linhasRestantes = Math.max(0, config.linhasPorSetor - registrosSetor.length);
   const totalLinha = ctg.valores.reduce((s, v) => s + (Number(v) || 0), 0);
+  const modoDuasLinhas = !!config.censoCompleto; // Anão Verde: conta linha A inteira, depois linha B, salva as duas juntas
 
   let gridHtml = "";
   ctg.valores.forEach((v, i) => {
@@ -1479,7 +1472,7 @@ function renderContagem() {
   let html = `
   <div class="card">
     <div class="row-flex" style="margin-bottom:10px;">
-      <h3>🌱 Contar linha</h3>
+      <h3>🌱 Contar linha${modoDuasLinhas ? "s (duas por vez)" : ""}</h3>
       <span id="savingPill-contagem" class="saving-pill"></span>
     </div>
     <div class="grid grid-4" style="margin-bottom:12px;">
@@ -1493,15 +1486,37 @@ function renderContagem() {
           ${TIPOS_CONTAGEM[ctg.tipo].setores.map(s=>`<option value="${s}" ${ctg.setor===s?"selected":""}>${s}</option>`).join("")}
         </select>
       </label>
-      <label class="field"><span>Nº da linha</span><input type="number" value="${esc(ctg.numLinha)}" oninput="ctgSet('numLinha', this.value)"/></label>
+      <label class="field"><span>Nº da linha${modoDuasLinhas ? " A" : ""}</span><input type="number" value="${esc(ctg.numLinha)}" oninput="ctgSet('numLinha', this.value)"/></label>
       <label class="field"><span>Plantas nessa linha</span><input type="number" value="${esc(ctg.qtdPlantas)}" oninput="mudarQtdPlantas(this.value)"/></label>
     </div>
-    <div style="font-size:10px; font-weight:700; text-transform:uppercase; color:#78716c; margin-bottom:6px;">Quantidade de fruta por planta</div>
-    <div class="plantas-grid">${gridHtml}</div>
+    <div style="font-size:10px; font-weight:700; text-transform:uppercase; color:#78716c; margin-bottom:6px;">${modoDuasLinhas ? "Linha A — " : ""}Quantidade de fruta por planta</div>
+    <div class="plantas-grid">${gridHtml}</div>`;
+
+  if (modoDuasLinhas) {
+    let gridHtmlB = "";
+    (ctg.valoresB || []).forEach((v, i) => {
+      gridHtmlB += `<div class="planta-cell"><span class="n">${i+1}</span><input type="number" value="${esc(v)}" oninput="setValorPlantaB(${i}, this.value)"/></div>`;
+    });
+    const totalLinhaB = (ctg.valoresB || []).reduce((s, v) => s + (Number(v) || 0), 0);
+    html += `
+    <div class="grid grid-4" style="margin:14px 0 12px; padding-top:10px; border-top:1px dashed #e7e5e4;">
+      <label class="field"><span>Nº da linha B</span><input type="number" value="${esc(ctg.numLinhaB)}" oninput="ctgSet('numLinhaB', this.value)"/></label>
+    </div>
+    <div style="font-size:10px; font-weight:700; text-transform:uppercase; color:#78716c; margin-bottom:6px;">Linha B — Quantidade de fruta por planta</div>
+    <div class="plantas-grid">${gridHtmlB}</div>
+    <div class="row-flex" style="margin-top:8px;">
+      <span class="muted">Total A: <b style="color:#292524;">${totalLinha}</b> &nbsp;+&nbsp; Total B: <b style="color:#292524;">${totalLinhaB}</b></span>
+      <button class="btn" style="width:auto;" onclick="salvarDuasLinhasContagem()">💾 Salvar as duas linhas e ir pras próximas</button>
+    </div>`;
+  } else {
+    html += `
     <div class="row-flex">
       <span class="muted">Total desta linha: <b style="color:#292524;">${totalLinha}</b></span>
       <button class="btn" style="width:auto;" onclick="salvarLinhaContagem()">💾 Salvar linha e ir pra próxima</button>
-    </div>
+    </div>`;
+  }
+
+  html += `
   </div>
 
   <div class="card">
@@ -1550,15 +1565,19 @@ window.mudarTipoContagem = function (tipo) {
   S.contagem.setor = TIPOS_CONTAGEM[tipo].setores[0];
   S.contagem.qtdPlantas = TIPOS_CONTAGEM[tipo].plantasPadrao;
   S.contagem.valores = Array.from({ length: S.contagem.qtdPlantas }, () => "");
+  S.contagem.numLinhaB = "";
+  S.contagem.valoresB = Array.from({ length: S.contagem.qtdPlantas }, () => "");
   renderContagem();
 };
 window.mudarQtdPlantas = function (val) {
   pararContagemVoz();
   S.contagem.qtdPlantas = val;
   S.contagem.valores = Array.from({ length: Number(val) || 0 }, () => "");
+  S.contagem.valoresB = Array.from({ length: Number(val) || 0 }, () => "");
   renderContagem();
 };
 window.setValorPlanta = function (i, val) { S.contagem.valores[i] = val; };
+window.setValorPlantaB = function (i, val) { S.contagem.valoresB[i] = val; };
 
 /* =========================================================================
    CONTAGEM POR VOZ
@@ -1715,7 +1734,7 @@ window.salvarLinhaContagem = function () {
   const ctg = S.contagem;
   if (!ctg.numLinha) return;
   const total = ctg.valores.reduce((s, v) => s + (Number(v) || 0), 0);
-  const payload = { tipo: ctg.tipo, setor: ctg.setor, numero: ctg.numLinha, valores: [...ctg.valores], total };
+  const payload = { tipo: ctg.tipo, setor: ctg.setor, numero: ctg.numLinha, valores: [...ctg.valores], total, data: todayISO() };
   // Avança pra próxima linha sozinho (se o número for numérico) — quem conta linha atrás de
   // linha (como no Anão Verde, onde precisa contar todas) não perde tempo digitando de novo.
   const proximoNumero = Number(ctg.numLinha);
@@ -1725,6 +1744,33 @@ window.salvarLinhaContagem = function () {
   addDoc(collection(db, "contagemLinhas"), payload).then(() => { if (navigator.onLine) setSaveStatus("contagem", "saved"); }).catch((e) => tratarErroSalvamento("contagem", e));
   renderContagem();
 };
+
+// Anão Verde é contado linha por linha, mas em dupla — a pessoa faz a linha A inteira, depois
+// a linha B inteira, e salva as duas juntas de uma vez (sem precisar apertar salvar duas vezes).
+window.salvarDuasLinhasContagem = function () {
+  const ctg = S.contagem;
+  if (!ctg.numLinha || !ctg.numLinhaB) { alert("Preenche o número das duas linhas."); return; }
+
+  const totalA = ctg.valores.reduce((s, v) => s + (Number(v) || 0), 0);
+  const totalB = ctg.valoresB.reduce((s, v) => s + (Number(v) || 0), 0);
+  const hoje = todayISO();
+  const payloadA = { tipo: ctg.tipo, setor: ctg.setor, numero: ctg.numLinha, valores: [...ctg.valores], total: totalA, data: hoje };
+  const payloadB = { tipo: ctg.tipo, setor: ctg.setor, numero: ctg.numLinhaB, valores: [...ctg.valoresB], total: totalB, data: hoje };
+
+  const proxA = Number(ctg.numLinha), proxB = Number(ctg.numLinhaB);
+  ctg.numLinha = Number.isFinite(proxA) ? String(proxA + 2) : "";
+  ctg.numLinhaB = Number.isFinite(proxB) ? String(proxB + 2) : "";
+  ctg.valores = Array.from({ length: Number(ctg.qtdPlantas) || 0 }, () => "");
+  ctg.valoresB = Array.from({ length: Number(ctg.qtdPlantas) || 0 }, () => "");
+
+  marcarSalvando("contagem");
+  Promise.all([
+    addDoc(collection(db, "contagemLinhas"), payloadA),
+    addDoc(collection(db, "contagemLinhas"), payloadB),
+  ]).then(() => { if (navigator.onLine) setSaveStatus("contagem", "saved"); }).catch((e) => tratarErroSalvamento("contagem", e));
+  renderContagem();
+};
+
 window.removerLinhaContagem = function (id) {
   marcarSalvando("contagem");
   deleteDoc(doc(db, "contagemLinhas", id)).then(() => { if (navigator.onLine) setSaveStatus("contagem", "saved"); }).catch((e) => tratarErroSalvamento("contagem", e));
@@ -1733,17 +1779,17 @@ window.removerLinhaContagem = function (id) {
 
 /* =========================================================================
    ABA COLHEITA
-   Diferente da Contagem (que estima por amostra antes de colher), aqui é o
-   registro REAL de colheita: quanto foi colhido de cada linha, no dia, com
-   meta diária e o ciclo de 21 dias de descanso por linha (o mesmo cacho não
-   volta a ser colhido antes disso).
+   Isso aqui é só uma tela de consulta — nada é lançado aqui. Os números reais
+   (o que foi contado/colhido de cada linha) continuam sendo lançados na
+   Contagem; a Colheita só lê esses registros e organiza pra responder
+   "qual setor e qual linha eu entro colher hoje", cruzando com o ciclo de
+   21 dias de descanso por linha (o mesmo cacho não volta antes disso).
    ========================================================================= */
 const CICLO_COLHEITA_DIAS = 21;
 const CACHO_REFERENCIA = { "Anão Verde": 18, "Híbrido": 25, "Anão Seco": 25 }; // só um lembrete na tela, não afeta cálculo nenhum
 
 S._colheitaTipo = "Anão Verde";
 S._colheitaSetor = TIPOS_CONTAGEM["Anão Verde"].setores[0];
-S._novaColheita = { linha: "", quantidade: "" };
 
 function chaveMetaColheita(data, tipo) { return data + "__" + tipo; }
 
@@ -1753,48 +1799,26 @@ function diasDesde(dataISO) {
   return Math.round((hoje - d) / 86400000);
 }
 
-function colheitasDoDia(tipo, data) {
-  return S.colheitas.filter((c) => c.tipo === tipo && c.data === data);
+// Toda linha contada na aba Contagem, pra esse tipo+setor+data de hoje, conta como "colhida hoje".
+function contagensDoDia(tipo, setor, data) {
+  return S.contagemLinhas.filter((l) => l.tipo === tipo && l.setor === setor && l.data === data);
 }
 
-function ultimaColheitaLinha(tipo, setor, linha) {
-  const registros = S.colheitas.filter((c) => c.tipo === tipo && c.setor === setor && String(c.linha) === String(linha));
+// Última vez (mais recente) que essa linha foi contada — usado pra saber há quantos dias ela
+// "descansa" e quando completa o ciclo de novo.
+function ultimaContagemLinha(tipo, setor, numero) {
+  const registros = S.contagemLinhas.filter((l) => l.tipo === tipo && l.setor === setor && String(l.numero) === String(numero));
   if (registros.length === 0) return null;
   return registros.reduce((a, b) => ((a.data || "") >= (b.data || "") ? a : b));
 }
 
-function statusCicloLinha(tipo, setor, linha) {
-  const ultima = ultimaColheitaLinha(tipo, setor, linha);
-  if (!ultima) return { disponivel: true, diasFaltam: 0, ultima: null };
+function statusCicloLinha(tipo, setor, numero) {
+  const ultima = ultimaContagemLinha(tipo, setor, numero);
+  if (!ultima || !ultima.data) return { disponivel: true, diasFaltam: 0, ultima: null };
   const dias = diasDesde(ultima.data);
   const diasFaltam = Math.max(0, CICLO_COLHEITA_DIAS - dias);
   return { disponivel: diasFaltam === 0, diasFaltam, ultima: ultima.data };
 }
-
-window.registrarColheita = function () {
-  const tipo = S._colheitaTipo, setor = S._colheitaSetor;
-  const nova = S._novaColheita;
-  if (!nova.linha || !nova.quantidade) { alert("Preenche a linha e a quantidade colhida."); return; }
-
-  const status = statusCicloLinha(tipo, setor, nova.linha);
-  if (!status.disponivel) {
-    if (!confirm(`Essa linha ainda está no período de descanso (faltam ${status.diasFaltam} dia${status.diasFaltam>1?"s":""} pros ${CICLO_COLHEITA_DIAS} dias do ciclo). Registrar mesmo assim?`)) return;
-  }
-
-  marcarSalvando("colheita");
-  addDoc(collection(db, "colheitas"), {
-    tipo, setor, linha: nova.linha, quantidade: Number(nova.quantidade) || 0, data: todayISO(),
-  }).then(() => { if (navigator.onLine) setSaveStatus("colheita", "saved"); }).catch((e) => tratarErroSalvamento("colheita", e));
-
-  S._novaColheita = { linha: String((Number(nova.linha) || 0) + 1), quantidade: "" }; // avança a linha sozinho, igual na Contagem
-  renderColheita();
-};
-
-window.removerColheita = function (id) {
-  marcarSalvando("colheita");
-  deleteDoc(doc(db, "colheitas", id)).then(() => { if (navigator.onLine) setSaveStatus("colheita", "saved"); }).catch((e) => tratarErroSalvamento("colheita", e));
-  renderColheita();
-};
 
 window.definirMetaColheita = function (valor) {
   const chave = chaveMetaColheita(todayISO(), S._colheitaTipo);
@@ -1811,19 +1835,24 @@ function renderColheita() {
   const config = TIPOS_CONTAGEM[tipo];
   const hoje = todayISO();
 
-  const registrosHoje = colheitasDoDia(tipo, hoje);
-  const totalHoje = registrosHoje.reduce((s, c) => s + (Number(c.quantidade) || 0), 0);
+  const contadasHoje = contagensDoDia(tipo, setor, hoje);
+  const totalHoje = contadasHoje.reduce((s, l) => s + (Number(l.total) || 0), 0);
   const metaChave = chaveMetaColheita(hoje, tipo);
   const meta = Number((S.metasColheita[metaChave] || {}).meta) || 0;
   const faltam = Math.max(0, meta - totalHoje);
-  const mediaPorLinhaHoje = registrosHoje.length ? totalHoje / registrosHoje.length : null;
+  const mediaPorLinhaHoje = contadasHoje.length ? totalHoje / contadasHoje.length : null;
   const linhasRestantesEstimadas = (faltam > 0 && mediaPorLinhaHoje) ? Math.ceil(faltam / mediaPorLinhaHoje) : null;
 
+  // Quais setores desse tipo já têm linha disponível hoje — pra responder "em qual setor eu entro"
+  const setoresComDisponivel = config.setores.filter((s) => {
+    for (let linha = 1; linha <= config.linhasPorSetor; linha++) {
+      if (statusCicloLinha(tipo, s, linha).disponivel) return true;
+    }
+    return false;
+  });
+
   let html = `<div class="card" style="padding:10px 12px;">
-    <div class="row-flex">
-      <span class="muted" style="font-size:12px;">🌾 Registro real de colheita — cada linha só volta a ser colhida depois de ${CICLO_COLHEITA_DIAS} dias.</span>
-      <span id="savingPill-colheita" class="saving-pill"></span>
-    </div>
+    <span class="muted" style="font-size:12px;">🌾 Só consulta — os números de verdade continuam sendo lançados na aba Contagem. Aqui é só pra ver onde entrar colher hoje.</span>
   </div>`;
 
   html += `<div class="card">
@@ -1839,27 +1868,23 @@ function renderColheita() {
         </select>
       </label>
     </div>
-    <div class="muted" style="font-size:11.5px; margin-bottom:10px;">📍 Referência: colher o cacho nº ${CACHO_REFERENCIA[tipo] || "—"} para ${esc(tipo)}.</div>
-
-    <div style="font-size:11px; font-weight:700; text-transform:uppercase; color:#78716c; margin-bottom:6px;">Meta de hoje (${brDate(hoje)})</div>
-    <div class="grid grid-2" style="margin-bottom:10px;">
-      <label class="field"><span>Meta de frutos hoje</span><input type="number" value="${meta || ""}" placeholder="ex: 5000" oninput="definirMetaColheita(this.value)"/></label>
-      <div class="stat-box"><div class="lbl">Colhido hoje</div><div class="val">${fmt(totalHoje,0)}</div></div>
-    </div>
-    ${meta > 0 ? `<div class="grid grid-2" style="margin-bottom:10px;">
-      <div class="stat-box ${faltam===0?'green':''}"><div class="lbl">Faltam</div><div class="val">${fmt(faltam,0)}</div></div>
-      <div class="stat-box"><div class="lbl">Linhas estimadas restantes</div><div class="val">${linhasRestantesEstimadas ?? "—"}</div></div>
-    </div>` : ""}
-
-    <div style="font-size:11px; font-weight:700; text-transform:uppercase; color:#78716c; margin:10px 0 6px;">Registrar colheita de uma linha</div>
-    <div class="grid grid-2" style="margin-bottom:10px;">
-      <label class="field"><span>Nº da linha</span><input type="number" value="${esc(S._novaColheita.linha)}" oninput="S._novaColheita.linha=this.value"/></label>
-      <label class="field"><span>Quantidade colhida</span><input type="number" value="${esc(S._novaColheita.quantidade)}" oninput="S._novaColheita.quantidade=this.value"/></label>
-    </div>
-    <button class="btn" onclick="registrarColheita()">🌾 Registrar e ir pra próxima linha</button>
+    <div class="muted" style="font-size:11.5px; margin-bottom:6px;">📍 Referência: colher o cacho nº ${CACHO_REFERENCIA[tipo] || "—"} para ${esc(tipo)}.</div>
+    <div style="font-size:12.5px;">👉 Setores com linha disponível hoje: ${setoresComDisponivel.length > 0 ? setoresComDisponivel.map(s => `<span class="status-pill verde" style="margin-right:4px;">${esc(s)}</span>`).join("") : `<span class="status-pill amarelo">nenhum — todos descansando</span>`}</div>
   </div>`;
 
-  // Situação do ciclo de cada linha desse setor — disponível pra colher ou ainda descansando
+  html += `<div class="card">
+    <div style="font-size:11px; font-weight:700; text-transform:uppercase; color:#78716c; margin-bottom:6px;">Meta de hoje (${brDate(hoje)}) — ${esc(tipo)}</div>
+    <div class="grid grid-2" style="margin-bottom:10px;">
+      <label class="field"><span>Meta de frutos hoje</span><input type="number" value="${meta || ""}" placeholder="ex: 5000" oninput="definirMetaColheita(this.value)"/></label>
+      <div class="stat-box"><div class="lbl">Contado hoje (todos os setores)</div><div class="val">${fmt(S.contagemLinhas.filter(l=>l.tipo===tipo && l.data===hoje).reduce((s,l)=>s+(Number(l.total)||0),0),0)}</div></div>
+    </div>
+    ${meta > 0 ? `<div class="grid grid-2">
+      <div class="stat-box ${faltam===0?'green':''}"><div class="lbl">Faltam</div><div class="val">${fmt(faltam,0)}</div></div>
+      <div class="stat-box"><div class="lbl">Linhas estimadas restantes (${esc(setor)})</div><div class="val">${linhasRestantesEstimadas ?? "—"}</div></div>
+    </div>` : ""}
+  </div>`;
+
+  // Situação do ciclo de cada linha desse setor — disponível pra entrar colher ou ainda descansando
   html += `<div class="card">
     <h3 style="margin-bottom:8px; font-size:13px;">📅 Ciclo das linhas — ${esc(setor)}</h3>
     <div class="muted" style="font-size:11px; margin-bottom:8px;">🟢 disponível — 🟠 ainda descansando (dias que faltam pro ciclo de ${CICLO_COLHEITA_DIAS} dias completar)</div>
@@ -1868,26 +1893,23 @@ function renderColheita() {
     const st = statusCicloLinha(tipo, setor, linha);
     const cor = st.disponivel ? "#C6EFCE" : "#FED7AA";
     const corTexto = st.disponivel ? "#065f46" : "#9a3412";
-    html += `<div title="${st.ultima ? "Última colheita: " + brDate(st.ultima) : "Nunca colhida"}" style="background:${cor}; color:${corTexto}; border-radius:6px; padding:4px 6px; font-size:10.5px; font-weight:700; min-width:30px; text-align:center;">
+    html += `<div title="${st.ultima ? "Última contagem: " + brDate(st.ultima) : "Nunca contada"}" style="background:${cor}; color:${corTexto}; border-radius:6px; padding:4px 6px; font-size:10.5px; font-weight:700; min-width:30px; text-align:center;">
       ${linha}${!st.disponivel ? `<div style="font-size:8.5px; font-weight:600;">${st.diasFaltam}d</div>` : ""}
     </div>`;
   }
   html += `</div></div>`;
 
-  if (registrosHoje.length > 0) {
+  if (contadasHoje.length > 0) {
     html += `<div class="card">
-      <h3 style="margin-bottom:8px; font-size:13px;">Colhido hoje — ${esc(setor)}</h3>`;
-    registrosHoje.filter((c) => c.setor === setor).forEach((c) => {
-      html += `<div class="row-flex" style="padding:4px 0; font-size:12.5px;">
-        <span>Linha ${esc(c.linha)}: <b>${fmt(c.quantidade,0)}</b> frutos</span>
-        <button class="x-btn" onclick="removerColheita('${c.id}')">✕</button>
-      </div>`;
+      <h3 style="margin-bottom:8px; font-size:13px;">Contado hoje — ${esc(setor)}</h3>
+      <div class="muted" style="font-size:11px; margin-bottom:6px;">Pra corrigir ou excluir algum, faz isso direto na aba Contagem.</div>`;
+    contadasHoje.forEach((l) => {
+      html += `<div style="padding:4px 0; font-size:12.5px;">Linha ${esc(l.numero)}: <b>${fmt(l.total,0)}</b> frutos</div>`;
     });
     html += `</div>`;
   }
 
   document.getElementById("tabContent").innerHTML = html;
-  setSaveStatus("colheita", S.saveStatus.colheita);
 }
 
 /* =========================================================================
@@ -3502,12 +3524,20 @@ function montarLinhasRendimento() {
 }
 
 function montarLinhasColheita() {
-  return S.colheitas
-    .slice()
-    .sort((a, b) => (a.data || "").localeCompare(b.data || ""))
-    .map((c) => ({
-      "Data": c.data, "Tipo": c.tipo, "Setor": c.setor, "Linha": c.linha, "Quantidade Colhida": c.quantidade,
-    }));
+  const rows = [];
+  Object.keys(TIPOS_CONTAGEM).forEach((tipo) => {
+    const config = TIPOS_CONTAGEM[tipo];
+    config.setores.forEach((setor) => {
+      for (let linha = 1; linha <= config.linhasPorSetor; linha++) {
+        const st = statusCicloLinha(tipo, setor, linha);
+        rows.push({
+          "Tipo": tipo, "Setor": setor, "Linha": linha,
+          "Última Contagem": st.ultima || "", "Situação": st.disponivel ? "Disponível" : `Descansando (${st.diasFaltam}d)`,
+        });
+      }
+    });
+  });
+  return rows;
 }
 
 function montarLinhasContagem() {

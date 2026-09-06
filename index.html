@@ -220,7 +220,7 @@
     <div>
       <div class="title">Controle de Campo — Coco</div>
       <div id="statusLine" class="status offline">verificando conexão…</div>
-      <div style="font-size:9px; color:#a8a29e; margin-top:1px;">v36</div>
+      <div style="font-size:9px; color:#a8a29e; margin-top:1px;">v37</div>
     </div>
     <div class="spacer"></div>
     <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
@@ -296,6 +296,7 @@ window.__state = {
   atividadesPadrao: {},
   metasColheita: {},
   cargasVerde: [],
+  configSeguranca: {},
   currentTab: "romaneio",
   contagem: { tipo: "Híbrido", setor: "A3A4", numLinha: "", qtdPlantas: 78, valores: [], numLinhaB: "", valoresB: [] },
   _vozAtivo: false,
@@ -470,6 +471,10 @@ onAuthStateChanged(auth, (user) => {
     if (S.currentTab === "rendimento") renderTab();
   }, (err) => console.error(err));
 
+  onSnapshot(doc(db, "configuracoes", "seguranca"), (d) => {
+    S.configSeguranca = d.exists() ? d.data() : {};
+  }, (err) => console.error(err));
+
   onSnapshot(collection(db, "metasColheita"), (snap) => {
     const obj = {};
     snap.docs.forEach((d) => { obj[d.id] = d.data(); });
@@ -617,25 +622,50 @@ function calcAplicacao(reg, tipo) {
    pra escolher qual. Categorias com uma aba só (Estoque, Planejamento, etc.)
    vão direto, sem precisar de segunda fileira.
    ========================================================================= */
+// Senha do supervisor — protege categorias sensíveis e as ações de excluir, pra evitar
+// clique/exclusão por engano. Fica guardada no Firestore (não é segurança de verdade contra
+// alguém que abra o código do site, é só uma trava contra acidente do dia a dia).
+const SENHA_PADRAO = "2778";
+function senhaAtual() { return (S.configSeguranca && S.configSeguranca.senha) || SENHA_PADRAO; }
+
+function pedirSenha(aoConfirmar) {
+  const digitada = prompt("Essa área é protegida — digite a senha do supervisor:");
+  if (digitada === null) return; // cancelou, não faz nada
+  if (digitada === senhaAtual()) {
+    aoConfirmar();
+  } else {
+    alert("Senha incorreta.");
+  }
+}
+
+window.trocarSenhaSupervisor = function () {
+  const input = document.getElementById("novaSenhaInput");
+  const nova = input ? input.value.trim() : "";
+  if (!nova) { alert("Digita a nova senha primeiro."); return; }
+  setDoc(doc(db, "configuracoes", "seguranca"), { senha: nova })
+    .then(() => { alert("Senha atualizada!"); if (input) input.value = ""; })
+    .catch((e) => { console.error(e); alert("Não consegui salvar a senha nova. Tenta de novo."); });
+};
+
 const CATEGORIAS_NAV = [
-  { id: "dashboard", label: "Painel", icon: "🏠", tabs: [{ id: "dashboard", label: "Painel", icon: "🏠" }] },
+  { id: "dashboard", label: "Painel", icon: "🏠", senha: true, tabs: [{ id: "dashboard", label: "Painel", icon: "🏠" }] },
   { id: "producao", label: "Produção", icon: "🌴", tabs: [
     { id: "colheita", label: "Colheita", icon: "🌾" },
     { id: "romaneio", label: "Romaneio", icon: "🚛" },
     { id: "romaneioVerde", label: "Rom. Verde", icon: "🥥" },
     { id: "contagem", label: "Contagem", icon: "🌱" },
   ] },
-  { id: "manejo", label: "Manejo", icon: "🌱", tabs: [
+  { id: "manejo", label: "Manejo", icon: "🌱", senha: true, tabs: [
     { id: "aplicacoes", label: "Aplic./Adub.", icon: "🧴" },
     { id: "ocorrencias", label: "Ocorrências", icon: "⚠️" },
   ] },
-  { id: "estoque", label: "Estoque", icon: "📦", tabs: [{ id: "estoque", label: "Estoque", icon: "📦" }] },
+  { id: "estoque", label: "Estoque", icon: "📦", senha: true, tabs: [{ id: "estoque", label: "Estoque", icon: "📦" }] },
   { id: "planejamento", label: "Planejamento", icon: "📅", tabs: [
     { id: "programacao", label: "Programação", icon: "🗓️" },
     { id: "rendimento", label: "Rendimento", icon: "📐" },
   ] },
-  { id: "fazenda", label: "Fazenda", icon: "🗺️", tabs: [{ id: "setores", label: "Setores", icon: "🗺️" }] },
-  { id: "relatorios", label: "Relatórios", icon: "📊", tabs: [{ id: "indicadores", label: "Indicadores", icon: "📈" }] },
+  { id: "fazenda", label: "Fazenda", icon: "🗺️", senha: true, tabs: [{ id: "setores", label: "Setores", icon: "🗺️" }] },
+  { id: "relatorios", label: "Relatórios", icon: "📊", senha: true, tabs: [{ id: "indicadores", label: "Indicadores", icon: "📈" }] },
 ];
 
 function categoriaDaAba(tab) {
@@ -648,7 +678,22 @@ window.mudarCategoria = function (categoriaId) {
   mudarAba(cat.tabs[0].id); // entra direto na primeira aba daquela categoria
 };
 
+// Categorias que já pediram senha uma vez nessa sessão não pedem de novo — fica desbloqueada
+// até a página ser fechada/recarregada. Isso evita ficar digitando senha toda vez que troca de
+// sub-aba dentro da mesma categoria protegida (ex: Aplic./Adub. <-> Ocorrências, dentro de Manejo).
+S._categoriasDesbloqueadas = new Set();
+
 window.mudarAba = function (tab) {
+  const cat = categoriaDaAba(tab);
+  if (cat.senha && !S._categoriasDesbloqueadas.has(cat.id)) {
+    pedirSenha(() => {
+      S._categoriasDesbloqueadas.add(cat.id);
+      S.currentTab = tab;
+      renderNav();
+      renderTab();
+    });
+    return;
+  }
   S.currentTab = tab;
   renderNav();
   renderTab();
@@ -1123,21 +1168,23 @@ window.onFotosCargaSelecionadas = async function (input) {
 };
 
 window.removerFotoPendenteUI = async function (id) {
-  if (!confirm("Remover esta foto da fila? Ela não será enviada.")) return;
-  await removerFotoPendente(id);
-  await atualizarListaPendentesEmMemoria();
+  pedirSenha(async () => {
+    await removerFotoPendente(id);
+    await atualizarListaPendentesEmMemoria();
+  });
 };
 
 window.removerFotoCarga = function (fotoId, fileId) {
-  if (!confirm("Excluir esta foto?")) return;
-  deleteDoc(doc(db, "cargaFotos", fotoId)).catch((e) => tratarErroSalvamento("romaneio", e));
-  if (fileId) {
-    fetch(BACKUP_SHEETS_URL, {
-      method: "POST",
-      headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify({ action: "excluirFoto", fileId }),
-    }).catch((e) => console.warn("Não consegui apagar o arquivo no Drive (pode ter que remover na mão):", e));
-  }
+  pedirSenha(() => {
+    deleteDoc(doc(db, "cargaFotos", fotoId)).catch((e) => tratarErroSalvamento("romaneio", e));
+    if (fileId) {
+      fetch(BACKUP_SHEETS_URL, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify({ action: "excluirFoto", fileId }),
+      }).catch((e) => console.warn("Não consegui apagar o arquivo no Drive (pode ter que remover na mão):", e));
+    }
+  });
 };
 
 // Manda os totais da carga (e as fotos, quando o celular permite) direto pro compartilhamento
@@ -1328,10 +1375,12 @@ window.addLinha = function (cargaId) {
   renderRomaneio();
 };
 window.removeLinha = function (cargaId, linhaId) {
-  if (S._editandoLinha && S._editandoLinha.linhaId === linhaId) S._editandoLinha = null;
-  marcarSalvando("romaneio");
-  deleteDoc(doc(db, "bags", linhaId)).then(() => { if (navigator.onLine) setSaveStatus("romaneio", "saved"); }).catch((e) => tratarErroSalvamento("romaneio", e));
-  renderRomaneio();
+  pedirSenha(() => {
+    if (S._editandoLinha && S._editandoLinha.linhaId === linhaId) S._editandoLinha = null;
+    marcarSalvando("romaneio");
+    deleteDoc(doc(db, "bags", linhaId)).then(() => { if (navigator.onLine) setSaveStatus("romaneio", "saved"); }).catch((e) => tratarErroSalvamento("romaneio", e));
+    renderRomaneio();
+  });
 };
 window.abrirEdicaoLinha = function (cargaId, linhaId) {
   const linha = S.bags.find((l) => l.id === linhaId);
@@ -1359,23 +1408,25 @@ window.salvarEdicaoLinha = function () {
   renderRomaneio();
 };
 window.removeCarga = function (cargaId) {
-  S._openCarga = null;
-  marcarSalvando("romaneio");
-  const bagsDessaCarga = bagsDaCarga(cargaId);
-  const fotosDessaCarga = fotosDaCarga(cargaId);
-  Promise.all([
-    deleteDoc(doc(db, "cargas", cargaId)),
-    ...bagsDessaCarga.map((b) => deleteDoc(doc(db, "bags", b.id))),
-    ...fotosDessaCarga.map((f) => deleteDoc(doc(db, "cargaFotos", f.id))),
-    ...fotosDessaCarga.map((f) => f.fileId
-      ? fetch(BACKUP_SHEETS_URL, {
-          method: "POST",
-          headers: { "Content-Type": "text/plain;charset=utf-8" },
-          body: JSON.stringify({ action: "excluirFoto", fileId: f.fileId }),
-        }).catch((e) => console.warn("Não consegui apagar uma foto no Drive (pode ter que remover na mão):", e))
-      : Promise.resolve()),
-  ]).then(() => { if (navigator.onLine) setSaveStatus("romaneio", "saved"); }).catch((e) => tratarErroSalvamento("romaneio", e));
-  renderRomaneio();
+  pedirSenha(() => {
+    S._openCarga = null;
+    marcarSalvando("romaneio");
+    const bagsDessaCarga = bagsDaCarga(cargaId);
+    const fotosDessaCarga = fotosDaCarga(cargaId);
+    Promise.all([
+      deleteDoc(doc(db, "cargas", cargaId)),
+      ...bagsDessaCarga.map((b) => deleteDoc(doc(db, "bags", b.id))),
+      ...fotosDessaCarga.map((f) => deleteDoc(doc(db, "cargaFotos", f.id))),
+      ...fotosDessaCarga.map((f) => f.fileId
+        ? fetch(BACKUP_SHEETS_URL, {
+            method: "POST",
+            headers: { "Content-Type": "text/plain;charset=utf-8" },
+            body: JSON.stringify({ action: "excluirFoto", fileId: f.fileId }),
+          }).catch((e) => console.warn("Não consegui apagar uma foto no Drive (pode ter que remover na mão):", e))
+        : Promise.resolve()),
+    ]).then(() => { if (navigator.onLine) setSaveStatus("romaneio", "saved"); }).catch((e) => tratarErroSalvamento("romaneio", e));
+    renderRomaneio();
+  });
 };
 window.arquivarCarga = function (cargaId) {
   S._openCarga = null;
@@ -1453,17 +1504,19 @@ window.adicionarAmostraAguaVerde = function (cargaId) {
 };
 
 window.removerAmostraAguaVerde = function (cargaId, index) {
-  const carga = S.cargasVerde.find((c) => c.id === cargaId);
-  if (!carga) return;
-  const novasAmostras = (carga.amostrasAgua || []).filter((_, i) => i !== index);
-  const idx = S.cargasVerde.findIndex((c) => c.id === cargaId);
-  S.cargasVerde[idx] = { ...carga, amostrasAgua: novasAmostras };
-  renderRomaneioVerde();
+  pedirSenha(() => {
+    const carga = S.cargasVerde.find((c) => c.id === cargaId);
+    if (!carga) return;
+    const novasAmostras = (carga.amostrasAgua || []).filter((_, i) => i !== index);
+    const idx = S.cargasVerde.findIndex((c) => c.id === cargaId);
+    S.cargasVerde[idx] = { ...carga, amostrasAgua: novasAmostras };
+    renderRomaneioVerde();
 
-  marcarSalvando("romaneioVerde");
-  updateDoc(doc(db, "cargasVerde", cargaId), { amostrasAgua: novasAmostras })
-    .then(() => { if (navigator.onLine) setSaveStatus("romaneioVerde", "saved"); })
-    .catch((e) => tratarErroSalvamento("romaneioVerde", e));
+    marcarSalvando("romaneioVerde");
+    updateDoc(doc(db, "cargasVerde", cargaId), { amostrasAgua: novasAmostras })
+      .then(() => { if (navigator.onLine) setSaveStatus("romaneioVerde", "saved"); })
+      .catch((e) => tratarErroSalvamento("romaneioVerde", e));
+  });
 };
 
 window.arquivarCargaVerde = function (cargaId) {
@@ -1478,21 +1531,23 @@ window.reabrirCargaVerde = function (cargaId) {
   renderRomaneioVerde();
 };
 window.removeCargaVerde = function (cargaId) {
-  S._openCargaVerde = null;
-  marcarSalvando("romaneioVerde");
-  const fotosDessaCarga = fotosDaCarga(cargaId);
-  Promise.all([
-    deleteDoc(doc(db, "cargasVerde", cargaId)),
-    ...fotosDessaCarga.map((f) => deleteDoc(doc(db, "cargaFotos", f.id))),
-    ...fotosDessaCarga.map((f) => f.fileId
-      ? fetch(BACKUP_SHEETS_URL, {
-          method: "POST",
-          headers: { "Content-Type": "text/plain;charset=utf-8" },
-          body: JSON.stringify({ action: "excluirFoto", fileId: f.fileId }),
-        }).catch((e) => console.warn("Não consegui apagar uma foto no Drive (pode ter que remover na mão):", e))
-      : Promise.resolve()),
-  ]).then(() => { if (navigator.onLine) setSaveStatus("romaneioVerde", "saved"); }).catch((e) => tratarErroSalvamento("romaneioVerde", e));
-  renderRomaneioVerde();
+  pedirSenha(() => {
+    S._openCargaVerde = null;
+    marcarSalvando("romaneioVerde");
+    const fotosDessaCarga = fotosDaCarga(cargaId);
+    Promise.all([
+      deleteDoc(doc(db, "cargasVerde", cargaId)),
+      ...fotosDessaCarga.map((f) => deleteDoc(doc(db, "cargaFotos", f.id))),
+      ...fotosDessaCarga.map((f) => f.fileId
+        ? fetch(BACKUP_SHEETS_URL, {
+            method: "POST",
+            headers: { "Content-Type": "text/plain;charset=utf-8" },
+            body: JSON.stringify({ action: "excluirFoto", fileId: f.fileId }),
+          }).catch((e) => console.warn("Não consegui apagar uma foto no Drive (pode ter que remover na mão):", e))
+        : Promise.resolve()),
+    ]).then(() => { if (navigator.onLine) setSaveStatus("romaneioVerde", "saved"); }).catch((e) => tratarErroSalvamento("romaneioVerde", e));
+    renderRomaneioVerde();
+  });
 };
 
 function renderRomaneioVerde() {
@@ -1718,9 +1773,11 @@ window.addDescarte = function (cargaId) {
   renderRomaneio();
 };
 window.removeDescarte = function (id) {
-  marcarSalvando("descartes");
-  deleteDoc(doc(db, "descartes", id)).then(() => { if (navigator.onLine) setSaveStatus("descartes", "saved"); }).catch((e) => tratarErroSalvamento("descartes", e));
-  renderRomaneio();
+  pedirSenha(() => {
+    marcarSalvando("descartes");
+    deleteDoc(doc(db, "descartes", id)).then(() => { if (navigator.onLine) setSaveStatus("descartes", "saved"); }).catch((e) => tratarErroSalvamento("descartes", e));
+    renderRomaneio();
+  });
 };
 
 /* =========================================================================
@@ -2090,9 +2147,11 @@ window.salvarDuasLinhasContagem = function () {
 };
 
 window.removerLinhaContagem = function (id) {
-  marcarSalvando("contagem");
-  deleteDoc(doc(db, "contagemLinhas", id)).then(() => { if (navigator.onLine) setSaveStatus("contagem", "saved"); }).catch((e) => tratarErroSalvamento("contagem", e));
-  renderContagem();
+  pedirSenha(() => {
+    marcarSalvando("contagem");
+    deleteDoc(doc(db, "contagemLinhas", id)).then(() => { if (navigator.onLine) setSaveStatus("contagem", "saved"); }).catch((e) => tratarErroSalvamento("contagem", e));
+    renderContagem();
+  });
 };
 
 /* =========================================================================
@@ -2604,6 +2663,15 @@ function renderDashboard() {
     </div>
   </div>`;
 
+  html += `<div class="card">
+    <h3 style="margin-bottom:8px; font-size:13px;">🔒 Senha do supervisor</h3>
+    <div class="muted" style="font-size:11.5px; margin-bottom:8px;">Protege o Painel, Manejo, Estoque, Fazenda, Relatórios e todas as ações de excluir. Produção e Planejamento continuam livres pro encarregado preencher.</div>
+    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+      <input type="password" id="novaSenhaInput" placeholder="Nova senha" style="padding:7px 9px; border:1px solid #d6d3d1; border-radius:8px; font-size:13px; width:140px;"/>
+      <button class="btn ghost" style="width:auto;" onclick="trocarSenhaSupervisor()">Salvar nova senha</button>
+    </div>
+  </div>`;
+
   document.getElementById("tabContent").innerHTML = html;
 }
 
@@ -2985,8 +3053,10 @@ window.criarProgramacao = function () {
   renderProgramacao();
 };
 window.removerProgramacao = function (id) {
-  S._progAberta = null;
-  deleteDoc(doc(db, "programacao", id)).catch((e) => tratarErroSalvamento("programacao", e));
+  pedirSenha(() => {
+    S._progAberta = null;
+    deleteDoc(doc(db, "programacao", id)).catch((e) => tratarErroSalvamento("programacao", e));
+  });
 };
 window.duplicarProgramacao = function (id) {
   const item = S.programacao.find((p) => p.id === id);
@@ -3058,11 +3128,12 @@ window.salvarAtividadePadrao = function () {
 };
 
 window.removerAtividadePadrao = function (chave) {
-  if (!confirm("Excluir esse padrão de rendimento?")) return;
-  marcarSalvando("rendimento");
-  deleteDoc(doc(db, "atividadesPadrao", chave))
-    .then(() => { if (navigator.onLine) setSaveStatus("rendimento", "saved"); })
-    .catch((e) => tratarErroSalvamento("rendimento", e));
+  pedirSenha(() => {
+    marcarSalvando("rendimento");
+    deleteDoc(doc(db, "atividadesPadrao", chave))
+      .then(() => { if (navigator.onLine) setSaveStatus("rendimento", "saved"); })
+      .catch((e) => tratarErroSalvamento("rendimento", e));
+  });
 };
 
 function renderRendimento() {
@@ -3363,7 +3434,9 @@ window.criarInsumo = function () {
   renderEstoque();
 };
 window.removerInsumo = function (id) {
-  deleteDoc(doc(db, "insumos", id)).catch((e) => tratarErroSalvamento("estoque", e));
+  pedirSenha(() => {
+    deleteDoc(doc(db, "insumos", id)).catch((e) => tratarErroSalvamento("estoque", e));
+  });
 };
 window.criarSolicitacao = function () {
   if (!S._novaSolicitacao.insumoNome || !S._novaSolicitacao.quantidade) { alert("Escolhe o produto e a quantidade."); return; }
@@ -3375,7 +3448,9 @@ window.criarSolicitacao = function () {
   renderEstoque();
 };
 window.removerSolicitacao = function (id) {
-  deleteDoc(doc(db, "solicitacoes", id)).catch((e) => tratarErroSalvamento("estoque", e));
+  pedirSenha(() => {
+    deleteDoc(doc(db, "solicitacoes", id)).catch((e) => tratarErroSalvamento("estoque", e));
+  });
 };
 window.abrirRecebimento = function (id, quantidadePadrao) {
   S._recebendoId = id;
@@ -3575,15 +3650,16 @@ window.criarOcorrencia = function () {
 };
 
 window.removerOcorrencia = function (id, fileId) {
-  if (!confirm("Excluir esta ocorrência?")) return;
-  deleteDoc(doc(db, "ocorrencias", id)).catch((e) => console.error(e));
-  if (fileId) {
-    fetch(BACKUP_SHEETS_URL, {
-      method: "POST",
-      headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify({ action: "excluirFoto", fileId }),
-    }).catch((e) => console.warn("Não consegui apagar a foto no Drive:", e));
-  }
+  pedirSenha(() => {
+    deleteDoc(doc(db, "ocorrencias", id)).catch((e) => console.error(e));
+    if (fileId) {
+      fetch(BACKUP_SHEETS_URL, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify({ action: "excluirFoto", fileId }),
+      }).catch((e) => console.warn("Não consegui apagar a foto no Drive:", e));
+    }
+  });
 };
 
 // Foto de ocorrência é mais simples que a de carga: uma só por registro, sem fila offline

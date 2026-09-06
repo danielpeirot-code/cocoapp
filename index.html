@@ -220,7 +220,7 @@
     <div>
       <div class="title">Controle de Campo — Coco</div>
       <div id="statusLine" class="status offline">verificando conexão…</div>
-      <div style="font-size:9px; color:#a8a29e; margin-top:1px;">v34</div>
+      <div style="font-size:9px; color:#a8a29e; margin-top:1px;">v35</div>
     </div>
     <div class="spacer"></div>
     <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
@@ -677,18 +677,30 @@ function renderNav() {
 }
 
 function renderTab() {
-  if (S.currentTab === "dashboard") renderDashboard();
-  else if (S.currentTab === "colheita") renderColheita();
-  else if (S.currentTab === "romaneio") renderRomaneio();
-  else if (S.currentTab === "romaneioVerde") renderRomaneioVerde();
-  else if (S.currentTab === "contagem") renderContagem();
-  else if (S.currentTab === "aplicacoes") renderAplicacoes();
-  else if (S.currentTab === "indicadores") renderIndicadores();
-  else if (S.currentTab === "programacao") renderProgramacao();
-  else if (S.currentTab === "rendimento") renderRendimento();
-  else if (S.currentTab === "setores") renderSetores();
-  else if (S.currentTab === "ocorrencias") renderOcorrencias();
-  else renderEstoque();
+  try {
+    if (S.currentTab === "dashboard") renderDashboard();
+    else if (S.currentTab === "colheita") renderColheita();
+    else if (S.currentTab === "romaneio") renderRomaneio();
+    else if (S.currentTab === "romaneioVerde") renderRomaneioVerde();
+    else if (S.currentTab === "contagem") renderContagem();
+    else if (S.currentTab === "aplicacoes") renderAplicacoes();
+    else if (S.currentTab === "indicadores") renderIndicadores();
+    else if (S.currentTab === "programacao") renderProgramacao();
+    else if (S.currentTab === "rendimento") renderRendimento();
+    else if (S.currentTab === "setores") renderSetores();
+    else if (S.currentTab === "ocorrencias") renderOcorrencias();
+    else renderEstoque();
+  } catch (e) {
+    // Antes, um erro aqui deixava a tela travada na versão anterior, sem avisar nada — parecia
+    // que o botão "não funcionava". Agora aparece o erro de verdade na tela, pra dar pra saber
+    // exatamente o que quebrou (e mandar pra gente corrigir) em vez de ficar tentando adivinhar.
+    console.error("Erro ao renderizar aba " + S.currentTab + ":", e);
+    document.getElementById("tabContent").innerHTML = `<div class="card" style="border-color:#dc2626;">
+      <b style="color:#dc2626;">⚠️ Deu erro ao abrir essa tela.</b>
+      <div class="muted" style="font-size:11px; margin-top:6px; word-break:break-word;">${esc(String(e && e.message || e))}</div>
+      <div class="muted" style="font-size:11px; margin-top:6px;">Tira um print dessa mensagem e manda pra quem cuida do app.</div>
+    </div>`;
+  }
 }
 
 /* =========================================================================
@@ -1674,6 +1686,17 @@ function linhasContagem(tipo, setor) {
 }
 
 function renderContagem() {
+  try { renderContagemInner(); }
+  catch (e) {
+    console.error("Erro ao renderizar Contagem:", e);
+    document.getElementById("tabContent").innerHTML = `<div class="card" style="border-color:#dc2626;">
+      <b style="color:#dc2626;">⚠️ Deu erro ao mostrar essa tela.</b>
+      <div class="muted" style="font-size:11px; margin-top:6px; word-break:break-word;">${esc(String(e && e.message || e))}</div>
+      <div class="muted" style="font-size:11px; margin-top:6px;">Tira um print e manda pra quem cuida do app.</div>
+    </div>`;
+  }
+}
+function renderContagemInner() {
   const ctg = S.contagem;
   const registrosSetor = linhasContagem(ctg.tipo, ctg.setor);
   const somaTotal = registrosSetor.reduce((s, l) => s + l.total, 0);
@@ -2080,6 +2103,17 @@ window.definirMetaColheita = function (valor) {
 };
 
 function renderColheita() {
+  try { renderColheitaInner(); }
+  catch (e) {
+    console.error("Erro ao renderizar Colheita:", e);
+    document.getElementById("tabContent").innerHTML = `<div class="card" style="border-color:#dc2626;">
+      <b style="color:#dc2626;">⚠️ Deu erro ao mostrar essa tela.</b>
+      <div class="muted" style="font-size:11px; margin-top:6px; word-break:break-word;">${esc(String(e && e.message || e))}</div>
+      <div class="muted" style="font-size:11px; margin-top:6px;">Tira um print e manda pra quem cuida do app.</div>
+    </div>`;
+  }
+}
+function renderColheitaInner() {
   const tipo = S._colheitaTipo;
   const setor = S._colheitaSetor;
   const config = TIPOS_CONTAGEM[tipo];

@@ -220,7 +220,7 @@
     <div>
       <div class="title">Controle de Campo — Coco</div>
       <div id="statusLine" class="status offline">verificando conexão…</div>
-      <div style="font-size:9px; color:#a8a29e; margin-top:1px;">v38</div>
+      <div style="font-size:9px; color:#a8a29e; margin-top:1px;">v39</div>
     </div>
     <div class="spacer"></div>
     <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
@@ -294,6 +294,7 @@ window.__state = {
   setoresInfo: {},
   ocorrencias: [],
   atividadesPadrao: {},
+  colaboradores: [],
   metasColheita: {},
   cargasVerde: [],
   configSeguranca: {},
@@ -473,6 +474,12 @@ onAuthStateChanged(auth, (user) => {
 
   onSnapshot(doc(db, "configuracoes", "seguranca"), (d) => {
     S.configSeguranca = d.exists() ? d.data() : {};
+  }, (err) => console.error(err));
+
+  onSnapshot(collection(db, "colaboradores"), (snap) => {
+    S.colaboradores = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    if (snap.metadata.hasPendingWrites) return;
+    if (S.currentTab === "programacao") renderTab();
   }, (err) => console.error(err));
 
   onSnapshot(collection(db, "metasColheita"), (snap) => {
@@ -2827,6 +2834,50 @@ function calcRendimentoProg(item) {
   return { somaProg, somaExec, rendimento };
 }
 
+// Colaboradores — catálogo simples de nomes, pra escolher com checkbox em vez de digitar
+// (evita erro de digitação criando "pessoas" diferentes sem querer no filtro por colaborador).
+window.criarColaborador = function () {
+  const input = document.getElementById("novoColaboradorInput");
+  const nome = input ? input.value.trim() : "";
+  if (!nome) return;
+  if (S.colaboradores.some((c) => c.nome.toLowerCase() === nome.toLowerCase())) { alert("Esse colaborador já está cadastrado."); return; }
+  addDoc(collection(db, "colaboradores"), { nome }).catch((e) => console.error(e));
+  if (input) input.value = "";
+};
+window.removerColaborador = function (id) {
+  pedirSenha(() => { deleteDoc(doc(db, "colaboradores", id)).catch((e) => console.error(e)); });
+};
+window.toggleColaboradorNaAtividade = function (nome, marcado) {
+  const atuais = pessoasDoItem(S._novaProg);
+  const novos = marcado ? [...new Set([...atuais, nome])] : atuais.filter((n) => n !== nome);
+  S._novaProg.quemVaiFazer = novos.join(", ");
+  renderProgramacao();
+};
+
+// Busca o padrão cadastrado (aba Rendimento) que bate com o NOME da atividade escolhida —
+// usado tanto pra mostrar a unidade quanto pra validar o quanto foi planejado.
+function padraoDaAtividade(nomeAtividade) {
+  return Object.values(S.atividadesPadrao).find((a) => a.nome === nomeAtividade) || null;
+}
+
+// Compara o planejado (quantidade × dias necessários seria o total, mas aqui comparamos direto
+// a quantidade informada) com o esperado = rendimento padrão × nº de pessoas × dias necessários.
+// Não bloqueia o cadastro — só avisa, porque pode ter um motivo legítimo pra fugir do padrão
+// (terreno mais difícil, etc.), quem decide é o supervisor.
+function validarRendimentoProg(item) {
+  const padrao = padraoDaAtividade(item.atividade);
+  if (!padrao || !Number(padrao.rendimentoPadrao)) return null;
+  const pessoas = pessoasDoItem(item).length;
+  const dias = Number(item.diasNec) || 0;
+  const planejado = Number(item.planejadoQtd) || 0;
+  if (pessoas === 0 || dias === 0 || !planejado) return null;
+
+  const esperado = Number(padrao.rendimentoPadrao) * pessoas * dias;
+  const razao = planejado / esperado;
+  if (razao >= 0.9 && razao <= 1.1) return { ok: true, esperado, unidade: padrao.unidade };
+  return { ok: false, esperado, unidade: padrao.unidade, acima: razao > 1 };
+}
+
 function renderProgramacao() {
   const semanaFim = new Date(S._progSemana + "T00:00:00");
   semanaFim.setDate(semanaFim.getDate() + 6);
@@ -2860,18 +2911,60 @@ function renderProgramacao() {
   <div class="card">
     <h3 style="margin-bottom:8px;">➕ Nova atividade programada</h3>
     <div class="grid grid-2" style="margin-bottom:8px;">
-      <label class="field" style="grid-column:span 2;"><span>Atividade</span><input type="text" value="${esc(nv.atividade)}" oninput="S._novaProg.atividade=this.value" placeholder="Ex: Adubação Mecanizada Híbrido"/></label>
+      <label class="field" style="grid-column:span 2;"><span>Atividade</span>
+        <select onchange="S._novaProg.atividade=this.value; renderProgramacao();">
+          <option value="" ${!nv.atividade?"selected":""}>Selecione…</option>
+          ${Object.values(S.atividadesPadrao).sort((a,b)=>a.nome.localeCompare(b.nome,"pt-BR")).map((a) => `<option value="${esc(a.nome)}" ${nv.atividade===a.nome?"selected":""}>${esc(a.nome)}</option>`).join("")}
+        </select>
+      </label>
+      ${Object.keys(S.atividadesPadrao).length === 0 ? `<div class="muted" style="grid-column:span 2; font-size:11px;">Nenhuma atividade cadastrada ainda — cadastra primeiro na aba <b>Rendimento</b>.</div>` : ""}
       <label class="field"><span>Área</span><input type="text" value="${esc(nv.area)}" oninput="S._novaProg.area=this.value" placeholder="Ex: COCO"/></label>
       <label class="field"><span>Setor</span>
         <select onchange="S._novaProg.setor=this.value">
+          <option value="Sede" ${nv.setor==="Sede"?"selected":""}>Sede (não é por talhão)</option>
           ${TALHOES.map(t=>`<option value="${t}" ${nv.setor===t?"selected":""}>${t}</option>`).join("")}
         </select>
       </label>
-      <label class="field"><span>Planejado (qtd)</span><input type="number" value="${esc(nv.planejadoQtd)}" oninput="S._novaProg.planejadoQtd=this.value"/></label>
+      <label class="field"><span>Planejado (qtd)</span><input type="number" value="${esc(nv.planejadoQtd)}" oninput="S._novaProg.planejadoQtd=this.value; renderProgramacao();"/></label>
       <label class="field"><span>Unidade</span><input type="text" value="${esc(nv.planejadoUni)}" oninput="S._novaProg.planejadoUni=this.value" placeholder="linhas, kg, cova..."/></label>
-      <label class="field"><span>Dias necessários</span><input type="number" value="${esc(nv.diasNec)}" oninput="S._novaProg.diasNec=this.value"/></label>
-      <label class="field"><span>Quem vai fazer</span><input type="text" value="${esc(nv.quemVaiFazer)}" oninput="S._novaProg.quemVaiFazer=this.value" placeholder="nomes"/></label>
+      <label class="field"><span>Dias necessários</span><input type="number" value="${esc(nv.diasNec)}" oninput="S._novaProg.diasNec=this.value; renderProgramacao();"/></label>
+    </div>`;
+
+  const infoSetorNv = S.setoresInfo[nv.setor];
+  if (nv.setor !== "Sede" && infoSetorNv && infoSetorNv.area) {
+    html += `<button class="btn ghost" style="width:auto; margin-bottom:8px; font-size:11.5px;" onclick="S._novaProg.planejadoQtd='${infoSetorNv.area}'; S._novaProg.planejadoUni='ha'; renderProgramacao();">📥 Usar área do setor ${esc(nv.setor)} (${esc(infoSetorNv.area)} ha)</button>`;
+  }
+
+  html += `<div style="font-size:10px; font-weight:700; text-transform:uppercase; color:#78716c; margin-bottom:6px;">Quem vai fazer</div>
+    <div style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:6px;">`;
+  if (S.colaboradores.length === 0) {
+    html += `<span class="muted" style="font-size:11.5px;">Nenhum colaborador cadastrado ainda — usa o campo abaixo pra cadastrar.</span>`;
+  } else {
+    const selecionados = pessoasDoItem(nv);
+    S.colaboradores.slice().sort((a,b)=>a.nome.localeCompare(b.nome,"pt-BR")).forEach((c) => {
+      const marcado = selecionados.includes(c.nome);
+      html += `<label style="display:inline-flex; align-items:center; gap:4px; background:${marcado?'#dcfce7':'#f5f5f4'}; border:1px solid ${marcado?'#86efac':'#e7e5e4'}; border-radius:99px; padding:4px 4px 4px 10px; font-size:11.5px; cursor:pointer;">
+        <input type="checkbox" style="margin:0;" ${marcado?"checked":""} onchange="toggleColaboradorNaAtividade('${esc(c.nome)}', this.checked)"/>${esc(c.nome)}
+        <button onclick="event.preventDefault(); removerColaborador('${c.id}');" title="Remover colaborador do catálogo" style="background:none; border:none; cursor:pointer; color:#a8a29e; font-weight:900; padding:0 3px;">✕</button>
+      </label>`;
+    });
+  }
+  html += `</div>
+    <div style="display:flex; gap:6px; margin-bottom:10px;">
+      <input type="text" id="novoColaboradorInput" placeholder="Nome do novo colaborador" style="flex:1; padding:7px 9px; border:1px solid #d6d3d1; border-radius:8px; font-size:13px;" onkeydown="if(event.key==='Enter'){criarColaborador();}"/>
+      <button class="btn ghost" style="width:auto;" onclick="criarColaborador()">➕</button>
     </div>
+    ${pessoasDoItem(nv).length > 0 ? `<div class="muted" style="font-size:11px; margin-bottom:10px; margin-top:-6px;">${pessoasDoItem(nv).length} pessoa${pessoasDoItem(nv).length>1?"s":""} selecionada${pessoasDoItem(nv).length>1?"s":""}</div>` : ""}
+  `;
+
+  const validacao = validarRendimentoProg(nv);
+  if (validacao) {
+    html += validacao.ok
+      ? `<div class="muted" style="font-size:11.5px; margin-bottom:10px; color:#166534;">✅ Dentro do esperado pelo padrão cadastrado (~${fmt(validacao.esperado,1)} ${esc(validacao.unidade)}).</div>`
+      : `<div style="font-size:11.5px; margin-bottom:10px; color:#9a3412; background:#FFEDD5; border-radius:8px; padding:7px 10px;">⚠️ Pelo padrão cadastrado, o esperado seria ~${fmt(validacao.esperado,1)} ${esc(validacao.unidade)} — o planejado está ${validacao.acima ? "acima" : "abaixo"} disso. Confere se está certo.</div>`;
+  }
+
+  html += `
     <details style="margin-bottom:10px;">
       <summary style="font-size:12px; color:#78716c; cursor:pointer;">+ Veículo, implemento e produto (opcional)</summary>
       <div class="grid grid-2" style="margin-top:8px;">

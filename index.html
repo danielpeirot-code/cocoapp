@@ -220,7 +220,7 @@
     <div>
       <div class="title">Controle de Campo — Coco</div>
       <div id="statusLine" class="status offline">verificando conexão…</div>
-      <div style="font-size:9px; color:#a8a29e; margin-top:1px;">v35</div>
+      <div style="font-size:9px; color:#a8a29e; margin-top:1px;">v36</div>
     </div>
     <div class="spacer"></div>
     <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
@@ -1197,6 +1197,51 @@ window.compartilharCargaWhatsapp = async function (cargaId) {
   window.open(`https://wa.me/?text=${encodeURIComponent(texto)}`, "_blank");
 };
 
+window.compartilharCargaVerdeWhatsapp = async function (cargaId) {
+  const carga = S.cargasVerde.find((c) => c.id === cargaId);
+  if (!carga) return;
+
+  const amostras = carga.amostrasAgua || [];
+  const mediaAgua = amostras.length ? amostras.reduce((s, v) => s + v, 0) / amostras.length : null;
+
+  const texto = `🥥 *Carga Verde Nº ${carga.numero}* — ${brDate(carga.data)}\n` +
+    (carga.encarregado ? `Encarregado: ${carga.encarregado}\n` : "") +
+    (carga.motorista ? `Motorista: ${carga.motorista}${carga.telefoneMotorista ? " (" + carga.telefoneMotorista + ")" : ""}\n` : "") +
+    (carga.placa ? `Placa: ${carga.placa}\n` : "") +
+    (carga.destino ? `Destino: ${carga.destino}\n` : "") +
+    (carga.horarioSaida ? `Saída: ${carga.horarioSaida}\n` : "") +
+    (carga.nfCte ? `NF/CT-e: ${carga.nfCte}\n` : "") +
+    (mediaAgua !== null ? `Água (amostra): ${fmt(mediaAgua,1)} ml\n` : "") +
+    `Quantidade: ${fmt(Number(carga.quantidadeTotal) || 0, 0)} frutos`;
+
+  const fotos = fotosDaCarga(cargaId);
+  let arquivos = [];
+  if (fotos.length > 0 && navigator.canShare) {
+    try {
+      const blobs = await Promise.all(fotos.map((f) => fetch(f.url).then((r) => r.blob())));
+      arquivos = blobs.map((b, i) => new File([b], `carga-verde-${carga.numero}-${i + 1}.jpg`, { type: b.type || "image/jpeg" }));
+      if (!navigator.canShare({ files: arquivos })) arquivos = [];
+    } catch (e) {
+      console.warn("Não consegui baixar as fotos pra compartilhar, mandando só o texto:", e);
+      arquivos = [];
+    }
+  }
+
+  if (navigator.share) {
+    try {
+      await navigator.share(arquivos.length > 0
+        ? { title: `Carga Verde ${carga.numero}`, text: texto, files: arquivos }
+        : { title: `Carga Verde ${carga.numero}`, text: texto });
+      return;
+    } catch (e) {
+      if (e.name === "AbortError") return;
+      console.warn("Falha ao abrir o compartilhamento nativo, caindo pro link do WhatsApp:", e);
+    }
+  }
+
+  window.open(`https://wa.me/?text=${encodeURIComponent(texto)}`, "_blank");
+};
+
 function renderRomaneioSeAtivo() {
   if (S.currentTab === "romaneio") renderRomaneio();
   else if (S.currentTab === "romaneioVerde") renderRomaneioVerde();
@@ -1542,7 +1587,6 @@ function renderCargaVerdeCard(carga) {
       <div class="fotos-carga-btns">
         <button onclick="selecionarFotosCarga('${carga.id}','Carga geral')">📷 Carga geral</button>
         <button class="verde" onclick="selecionarFotosCarga('${carga.id}','Coco verde')">📷 Coco verde</button>
-        <button class="balanca" onclick="selecionarFotosCarga('${carga.id}','Aferição da balança')">⚖️ Aferição da balança</button>
       </div>`;
 
     if (fotos.length > 0 || enviando > 0) {
@@ -1562,6 +1606,7 @@ function renderCargaVerdeCard(carga) {
     }
 
     html += `<div style="display:flex; justify-content:flex-end; gap:8px; margin-top:10px; flex-wrap:wrap;">`;
+    html += `<button class="btn ghost" style="width:auto; color:#128C7E; border:1px solid #128C7E;" onclick="compartilharCargaVerdeWhatsapp('${carga.id}')">📲 Compartilhar</button>`;
     if (!arquivada) {
       html += `<button class="btn danger" onclick="removeCargaVerde('${carga.id}')">🗑️ Excluir carga</button>`;
       html += `<button class="btn" style="width:auto; background:#0f766e;" onclick="arquivarCargaVerde('${carga.id}')">📦 Finalizar e arquivar carga</button>`;
@@ -1725,12 +1770,12 @@ function renderContagemInner() {
     </div>
     <div class="grid grid-4" style="margin-bottom:12px;">
       <label class="field"><span>Tipo</span>
-        <select onchange="mudarTipoContagem(this.value)">
+        <select id="contagemTipoSelect" onchange="mudarTipoContagem(this.value)">
           ${Object.keys(TIPOS_CONTAGEM).map(t=>`<option value="${t}" ${ctg.tipo===t?"selected":""}>${t}</option>`).join("")}
         </select>
       </label>
       <label class="field"><span>Setor</span>
-        <select onchange="ctgSet('setor', this.value); renderContagem();">
+        <select id="contagemSetorSelect" onchange="ctgSet('setor', this.value); renderContagem();">
           ${TIPOS_CONTAGEM[ctg.tipo].setores.map(s=>`<option value="${s}" ${ctg.setor===s?"selected":""}>${s}</option>`).join("")}
         </select>
       </label>
@@ -1738,7 +1783,8 @@ function renderContagemInner() {
       ${modoDuasLinhas
         ? `<label class="field"><span>Nº da linha B</span><input type="number" value="${esc(ctg.numLinhaB)}" oninput="ctgSet('numLinhaB', this.value)"/></label>`
         : `<label class="field"><span>Plantas nessa linha</span><input type="number" value="${esc(ctg.qtdPlantas)}" oninput="mudarQtdPlantas(this.value)"/></label>`}
-    </div>`;
+    </div>
+    <button class="btn ghost" style="width:auto; margin-bottom:10px;" onclick="verSetorContagem()">🔍 Ver setor</button>`;
 
   if (modoDuasLinhas) {
     html += `<div class="grid grid-2" style="margin-bottom:10px;">
@@ -1821,6 +1867,16 @@ function renderContagemInner() {
 }
 
 window.ctgSet = function (key, val) { S.contagem[key] = val; };
+
+// Botão manual pra "forçar" ir pro setor/tipo escolhido — lê direto dos selects na tela,
+// então funciona mesmo se o onchange do celular não disparar sozinho de vez em quando.
+window.verSetorContagem = function () {
+  const selTipo = document.getElementById("contagemTipoSelect");
+  const selSetor = document.getElementById("contagemSetorSelect");
+  if (selTipo) S.contagem.tipo = selTipo.value;
+  if (selSetor) S.contagem.setor = selSetor.value;
+  renderContagem();
+};
 window.mudarTipoContagem = function (tipo) {
   pararContagemVoz();
   S.contagem.tipo = tipo;
@@ -2113,6 +2169,16 @@ function renderColheita() {
     </div>`;
   }
 }
+// Botão manual pra "forçar" ir pro setor escolhido — lê o valor direto dos selects na tela,
+// então funciona mesmo se o onchange do celular não disparar sozinho de vez em quando.
+window.verSetorColheita = function () {
+  const selTipo = document.getElementById("colheitaTipoSelect");
+  const selSetor = document.getElementById("colheitaSetorSelect");
+  if (selTipo) S._colheitaTipo = selTipo.value;
+  if (selSetor) S._colheitaSetor = selSetor.value;
+  renderColheita();
+};
+
 function renderColheitaInner() {
   const tipo = S._colheitaTipo;
   const setor = S._colheitaSetor;
@@ -2143,16 +2209,17 @@ function renderColheitaInner() {
   html += `<div class="card">
     <div class="grid grid-2" style="margin-bottom:10px;">
       <label class="field"><span>Tipo</span>
-        <select onchange="S._colheitaTipo=this.value; S._colheitaSetor=TIPOS_CONTAGEM[this.value].setores[0]; renderColheita();">
+        <select id="colheitaTipoSelect" onchange="S._colheitaTipo=this.value; S._colheitaSetor=TIPOS_CONTAGEM[this.value].setores[0]; renderColheita();">
           ${Object.keys(TIPOS_CONTAGEM).map((t) => `<option value="${t}" ${tipo===t?"selected":""}>${t}</option>`).join("")}
         </select>
       </label>
       <label class="field"><span>Setor</span>
-        <select onchange="S._colheitaSetor=this.value; renderColheita();">
+        <select id="colheitaSetorSelect" onchange="S._colheitaSetor=this.value; renderColheita();">
           ${config.setores.map((s) => `<option value="${s}" ${setor===s?"selected":""}>${s}</option>`).join("")}
         </select>
       </label>
     </div>
+    <button class="btn ghost" style="width:auto; margin-bottom:10px;" onclick="verSetorColheita()">🔍 Ver setor</button>
     <div class="muted" style="font-size:11.5px; margin-bottom:6px;">📍 Referência: colher o cacho nº ${CACHO_REFERENCIA[tipo] || "—"} para ${esc(tipo)}.</div>
     <div style="font-size:12.5px;">👉 Setores com linha disponível hoje: ${setoresComDisponivel.length > 0 ? setoresComDisponivel.map(s => `<span class="status-pill verde" style="margin-right:4px;">${esc(s)}</span>`).join("") : `<span class="status-pill amarelo">nenhum — todos descansando</span>`}</div>
   </div>`;

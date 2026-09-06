@@ -220,7 +220,7 @@
     <div>
       <div class="title">Controle de Campo — Coco</div>
       <div id="statusLine" class="status offline">verificando conexão…</div>
-      <div style="font-size:9px; color:#a8a29e; margin-top:1px;">v32</div>
+      <div style="font-size:9px; color:#a8a29e; margin-top:1px;">v33</div>
     </div>
     <div class="spacer"></div>
     <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
@@ -1818,25 +1818,36 @@ function diasDesde(dataISO) {
   return Math.round((hoje - d) / 86400000);
 }
 
+// Última vez (mais recente) que essa linha foi contada — usado pra saber há quantos dias ela
+// "descansa" e quando completa o ciclo de novo. Registros muito antigos (de antes desta função
+// existir) não têm data salva — esses não dá pra saber quando foram contados, então entram
+// como "disponível" por padrão (não têm como travar o ciclo sem essa informação).
+//
+// Construído como um mapa único (varre a lista de contagens uma vez só) em vez de vasculhar tudo
+// de novo pra cada uma das até 52 linhas — sem isso, abrir a Colheita ficava pesado/travava
+// conforme foi acumulando mais contagens.
+function construirMapaUltimasContagens() {
+  const mapa = new Map();
+  S.contagemLinhas.forEach((l) => {
+    if (!l.data) return;
+    const chave = l.tipo + "__" + l.setor + "__" + String(l.numero);
+    const atual = mapa.get(chave);
+    if (!atual || l.data > atual) mapa.set(chave, l.data);
+  });
+  return mapa;
+}
+
+function statusCicloLinhaComMapa(mapa, tipo, setor, numero) {
+  const ultimaData = mapa.get(tipo + "__" + setor + "__" + String(numero));
+  if (!ultimaData) return { disponivel: true, diasFaltam: 0, ultima: null };
+  const dias = diasDesde(ultimaData);
+  const diasFaltam = Math.max(0, CICLO_COLHEITA_DIAS - dias);
+  return { disponivel: diasFaltam === 0, diasFaltam, ultima: ultimaData };
+}
+
 // Toda linha contada na aba Contagem, pra esse tipo+setor+data de hoje, conta como "colhida hoje".
 function contagensDoDia(tipo, setor, data) {
   return S.contagemLinhas.filter((l) => l.tipo === tipo && l.setor === setor && l.data === data);
-}
-
-// Última vez (mais recente) que essa linha foi contada — usado pra saber há quantos dias ela
-// "descansa" e quando completa o ciclo de novo.
-function ultimaContagemLinha(tipo, setor, numero) {
-  const registros = S.contagemLinhas.filter((l) => l.tipo === tipo && l.setor === setor && String(l.numero) === String(numero));
-  if (registros.length === 0) return null;
-  return registros.reduce((a, b) => ((a.data || "") >= (b.data || "") ? a : b));
-}
-
-function statusCicloLinha(tipo, setor, numero) {
-  const ultima = ultimaContagemLinha(tipo, setor, numero);
-  if (!ultima || !ultima.data) return { disponivel: true, diasFaltam: 0, ultima: null };
-  const dias = diasDesde(ultima.data);
-  const diasFaltam = Math.max(0, CICLO_COLHEITA_DIAS - dias);
-  return { disponivel: diasFaltam === 0, diasFaltam, ultima: ultima.data };
 }
 
 window.definirMetaColheita = function (valor) {
@@ -1853,6 +1864,7 @@ function renderColheita() {
   const setor = S._colheitaSetor;
   const config = TIPOS_CONTAGEM[tipo];
   const hoje = todayISO();
+  const mapaUltimas = construirMapaUltimasContagens();
 
   const contadasHoje = contagensDoDia(tipo, setor, hoje);
   const totalHoje = contadasHoje.reduce((s, l) => s + (Number(l.total) || 0), 0);
@@ -1865,7 +1877,7 @@ function renderColheita() {
   // Quais setores desse tipo já têm linha disponível hoje — pra responder "em qual setor eu entro"
   const setoresComDisponivel = config.setores.filter((s) => {
     for (let linha = 1; linha <= config.linhasPorSetor; linha++) {
-      if (statusCicloLinha(tipo, s, linha).disponivel) return true;
+      if (statusCicloLinhaComMapa(mapaUltimas, tipo, s, linha).disponivel) return true;
     }
     return false;
   });
@@ -1909,7 +1921,7 @@ function renderColheita() {
     <div class="muted" style="font-size:11px; margin-bottom:8px;">🟢 disponível — 🟠 ainda descansando (dias que faltam pro ciclo de ${CICLO_COLHEITA_DIAS} dias completar)</div>
     <div style="display:flex; flex-wrap:wrap; gap:5px;">`;
   for (let linha = 1; linha <= config.linhasPorSetor; linha++) {
-    const st = statusCicloLinha(tipo, setor, linha);
+    const st = statusCicloLinhaComMapa(mapaUltimas, tipo, setor, linha);
     const cor = st.disponivel ? "#C6EFCE" : "#FED7AA";
     const corTexto = st.disponivel ? "#065f46" : "#9a3412";
     html += `<div title="${st.ultima ? "Última contagem: " + brDate(st.ultima) : "Nunca contada"}" style="background:${cor}; color:${corTexto}; border-radius:6px; padding:4px 6px; font-size:10.5px; font-weight:700; min-width:30px; text-align:center;">
@@ -3543,12 +3555,13 @@ function montarLinhasRendimento() {
 }
 
 function montarLinhasColheita() {
+  const mapaUltimas = construirMapaUltimasContagens();
   const rows = [];
   Object.keys(TIPOS_CONTAGEM).forEach((tipo) => {
     const config = TIPOS_CONTAGEM[tipo];
     config.setores.forEach((setor) => {
       for (let linha = 1; linha <= config.linhasPorSetor; linha++) {
-        const st = statusCicloLinha(tipo, setor, linha);
+        const st = statusCicloLinhaComMapa(mapaUltimas, tipo, setor, linha);
         rows.push({
           "Tipo": tipo, "Setor": setor, "Linha": linha,
           "Última Contagem": st.ultima || "", "Situação": st.disponivel ? "Disponível" : `Descansando (${st.diasFaltam}d)`,

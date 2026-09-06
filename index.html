@@ -220,7 +220,7 @@
     <div>
       <div class="title">Controle de Campo — Coco</div>
       <div id="statusLine" class="status offline">verificando conexão…</div>
-      <div style="font-size:9px; color:#a8a29e; margin-top:1px;">v40</div>
+      <div style="font-size:9px; color:#a8a29e; margin-top:1px;">v41</div>
     </div>
     <div class="spacer"></div>
     <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
@@ -1847,12 +1847,26 @@ function renderContagemInner() {
           ${TIPOS_CONTAGEM[ctg.tipo].setores.map(s=>`<option value="${s}" ${ctg.setor===s?"selected":""}>${s}</option>`).join("")}
         </select>
       </label>
-      <label class="field"><span>Nº da linha${modoDuasLinhas ? " A" : ""}</span><input type="number" value="${esc(ctg.numLinha)}" oninput="ctgSet('numLinha', this.value)"/></label>
+      <label class="field"><span>Nº da linha${modoDuasLinhas ? " A" : ""}</span><input type="number" value="${esc(ctg.numLinha)}" oninput="ctgSet('numLinha', this.value)" onblur="renderContagem()"/></label>
       ${modoDuasLinhas
-        ? `<label class="field"><span>Nº da linha B</span><input type="number" value="${esc(ctg.numLinhaB)}" oninput="ctgSet('numLinhaB', this.value)"/></label>`
+        ? `<label class="field"><span>Nº da linha B</span><input type="number" value="${esc(ctg.numLinhaB)}" oninput="ctgSet('numLinhaB', this.value)" onblur="renderContagem()"/></label>`
         : `<label class="field"><span>Plantas nessa linha</span><input type="number" value="${esc(ctg.qtdPlantas)}" oninput="mudarQtdPlantas(this.value)"/></label>`}
     </div>
-    <button class="btn ghost" style="width:auto; margin-bottom:10px;" onclick="verSetorContagem()">🔍 Ver setor</button>`;
+    <button class="btn ghost" style="width:auto; margin-bottom:6px;" onclick="verSetorContagem()">🔍 Ver setor</button>`;
+
+  // Avisa antes de tentar salvar se a linha (ou as duas, no modo dupla) ainda está descansando —
+  // não deixa nem chegar a apertar salvar sem saber que vai travar.
+  const mapaCiclo = construirMapaUltimasContagens();
+  const statusLinhaA = linhaDisponivelParaContar(ctg.tipo, ctg.setor, ctg.numLinha, mapaCiclo);
+  html += !statusLinhaA.disponivel
+    ? `<div style="font-size:11.5px; margin-bottom:8px; color:#9a3412; background:#FFEDD5; border-radius:8px; padding:6px 10px;">🟠 Linha ${esc(ctg.numLinha)} ainda descansando — faltam ${statusLinhaA.diasFaltam} dia${statusLinhaA.diasFaltam>1?"s":""}.</div>`
+    : "";
+  if (modoDuasLinhas) {
+    const statusLinhaB = linhaDisponivelParaContar(ctg.tipo, ctg.setor, ctg.numLinhaB, mapaCiclo);
+    html += !statusLinhaB.disponivel
+      ? `<div style="font-size:11.5px; margin-bottom:8px; color:#9a3412; background:#FFEDD5; border-radius:8px; padding:6px 10px;">🟠 Linha ${esc(ctg.numLinhaB)} ainda descansando — faltam ${statusLinhaB.diasFaltam} dia${statusLinhaB.diasFaltam>1?"s":""}.</div>`
+      : "";
+  }
 
   if (modoDuasLinhas) {
     html += `<div class="grid grid-2" style="margin-bottom:10px;">
@@ -2117,9 +2131,25 @@ function pararContagemVoz() {
   if (S.currentTab === "contagem") renderContagem();
 }
 
+// Impede contar de novo uma linha que ainda está no período de descanso — só libera quando
+// completar os 21 dias. Reaproveita o mesmo mapa/cálculo já usado na aba Colheita. Aceita um
+// mapa já pronto (pra não reconstruir do zero toda vez que precisa checar duas linhas seguidas).
+function linhaDisponivelParaContar(tipo, setor, numero, mapaPronto) {
+  if (!numero) return { disponivel: true, diasFaltam: 0 };
+  const mapa = mapaPronto || construirMapaUltimasContagens();
+  return statusCicloLinhaComMapa(mapa, tipo, setor, numero);
+}
+
 window.salvarLinhaContagem = function () {
   const ctg = S.contagem;
   if (!ctg.numLinha) return;
+
+  const status = linhaDisponivelParaContar(ctg.tipo, ctg.setor, ctg.numLinha);
+  if (!status.disponivel) {
+    alert(`Essa linha (${ctg.numLinha}) ainda está descansando — faltam ${status.diasFaltam} dia${status.diasFaltam>1?"s":""} pra completar o ciclo de ${CICLO_COLHEITA_DIAS} dias. Não dá pra contar de novo antes disso.`);
+    return;
+  }
+
   const total = ctg.valores.reduce((s, v) => s + (Number(v) || 0), 0);
   const payload = { tipo: ctg.tipo, setor: ctg.setor, numero: ctg.numLinha, valores: [...ctg.valores], total, data: todayISO() };
   // Avança pra próxima linha sozinho (se o número for numérico) — quem conta linha atrás de
@@ -2137,6 +2167,16 @@ window.salvarLinhaContagem = function () {
 window.salvarDuasLinhasContagem = function () {
   const ctg = S.contagem;
   if (!ctg.numLinha || !ctg.numLinhaB) { alert("Preenche o número das duas linhas."); return; }
+
+  const statusA = linhaDisponivelParaContar(ctg.tipo, ctg.setor, ctg.numLinha);
+  const statusB = linhaDisponivelParaContar(ctg.tipo, ctg.setor, ctg.numLinhaB);
+  if (!statusA.disponivel || !statusB.disponivel) {
+    const avisos = [];
+    if (!statusA.disponivel) avisos.push(`Linha ${ctg.numLinha}: faltam ${statusA.diasFaltam} dia${statusA.diasFaltam>1?"s":""}`);
+    if (!statusB.disponivel) avisos.push(`Linha ${ctg.numLinhaB}: faltam ${statusB.diasFaltam} dia${statusB.diasFaltam>1?"s":""}`);
+    alert("Essas linhas ainda estão descansando — não dá pra contar antes de completar os 21 dias:\n\n" + avisos.join("\n"));
+    return;
+  }
 
   const totalA = ctg.valores.reduce((s, v) => s + (Number(v) || 0), 0);
   const totalB = ctg.valoresB.reduce((s, v) => s + (Number(v) || 0), 0);

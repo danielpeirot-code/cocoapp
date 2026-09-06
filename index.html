@@ -220,7 +220,7 @@
     <div>
       <div class="title">Controle de Campo — Coco</div>
       <div id="statusLine" class="status offline">verificando conexão…</div>
-      <div style="font-size:9px; color:#a8a29e; margin-top:1px;">v31</div>
+      <div style="font-size:9px; color:#a8a29e; margin-top:1px;">v32</div>
     </div>
     <div class="spacer"></div>
     <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
@@ -1460,19 +1460,24 @@ function renderContagem() {
   const media = registrosSetor.length ? somaTotal / registrosSetor.length : null;
   const config = TIPOS_CONTAGEM[ctg.tipo];
   const estimativa = media !== null ? media * config.linhasPorSetor : null;
-  const linhasRestantes = Math.max(0, config.linhasPorSetor - registrosSetor.length);
   const totalLinha = ctg.valores.reduce((s, v) => s + (Number(v) || 0), 0);
-  const modoDuasLinhas = !!config.censoCompleto; // Anão Verde: conta linha A inteira, depois linha B, salva as duas juntas
+  const modoDuasLinhas = !!config.censoCompleto; // Anão Verde: conta em duas colunas lado a lado, igual planilha
 
-  let gridHtml = "";
-  ctg.valores.forEach((v, i) => {
-    gridHtml += `<div class="planta-cell"><span class="n">${i+1}</span><input type="number" value="${esc(v)}" oninput="setValorPlanta(${i}, this.value)"/></div>`;
-  });
+  // No Anão Verde não é "completar as 52 linhas" — é contar linha após linha (em dupla) até
+  // bater a meta de frutos definida pra hoje. A meta é a mesma usada na aba Colheita.
+  const hoje = todayISO();
+  const metaChave = chaveMetaColheita(hoje, ctg.tipo);
+  const meta = Number((S.metasColheita[metaChave] || {}).meta) || 0;
+  const somaHojeSetor = registrosSetor.filter((l) => l.data === hoje).reduce((s, l) => s + l.total, 0);
+  const faltamFrutos = Math.max(0, meta - somaHojeSetor);
+  const mediaHoje = registrosSetor.filter((l) => l.data === hoje).length
+    ? somaHojeSetor / registrosSetor.filter((l) => l.data === hoje).length : null;
+  const linhasEstimadasRestantes = (faltamFrutos > 0 && mediaHoje) ? Math.ceil(faltamFrutos / mediaHoje) : null;
 
   let html = `
   <div class="card">
     <div class="row-flex" style="margin-bottom:10px;">
-      <h3>🌱 Contar linha${modoDuasLinhas ? "s (duas por vez)" : ""}</h3>
+      <h3>🌱 Contar linha${modoDuasLinhas ? "s (em dupla)" : ""}</h3>
       <span id="savingPill-contagem" class="saving-pill"></span>
     </div>
     <div class="grid grid-4" style="margin-bottom:12px;">
@@ -1487,29 +1492,46 @@ function renderContagem() {
         </select>
       </label>
       <label class="field"><span>Nº da linha${modoDuasLinhas ? " A" : ""}</span><input type="number" value="${esc(ctg.numLinha)}" oninput="ctgSet('numLinha', this.value)"/></label>
-      <label class="field"><span>Plantas nessa linha</span><input type="number" value="${esc(ctg.qtdPlantas)}" oninput="mudarQtdPlantas(this.value)"/></label>
-    </div>
-    <div style="font-size:10px; font-weight:700; text-transform:uppercase; color:#78716c; margin-bottom:6px;">${modoDuasLinhas ? "Linha A — " : ""}Quantidade de fruta por planta</div>
-    <div class="plantas-grid">${gridHtml}</div>`;
+      ${modoDuasLinhas
+        ? `<label class="field"><span>Nº da linha B</span><input type="number" value="${esc(ctg.numLinhaB)}" oninput="ctgSet('numLinhaB', this.value)"/></label>`
+        : `<label class="field"><span>Plantas nessa linha</span><input type="number" value="${esc(ctg.qtdPlantas)}" oninput="mudarQtdPlantas(this.value)"/></label>`}
+    </div>`;
 
   if (modoDuasLinhas) {
-    let gridHtmlB = "";
-    (ctg.valoresB || []).forEach((v, i) => {
-      gridHtmlB += `<div class="planta-cell"><span class="n">${i+1}</span><input type="number" value="${esc(v)}" oninput="setValorPlantaB(${i}, this.value)"/></div>`;
-    });
-    const totalLinhaB = (ctg.valoresB || []).reduce((s, v) => s + (Number(v) || 0), 0);
-    html += `
-    <div class="grid grid-4" style="margin:14px 0 12px; padding-top:10px; border-top:1px dashed #e7e5e4;">
-      <label class="field"><span>Nº da linha B</span><input type="number" value="${esc(ctg.numLinhaB)}" oninput="ctgSet('numLinhaB', this.value)"/></label>
+    html += `<div class="grid grid-2" style="margin-bottom:10px;">
+      <label class="field"><span>Meta de frutos hoje (${esc(ctg.tipo)})</span><input type="number" value="${meta || ""}" placeholder="ex: 5000" oninput="definirMetaColheita(this.value)"/></label>
+      <label class="field"><span>Plantas por linha</span><input type="number" value="${esc(ctg.qtdPlantas)}" oninput="mudarQtdPlantas(this.value)"/></label>
     </div>
-    <div style="font-size:10px; font-weight:700; text-transform:uppercase; color:#78716c; margin-bottom:6px;">Linha B — Quantidade de fruta por planta</div>
-    <div class="plantas-grid">${gridHtmlB}</div>
-    <div class="row-flex" style="margin-top:8px;">
-      <span class="muted">Total A: <b style="color:#292524;">${totalLinha}</b> &nbsp;+&nbsp; Total B: <b style="color:#292524;">${totalLinhaB}</b></span>
-      <button class="btn" style="width:auto;" onclick="salvarDuasLinhasContagem()">💾 Salvar as duas linhas e ir pras próximas</button>
-    </div>`;
+    ${meta > 0 ? `<div class="grid grid-3" style="grid-template-columns:repeat(3,1fr); margin-bottom:12px;">
+      <div class="stat-box"><div class="lbl">Contado hoje</div><div class="val">${fmt(somaHojeSetor,0)}</div></div>
+      <div class="stat-box ${faltamFrutos===0?'green':''}"><div class="lbl">Faltam</div><div class="val">${fmt(faltamFrutos,0)}</div></div>
+      <div class="stat-box"><div class="lbl">~Linhas restantes</div><div class="val">${linhasEstimadasRestantes ?? "—"}</div></div>
+    </div>` : ""}
+    <div class="muted" style="font-size:11px; margin-bottom:6px;">Anda pela rua contando uma árvore da linha A, uma da linha B, e assim por diante — preenche as duas colunas na mesma ordem que for passando.</div>
+    <div class="tbl-wrap"><table class="tbl" style="min-width:340px;"><thead><tr>
+      <th style="text-align:left;">Árvore</th><th>Linha ${esc(ctg.numLinha || "A")}</th><th>Linha ${esc(ctg.numLinhaB || "B")}</th>
+    </tr></thead><tbody>`;
+    const qtd = Math.max(ctg.valores.length, (ctg.valoresB || []).length);
+    for (let i = 0; i < qtd; i++) {
+      html += `<tr>
+        <td style="text-align:left; font-weight:600; color:#a8a29e;">${i+1}</td>
+        <td><input type="number" value="${esc(ctg.valores[i])}" oninput="setValorPlanta(${i}, this.value)"/></td>
+        <td><input type="number" value="${esc((ctg.valoresB||[])[i])}" oninput="setValorPlantaB(${i}, this.value)"/></td>
+      </tr>`;
+    }
+    const totalLinhaB = (ctg.valoresB || []).reduce((s, v) => s + (Number(v) || 0), 0);
+    html += `<tr style="font-weight:800; background:#fafaf9;">
+        <td style="text-align:left;">Total</td><td>${totalLinha}</td><td>${totalLinhaB}</td>
+      </tr>
+    </tbody></table></div>
+    <div style="margin-top:10px;"><button class="btn" onclick="salvarDuasLinhasContagem()">💾 Salvar as duas linhas e ir pras próximas</button></div>`;
   } else {
-    html += `
+    let gridHtml = "";
+    ctg.valores.forEach((v, i) => {
+      gridHtml += `<div class="planta-cell"><span class="n">${i+1}</span><input type="number" value="${esc(v)}" oninput="setValorPlanta(${i}, this.value)"/></div>`;
+    });
+    html += `<div style="font-size:10px; font-weight:700; text-transform:uppercase; color:#78716c; margin-bottom:6px;">Quantidade de fruta por planta</div>
+    <div class="plantas-grid">${gridHtml}</div>
     <div class="row-flex">
       <span class="muted">Total desta linha: <b style="color:#292524;">${totalLinha}</b></span>
       <button class="btn" style="width:auto;" onclick="salvarLinhaContagem()">💾 Salvar linha e ir pra próxima</button>
@@ -1523,12 +1545,9 @@ function renderContagem() {
     <h3>📋 Setor ${esc(ctg.setor)} — ${esc(ctg.tipo)}</h3>`;
 
   if (config.censoCompleto) {
-    // Aqui não é amostra — é contagem de todas as linhas mesmo, então o que importa é o
-    // total real já somado e quantas linhas ainda faltam, não uma estimativa por média.
-    html += `<div class="grid" style="grid-template-columns:repeat(3,1fr); margin-bottom:14px;">
-      <div class="stat-box"><div class="lbl">Linhas contadas</div><div class="val">${registrosSetor.length} / ${config.linhasPorSetor}</div></div>
-      <div class="stat-box"><div class="lbl">Faltam</div><div class="val" style="color:${linhasRestantes>0?'#dc2626':'#166534'};">${linhasRestantes}</div></div>
-      <div class="stat-box green"><div class="lbl">Total contado</div><div class="val">${fmt(somaTotal,0)}</div></div>
+    html += `<div class="grid" style="grid-template-columns:repeat(2,1fr); margin-bottom:14px;">
+      <div class="stat-box"><div class="lbl">Total contado (histórico)</div><div class="val">${fmt(somaTotal,0)}</div></div>
+      <div class="stat-box"><div class="lbl">Linhas já contadas</div><div class="val">${registrosSetor.length}</div></div>
     </div>`;
   } else {
     html += `<div class="grid" style="grid-template-columns:repeat(3,1fr); margin-bottom:14px;">

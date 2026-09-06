@@ -220,7 +220,7 @@
     <div>
       <div class="title">Controle de Campo — Coco</div>
       <div id="statusLine" class="status offline">verificando conexão…</div>
-      <div style="font-size:9px; color:#a8a29e; margin-top:1px;">v29</div>
+      <div style="font-size:9px; color:#a8a29e; margin-top:1px;">v30</div>
     </div>
     <div class="spacer"></div>
     <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
@@ -294,6 +294,8 @@ window.__state = {
   setoresInfo: {},
   ocorrencias: [],
   atividadesPadrao: {},
+  colheitas: [],
+  metasColheita: {},
   currentTab: "romaneio",
   contagem: { tipo: "Híbrido", setor: "A3A4", numLinha: "", qtdPlantas: 78, valores: [] },
   _vozAtivo: false,
@@ -306,7 +308,7 @@ window.__state = {
   _uploadTipoFoto: "Carga geral",
   _fotosEnviando: 0,
   _fotosPendentes: [],
-  saveStatus: { romaneio: "idle", descartes: "idle", contagem: "idle", aplicacoes: "idle", programacao: "idle", estoque: "idle", setores: "idle", ocorrencias: "idle", rendimento: "idle" },
+  saveStatus: { romaneio: "idle", descartes: "idle", contagem: "idle", aplicacoes: "idle", programacao: "idle", estoque: "idle", setores: "idle", ocorrencias: "idle", rendimento: "idle", colheita: "idle" },
 };
 const S = window.__state;
 window.S = S; // necessário para os campos de formulário (oninput="S...") funcionarem
@@ -461,6 +463,21 @@ onAuthStateChanged(auth, (user) => {
     if (S.currentTab === "rendimento") renderTab();
   }, (err) => console.error(err));
 
+  onSnapshot(collection(db, "colheitas"), (snap) => {
+    S.colheitas = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    setSaveStatus("colheita", "saved");
+    if (snap.metadata.hasPendingWrites) return;
+    if (S.currentTab === "colheita") renderTab();
+  }, (err) => console.error(err));
+
+  onSnapshot(collection(db, "metasColheita"), (snap) => {
+    const obj = {};
+    snap.docs.forEach((d) => { obj[d.id] = d.data(); });
+    S.metasColheita = obj;
+    if (snap.metadata.hasPendingWrites) return;
+    if (S.currentTab === "colheita") renderTab();
+  }, (err) => console.error(err));
+
   onSnapshot(collection(db, "programacao"), (snap) => {
     S.programacao = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     setSaveStatus("programacao", "saved");
@@ -603,6 +620,7 @@ function calcAplicacao(reg, tipo) {
 const CATEGORIAS_NAV = [
   { id: "dashboard", label: "Painel", icon: "🏠", tabs: [{ id: "dashboard", label: "Painel", icon: "🏠" }] },
   { id: "producao", label: "Produção", icon: "🌴", tabs: [
+    { id: "colheita", label: "Colheita", icon: "🌾" },
     { id: "romaneio", label: "Romaneio", icon: "🚛" },
     { id: "contagem", label: "Contagem", icon: "🌱" },
   ] },
@@ -659,6 +677,7 @@ function renderNav() {
 
 function renderTab() {
   if (S.currentTab === "dashboard") renderDashboard();
+  else if (S.currentTab === "colheita") renderColheita();
   else if (S.currentTab === "romaneio") renderRomaneio();
   else if (S.currentTab === "contagem") renderContagem();
   else if (S.currentTab === "aplicacoes") renderAplicacoes();
@@ -1711,6 +1730,165 @@ window.removerLinhaContagem = function (id) {
   deleteDoc(doc(db, "contagemLinhas", id)).then(() => { if (navigator.onLine) setSaveStatus("contagem", "saved"); }).catch((e) => tratarErroSalvamento("contagem", e));
   renderContagem();
 };
+
+/* =========================================================================
+   ABA COLHEITA
+   Diferente da Contagem (que estima por amostra antes de colher), aqui é o
+   registro REAL de colheita: quanto foi colhido de cada linha, no dia, com
+   meta diária e o ciclo de 21 dias de descanso por linha (o mesmo cacho não
+   volta a ser colhido antes disso).
+   ========================================================================= */
+const CICLO_COLHEITA_DIAS = 21;
+const CACHO_REFERENCIA = { "Anão Verde": 18, "Híbrido": 25, "Anão Seco": 25 }; // só um lembrete na tela, não afeta cálculo nenhum
+
+S._colheitaTipo = "Anão Verde";
+S._colheitaSetor = TIPOS_CONTAGEM["Anão Verde"].setores[0];
+S._novaColheita = { linha: "", quantidade: "" };
+
+function chaveMetaColheita(data, tipo) { return data + "__" + tipo; }
+
+function diasDesde(dataISO) {
+  const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
+  const d = new Date(dataISO + "T00:00:00");
+  return Math.round((hoje - d) / 86400000);
+}
+
+function colheitasDoDia(tipo, data) {
+  return S.colheitas.filter((c) => c.tipo === tipo && c.data === data);
+}
+
+function ultimaColheitaLinha(tipo, setor, linha) {
+  const registros = S.colheitas.filter((c) => c.tipo === tipo && c.setor === setor && String(c.linha) === String(linha));
+  if (registros.length === 0) return null;
+  return registros.reduce((a, b) => ((a.data || "") >= (b.data || "") ? a : b));
+}
+
+function statusCicloLinha(tipo, setor, linha) {
+  const ultima = ultimaColheitaLinha(tipo, setor, linha);
+  if (!ultima) return { disponivel: true, diasFaltam: 0, ultima: null };
+  const dias = diasDesde(ultima.data);
+  const diasFaltam = Math.max(0, CICLO_COLHEITA_DIAS - dias);
+  return { disponivel: diasFaltam === 0, diasFaltam, ultima: ultima.data };
+}
+
+window.registrarColheita = function () {
+  const tipo = S._colheitaTipo, setor = S._colheitaSetor;
+  const nova = S._novaColheita;
+  if (!nova.linha || !nova.quantidade) { alert("Preenche a linha e a quantidade colhida."); return; }
+
+  const status = statusCicloLinha(tipo, setor, nova.linha);
+  if (!status.disponivel) {
+    if (!confirm(`Essa linha ainda está no período de descanso (faltam ${status.diasFaltam} dia${status.diasFaltam>1?"s":""} pros ${CICLO_COLHEITA_DIAS} dias do ciclo). Registrar mesmo assim?`)) return;
+  }
+
+  marcarSalvando("colheita");
+  addDoc(collection(db, "colheitas"), {
+    tipo, setor, linha: nova.linha, quantidade: Number(nova.quantidade) || 0, data: todayISO(),
+  }).then(() => { if (navigator.onLine) setSaveStatus("colheita", "saved"); }).catch((e) => tratarErroSalvamento("colheita", e));
+
+  S._novaColheita = { linha: String((Number(nova.linha) || 0) + 1), quantidade: "" }; // avança a linha sozinho, igual na Contagem
+  renderColheita();
+};
+
+window.removerColheita = function (id) {
+  marcarSalvando("colheita");
+  deleteDoc(doc(db, "colheitas", id)).then(() => { if (navigator.onLine) setSaveStatus("colheita", "saved"); }).catch((e) => tratarErroSalvamento("colheita", e));
+  renderColheita();
+};
+
+window.definirMetaColheita = function (valor) {
+  const chave = chaveMetaColheita(todayISO(), S._colheitaTipo);
+  S.metasColheita = { ...S.metasColheita, [chave]: { meta: Number(valor) || 0 } };
+  marcarSalvando("colheita");
+  setDoc(doc(db, "metasColheita", chave), { meta: Number(valor) || 0 })
+    .then(() => { if (navigator.onLine) setSaveStatus("colheita", "saved"); })
+    .catch((e) => tratarErroSalvamento("colheita", e));
+};
+
+function renderColheita() {
+  const tipo = S._colheitaTipo;
+  const setor = S._colheitaSetor;
+  const config = TIPOS_CONTAGEM[tipo];
+  const hoje = todayISO();
+
+  const registrosHoje = colheitasDoDia(tipo, hoje);
+  const totalHoje = registrosHoje.reduce((s, c) => s + (Number(c.quantidade) || 0), 0);
+  const metaChave = chaveMetaColheita(hoje, tipo);
+  const meta = Number((S.metasColheita[metaChave] || {}).meta) || 0;
+  const faltam = Math.max(0, meta - totalHoje);
+  const mediaPorLinhaHoje = registrosHoje.length ? totalHoje / registrosHoje.length : null;
+  const linhasRestantesEstimadas = (faltam > 0 && mediaPorLinhaHoje) ? Math.ceil(faltam / mediaPorLinhaHoje) : null;
+
+  let html = `<div class="card" style="padding:10px 12px;">
+    <div class="row-flex">
+      <span class="muted" style="font-size:12px;">🌾 Registro real de colheita — cada linha só volta a ser colhida depois de ${CICLO_COLHEITA_DIAS} dias.</span>
+      <span id="savingPill-colheita" class="saving-pill"></span>
+    </div>
+  </div>`;
+
+  html += `<div class="card">
+    <div class="grid grid-2" style="margin-bottom:10px;">
+      <label class="field"><span>Tipo</span>
+        <select onchange="S._colheitaTipo=this.value; S._colheitaSetor=TIPOS_CONTAGEM[this.value].setores[0]; renderColheita();">
+          ${Object.keys(TIPOS_CONTAGEM).map((t) => `<option value="${t}" ${tipo===t?"selected":""}>${t}</option>`).join("")}
+        </select>
+      </label>
+      <label class="field"><span>Setor</span>
+        <select onchange="S._colheitaSetor=this.value; renderColheita();">
+          ${config.setores.map((s) => `<option value="${s}" ${setor===s?"selected":""}>${s}</option>`).join("")}
+        </select>
+      </label>
+    </div>
+    <div class="muted" style="font-size:11.5px; margin-bottom:10px;">📍 Referência: colher o cacho nº ${CACHO_REFERENCIA[tipo] || "—"} para ${esc(tipo)}.</div>
+
+    <div style="font-size:11px; font-weight:700; text-transform:uppercase; color:#78716c; margin-bottom:6px;">Meta de hoje (${brDate(hoje)})</div>
+    <div class="grid grid-2" style="margin-bottom:10px;">
+      <label class="field"><span>Meta de frutos hoje</span><input type="number" value="${meta || ""}" placeholder="ex: 5000" oninput="definirMetaColheita(this.value)"/></label>
+      <div class="stat-box"><div class="lbl">Colhido hoje</div><div class="val">${fmt(totalHoje,0)}</div></div>
+    </div>
+    ${meta > 0 ? `<div class="grid grid-2" style="margin-bottom:10px;">
+      <div class="stat-box ${faltam===0?'green':''}"><div class="lbl">Faltam</div><div class="val">${fmt(faltam,0)}</div></div>
+      <div class="stat-box"><div class="lbl">Linhas estimadas restantes</div><div class="val">${linhasRestantesEstimadas ?? "—"}</div></div>
+    </div>` : ""}
+
+    <div style="font-size:11px; font-weight:700; text-transform:uppercase; color:#78716c; margin:10px 0 6px;">Registrar colheita de uma linha</div>
+    <div class="grid grid-2" style="margin-bottom:10px;">
+      <label class="field"><span>Nº da linha</span><input type="number" value="${esc(S._novaColheita.linha)}" oninput="S._novaColheita.linha=this.value"/></label>
+      <label class="field"><span>Quantidade colhida</span><input type="number" value="${esc(S._novaColheita.quantidade)}" oninput="S._novaColheita.quantidade=this.value"/></label>
+    </div>
+    <button class="btn" onclick="registrarColheita()">🌾 Registrar e ir pra próxima linha</button>
+  </div>`;
+
+  // Situação do ciclo de cada linha desse setor — disponível pra colher ou ainda descansando
+  html += `<div class="card">
+    <h3 style="margin-bottom:8px; font-size:13px;">📅 Ciclo das linhas — ${esc(setor)}</h3>
+    <div class="muted" style="font-size:11px; margin-bottom:8px;">🟢 disponível — 🟠 ainda descansando (dias que faltam pro ciclo de ${CICLO_COLHEITA_DIAS} dias completar)</div>
+    <div style="display:flex; flex-wrap:wrap; gap:5px;">`;
+  for (let linha = 1; linha <= config.linhasPorSetor; linha++) {
+    const st = statusCicloLinha(tipo, setor, linha);
+    const cor = st.disponivel ? "#C6EFCE" : "#FED7AA";
+    const corTexto = st.disponivel ? "#065f46" : "#9a3412";
+    html += `<div title="${st.ultima ? "Última colheita: " + brDate(st.ultima) : "Nunca colhida"}" style="background:${cor}; color:${corTexto}; border-radius:6px; padding:4px 6px; font-size:10.5px; font-weight:700; min-width:30px; text-align:center;">
+      ${linha}${!st.disponivel ? `<div style="font-size:8.5px; font-weight:600;">${st.diasFaltam}d</div>` : ""}
+    </div>`;
+  }
+  html += `</div></div>`;
+
+  if (registrosHoje.length > 0) {
+    html += `<div class="card">
+      <h3 style="margin-bottom:8px; font-size:13px;">Colhido hoje — ${esc(setor)}</h3>`;
+    registrosHoje.filter((c) => c.setor === setor).forEach((c) => {
+      html += `<div class="row-flex" style="padding:4px 0; font-size:12.5px;">
+        <span>Linha ${esc(c.linha)}: <b>${fmt(c.quantidade,0)}</b> frutos</span>
+        <button class="x-btn" onclick="removerColheita('${c.id}')">✕</button>
+      </div>`;
+    });
+    html += `</div>`;
+  }
+
+  document.getElementById("tabContent").innerHTML = html;
+  setSaveStatus("colheita", S.saveStatus.colheita);
+}
 
 /* =========================================================================
    ABA APLICAÇÕES
@@ -3323,6 +3501,15 @@ function montarLinhasRendimento() {
   });
 }
 
+function montarLinhasColheita() {
+  return S.colheitas
+    .slice()
+    .sort((a, b) => (a.data || "").localeCompare(b.data || ""))
+    .map((c) => ({
+      "Data": c.data, "Tipo": c.tipo, "Setor": c.setor, "Linha": c.linha, "Quantidade Colhida": c.quantidade,
+    }));
+}
+
 function montarLinhasContagem() {
   return S.contagemLinhas.map((l) => ({
     "Tipo": l.tipo, "Setor": l.setor, "Linha": l.numero, "Nº Plantas": l.valores.length, "Total Frutas": l.total,
@@ -3361,6 +3548,7 @@ window.exportarExcel = function () {
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(montarLinhasFotos()), "Fotos");
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(montarLinhasOcorrencias()), "Ocorrências");
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(montarLinhasRendimento()), "Rendimento");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(montarLinhasColheita()), "Colheita");
   XLSX.writeFile(wb, `coco_dados_${new Date().toISOString().slice(0,10)}.xlsx`);
 };
 
@@ -3387,6 +3575,7 @@ window.enviarBackupSheets = async function () {
         "Fotos": montarLinhasFotos(),
         "Ocorrências": montarLinhasOcorrencias(),
         "Rendimento": montarLinhasRendimento(),
+        "Colheita": montarLinhasColheita(),
       },
     };
     const res = await fetch(BACKUP_SHEETS_URL, {

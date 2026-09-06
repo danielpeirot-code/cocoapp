@@ -220,7 +220,7 @@
     <div>
       <div class="title">Controle de Campo — Coco</div>
       <div id="statusLine" class="status offline">verificando conexão…</div>
-      <div style="font-size:9px; color:#a8a29e; margin-top:1px;">v33</div>
+      <div style="font-size:9px; color:#a8a29e; margin-top:1px;">v34</div>
     </div>
     <div class="spacer"></div>
     <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
@@ -295,6 +295,7 @@ window.__state = {
   ocorrencias: [],
   atividadesPadrao: {},
   metasColheita: {},
+  cargasVerde: [],
   currentTab: "romaneio",
   contagem: { tipo: "Híbrido", setor: "A3A4", numLinha: "", qtdPlantas: 78, valores: [], numLinhaB: "", valoresB: [] },
   _vozAtivo: false,
@@ -307,7 +308,7 @@ window.__state = {
   _uploadTipoFoto: "Carga geral",
   _fotosEnviando: 0,
   _fotosPendentes: [],
-  saveStatus: { romaneio: "idle", descartes: "idle", contagem: "idle", aplicacoes: "idle", programacao: "idle", estoque: "idle", setores: "idle", ocorrencias: "idle", rendimento: "idle", colheita: "idle" },
+  saveStatus: { romaneio: "idle", descartes: "idle", contagem: "idle", aplicacoes: "idle", programacao: "idle", estoque: "idle", setores: "idle", ocorrencias: "idle", rendimento: "idle", colheita: "idle", romaneioVerde: "idle" },
 };
 const S = window.__state;
 window.S = S; // necessário para os campos de formulário (oninput="S...") funcionarem
@@ -400,6 +401,13 @@ onAuthStateChanged(auth, (user) => {
     if (S.currentTab === "romaneio" || S.currentTab === "dashboard") renderTab();
   }, (err) => console.error(err));
 
+  onSnapshot(collection(db, "cargasVerde"), (snap) => {
+    S.cargasVerde = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    setSaveStatus("romaneioVerde", "saved");
+    if (snap.metadata.hasPendingWrites) return;
+    if (S.currentTab === "romaneioVerde") renderTab();
+  }, (err) => console.error(err));
+
   onSnapshot(collection(db, "bags"), (snap) => {
     S.bags = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     if (snap.metadata.hasPendingWrites) return;
@@ -409,7 +417,7 @@ onAuthStateChanged(auth, (user) => {
   onSnapshot(collection(db, "cargaFotos"), (snap) => {
     S.cargaFotos = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     if (snap.metadata.hasPendingWrites) return;
-    if (S.currentTab === "romaneio") renderTab();
+    if (S.currentTab === "romaneio" || S.currentTab === "romaneioVerde") renderTab();
   }, (err) => console.error(err));
 
   onSnapshot(collection(db, "descartes"), (snap) => {
@@ -614,6 +622,7 @@ const CATEGORIAS_NAV = [
   { id: "producao", label: "Produção", icon: "🌴", tabs: [
     { id: "colheita", label: "Colheita", icon: "🌾" },
     { id: "romaneio", label: "Romaneio", icon: "🚛" },
+    { id: "romaneioVerde", label: "Rom. Verde", icon: "🥥" },
     { id: "contagem", label: "Contagem", icon: "🌱" },
   ] },
   { id: "manejo", label: "Manejo", icon: "🌱", tabs: [
@@ -671,6 +680,7 @@ function renderTab() {
   if (S.currentTab === "dashboard") renderDashboard();
   else if (S.currentTab === "colheita") renderColheita();
   else if (S.currentTab === "romaneio") renderRomaneio();
+  else if (S.currentTab === "romaneioVerde") renderRomaneioVerde();
   else if (S.currentTab === "contagem") renderContagem();
   else if (S.currentTab === "aplicacoes") renderAplicacoes();
   else if (S.currentTab === "indicadores") renderIndicadores();
@@ -734,24 +744,6 @@ function renderCargaCard(carga, linhasCalc, totalEstocado, totalCarregado, total
         <label class="field"><span>Destino da carga</span><input type="text" value="${esc(carga.destino)}" oninput="atualizarCarga('${carga.id}','destino',this.value)"/></label>
         <label class="field"><span>Horário de saída</span><input type="time" value="${esc(carga.horarioSaida)}" oninput="atualizarCarga('${carga.id}','horarioSaida',this.value)"/></label>
         <label class="field"><span>NF / CT-e (opcional)</span><input type="text" value="${esc(carga.nfCte)}" oninput="atualizarCarga('${carga.id}','nfCte',this.value)"/></label>
-      </div>`;
-
-    // Amostra de volume de água (coco seco) — pega alguns frutos antes de carregar e mede em
-    // ml cada um; o app calcula a média sozinho conforme você vai adicionando as leituras.
-    const amostras = carga.amostrasAgua || [];
-    const mediaAgua = amostras.length ? amostras.reduce((s, v) => s + v, 0) / amostras.length : null;
-    html += `<div style="font-size:11px; font-weight:700; text-transform:uppercase; color:#78716c; margin-bottom:6px;">💧 Amostra de água (coco seco)</div>
-      <div class="card" style="padding:10px; margin-bottom:14px;">
-        <div class="row-flex" style="margin-bottom:8px; flex-wrap:wrap; gap:8px;">
-          <div style="display:flex; gap:6px; align-items:center;">
-            <input type="number" id="amostraAguaInput-${carga.id}" placeholder="ml deste fruto" style="width:120px; padding:7px 9px; border:1px solid #d6d3d1; border-radius:8px; font-size:13px;" onkeydown="if(event.key==='Enter'){adicionarAmostraAgua('${carga.id}');}"/>
-            <button class="btn ghost" style="width:auto; padding:7px 12px;" onclick="adicionarAmostraAgua('${carga.id}')">➕ Adicionar</button>
-          </div>
-          ${mediaAgua !== null ? `<div style="font-weight:800; font-size:14px;">Média: ${fmt(mediaAgua,1)} ml <span class="muted" style="font-weight:400; font-size:11px;">(${amostras.length} amostra${amostras.length>1?"s":""})</span></div>` : `<span class="muted" style="font-size:12px;">Nenhuma amostra ainda.</span>`}
-        </div>
-        ${amostras.length > 0 ? `<div style="display:flex; flex-wrap:wrap; gap:6px;">` +
-          amostras.map((v, i) => `<span class="status-pill azul" style="display:inline-flex; align-items:center; gap:5px;">${fmt(v,0)} ml <button onclick="removerAmostraAgua('${carga.id}',${i})" style="background:none; border:none; cursor:pointer; color:#1e3a6e; font-weight:900; padding:0;">✕</button></span>`).join("") +
-          `</div>` : ""}
       </div>`;
 
     if (!arquivada) {
@@ -1073,11 +1065,12 @@ window.onFotosCargaSelecionadas = async function (input) {
   const tipo = S._uploadTipoFoto || "Carga geral";
   const files = Array.from(input.files || []);
   input.value = ""; // permite escolher o mesmo arquivo de novo depois, se precisar
+  const area = S.currentTab === "romaneioVerde" ? "romaneioVerde" : "romaneio"; // pra atualizar a pilulazinha certa
 
   if (!cargaId || files.length === 0) return;
 
   S._fotosEnviando += files.length;
-  marcarSalvando("romaneio");
+  marcarSalvando(area);
   renderRomaneioSeAtivo();
 
   for (const file of files) {
@@ -1114,7 +1107,7 @@ window.onFotosCargaSelecionadas = async function (input) {
     }
   }
 
-  if (S._fotosEnviando === 0) setSaveStatus("romaneio", "saved");
+  if (S._fotosEnviando === 0) setSaveStatus(area, "saved");
 };
 
 window.removerFotoPendenteUI = async function (id) {
@@ -1149,9 +1142,6 @@ window.compartilharCargaWhatsapp = async function (cargaId) {
   const totalCarregado = linhasCalc.reduce((s, l) => s + l.carregado1, 0);
   const totalDiferenca = totalCarregado - totalEstocado;
 
-  const amostrasAgua = carga.amostrasAgua || [];
-  const mediaAgua = amostrasAgua.length ? amostrasAgua.reduce((s, v) => s + v, 0) / amostrasAgua.length : null;
-
   const texto = `🌴 *Carga Nº ${carga.numero}* — ${brDate(carga.data)}\n` +
     (carga.encarregado ? `Encarregado: ${carga.encarregado}\n` : "") +
     (carga.motorista ? `Motorista: ${carga.motorista}${carga.telefoneMotorista ? " (" + carga.telefoneMotorista + ")" : ""}\n` : "") +
@@ -1159,7 +1149,6 @@ window.compartilharCargaWhatsapp = async function (cargaId) {
     (carga.destino ? `Destino: ${carga.destino}\n` : "") +
     (carga.horarioSaida ? `Saída: ${carga.horarioSaida}\n` : "") +
     (carga.nfCte ? `NF/CT-e: ${carga.nfCte}\n` : "") +
-    (mediaAgua !== null ? `Água (amostra): ${fmt(mediaAgua,1)} ml\n` : "") +
     `Bags: ${linhasCalc.length}\n` +
     `Quantidade: ${fmt(totalCoco, 0)} cocos\n` +
     `Estocado: ${fmt(totalEstocado, 0)} kg\n` +
@@ -1198,6 +1187,7 @@ window.compartilharCargaWhatsapp = async function (cargaId) {
 
 function renderRomaneioSeAtivo() {
   if (S.currentTab === "romaneio") renderRomaneio();
+  else if (S.currentTab === "romaneioVerde") renderRomaneioVerde();
 }
 
 function renderRomaneio() {
@@ -1341,6 +1331,236 @@ window.reabrirCarga = function (cargaId) {
   updateDoc(doc(db, "cargas", cargaId), { status: "aberta" }).then(() => { if (navigator.onLine) setSaveStatus("romaneio", "saved"); }).catch((e) => tratarErroSalvamento("romaneio", e));
   renderRomaneio();
 };
+
+/* =========================================================================
+   ROMANEIO VERDE — mais simples que o de coco seco: sem bag, só a
+   quantidade total de frutos da carga, transporte, amostra de água (é aqui
+   que ela faz sentido, não no seco) e fotos do carregamento.
+   ========================================================================= */
+S._novaCargaVerde = { numero: "", data: todayISO(), encarregado: "" };
+S._openCargaVerde = null;
+S._verArquivadasVerde = false;
+const _cargaVerdeTimers = {};
+
+window.toggleCargaVerde = function (id) {
+  S._openCargaVerde = S._openCargaVerde === id ? null : id;
+  renderRomaneioVerde();
+};
+window.toggleVerArquivadasVerde = function () {
+  S._verArquivadasVerde = !S._verArquivadasVerde;
+  renderRomaneioVerde();
+};
+
+window.criarCargaVerde = function () {
+  if (!S._novaCargaVerde.numero) return;
+  const payload = { ...S._novaCargaVerde, status: "aberta" };
+  const ref = doc(collection(db, "cargasVerde"));
+  marcarSalvando("romaneioVerde");
+  setDoc(ref, payload).then(() => { if (navigator.onLine) setSaveStatus("romaneioVerde", "saved"); }).catch((e) => tratarErroSalvamento("romaneioVerde", e));
+  S._novaCargaVerde = { numero: "", data: todayISO(), encarregado: S._novaCargaVerde.encarregado };
+  S._openCargaVerde = ref.id;
+  renderRomaneioVerde();
+};
+
+window.atualizarCargaVerde = function (cargaId, campo, valor) {
+  const idx = S.cargasVerde.findIndex((c) => c.id === cargaId);
+  if (idx >= 0) S.cargasVerde[idx] = { ...S.cargasVerde[idx], [campo]: valor };
+
+  marcarSalvando("romaneioVerde");
+  const chave = cargaId + "__" + campo;
+  clearTimeout(_cargaVerdeTimers[chave]);
+  _cargaVerdeTimers[chave] = setTimeout(() => {
+    updateDoc(doc(db, "cargasVerde", cargaId), { [campo]: valor })
+      .then(() => { if (navigator.onLine) setSaveStatus("romaneioVerde", "saved"); })
+      .catch((e) => tratarErroSalvamento("romaneioVerde", e));
+  }, 500);
+};
+
+window.adicionarAmostraAguaVerde = function (cargaId) {
+  const input = document.getElementById("amostraAguaVerdeInput-" + cargaId);
+  const valor = Number(input && input.value);
+  if (!valor || valor <= 0) return;
+
+  const carga = S.cargasVerde.find((c) => c.id === cargaId);
+  if (!carga) return;
+  const novasAmostras = [...(carga.amostrasAgua || []), valor];
+  const idx = S.cargasVerde.findIndex((c) => c.id === cargaId);
+  S.cargasVerde[idx] = { ...carga, amostrasAgua: novasAmostras };
+  if (input) input.value = "";
+  renderRomaneioVerde();
+
+  marcarSalvando("romaneioVerde");
+  updateDoc(doc(db, "cargasVerde", cargaId), { amostrasAgua: novasAmostras })
+    .then(() => { if (navigator.onLine) setSaveStatus("romaneioVerde", "saved"); })
+    .catch((e) => tratarErroSalvamento("romaneioVerde", e));
+};
+
+window.removerAmostraAguaVerde = function (cargaId, index) {
+  const carga = S.cargasVerde.find((c) => c.id === cargaId);
+  if (!carga) return;
+  const novasAmostras = (carga.amostrasAgua || []).filter((_, i) => i !== index);
+  const idx = S.cargasVerde.findIndex((c) => c.id === cargaId);
+  S.cargasVerde[idx] = { ...carga, amostrasAgua: novasAmostras };
+  renderRomaneioVerde();
+
+  marcarSalvando("romaneioVerde");
+  updateDoc(doc(db, "cargasVerde", cargaId), { amostrasAgua: novasAmostras })
+    .then(() => { if (navigator.onLine) setSaveStatus("romaneioVerde", "saved"); })
+    .catch((e) => tratarErroSalvamento("romaneioVerde", e));
+};
+
+window.arquivarCargaVerde = function (cargaId) {
+  S._openCargaVerde = null;
+  marcarSalvando("romaneioVerde");
+  updateDoc(doc(db, "cargasVerde", cargaId), { status: "arquivada" }).then(() => { if (navigator.onLine) setSaveStatus("romaneioVerde", "saved"); }).catch((e) => tratarErroSalvamento("romaneioVerde", e));
+  renderRomaneioVerde();
+};
+window.reabrirCargaVerde = function (cargaId) {
+  marcarSalvando("romaneioVerde");
+  updateDoc(doc(db, "cargasVerde", cargaId), { status: "aberta" }).then(() => { if (navigator.onLine) setSaveStatus("romaneioVerde", "saved"); }).catch((e) => tratarErroSalvamento("romaneioVerde", e));
+  renderRomaneioVerde();
+};
+window.removeCargaVerde = function (cargaId) {
+  S._openCargaVerde = null;
+  marcarSalvando("romaneioVerde");
+  const fotosDessaCarga = fotosDaCarga(cargaId);
+  Promise.all([
+    deleteDoc(doc(db, "cargasVerde", cargaId)),
+    ...fotosDessaCarga.map((f) => deleteDoc(doc(db, "cargaFotos", f.id))),
+    ...fotosDessaCarga.map((f) => f.fileId
+      ? fetch(BACKUP_SHEETS_URL, {
+          method: "POST",
+          headers: { "Content-Type": "text/plain;charset=utf-8" },
+          body: JSON.stringify({ action: "excluirFoto", fileId: f.fileId }),
+        }).catch((e) => console.warn("Não consegui apagar uma foto no Drive (pode ter que remover na mão):", e))
+      : Promise.resolve()),
+  ]).then(() => { if (navigator.onLine) setSaveStatus("romaneioVerde", "saved"); }).catch((e) => tratarErroSalvamento("romaneioVerde", e));
+  renderRomaneioVerde();
+};
+
+function renderRomaneioVerde() {
+  const c = S._novaCargaVerde;
+  let html = `
+  <div class="card">
+    <div class="row-flex" style="margin-bottom:10px;">
+      <h3>🥥 Nova carga — Coco Verde</h3>
+      <span id="savingPill-romaneioVerde" class="saving-pill"></span>
+    </div>
+    <div class="grid grid-2" style="margin-bottom:10px;">
+      <label class="field"><span>Nº carga</span><input type="number" value="${esc(c.numero)}" oninput="S._novaCargaVerde.numero=this.value"/></label>
+      <label class="field"><span>Data da carga</span><input type="date" value="${esc(c.data)}" oninput="S._novaCargaVerde.data=this.value"/></label>
+      <label class="field" style="grid-column:span 2;"><span>Encarregado</span><input type="text" value="${esc(c.encarregado)}" oninput="S._novaCargaVerde.encarregado=this.value"/></label>
+    </div>
+    <button class="btn" onclick="criarCargaVerde()">➕ Criar carga</button>
+  </div>`;
+
+  const abertas = S.cargasVerde.filter((c) => c.status !== "arquivada").sort((a, b) => (b.numero||0) - (a.numero||0));
+  const arquivadas = S.cargasVerde.filter((c) => c.status === "arquivada").sort((a, b) => (b.numero||0) - (a.numero||0));
+
+  if (abertas.length === 0) {
+    html += `<div class="empty">Nenhuma carga de coco verde em andamento.</div>`;
+  } else {
+    abertas.forEach((carga) => { html += renderCargaVerdeCard(carga); });
+  }
+
+  if (arquivadas.length > 0) {
+    html += `<button class="btn ghost" style="margin:6px 0;" onclick="toggleVerArquivadasVerde()">
+      ${S._verArquivadasVerde ? "▾" : "▸"} Cargas arquivadas (${arquivadas.length})
+    </button>`;
+    if (S._verArquivadasVerde) arquivadas.forEach((carga) => { html += renderCargaVerdeCard(carga); });
+  }
+
+  document.getElementById("tabContent").innerHTML = html;
+  setSaveStatus("romaneioVerde", S.saveStatus.romaneioVerde);
+}
+
+function renderCargaVerdeCard(carga) {
+  const aberto = S._openCargaVerde === carga.id;
+  const arquivada = carga.status === "arquivada";
+
+  let html = `<div class="card">
+    <button style="width:100%; background:none; border:none; text-align:left; cursor:pointer; padding:0;" onclick="toggleCargaVerde('${carga.id}')">
+      <div class="row-flex">
+        <b>🥥 Carga Verde Nº ${esc(carga.numero)} <span class="muted" style="font-weight:400;">${brDate(carga.data)}</span></b>
+        <div style="display:flex; align-items:center; gap:6px;">
+          ${arquivada ? `<span class="status-pill cinza">arquivada</span>` : `<span class="status-pill verde">em andamento</span>`}
+          <span class="muted">${aberto ? "▾" : "▸"}</span>
+        </div>
+      </div>
+      ${carga.quantidadeTotal ? `<div class="muted" style="font-size:12px; margin-top:4px;">Quantidade: <b style="color:#292524;">${fmt(Number(carga.quantidadeTotal),0)} frutos</b></div>` : ""}
+    </button>`;
+
+  if (aberto) {
+    html += `<div class="carga-body">`;
+
+    html += `<div style="font-size:11px; font-weight:700; text-transform:uppercase; color:#78716c; margin-bottom:6px;">🚛 Transporte</div>
+      <div class="grid grid-4" style="margin-bottom:14px;">
+        <label class="field"><span>Motorista</span><input type="text" value="${esc(carga.motorista)}" oninput="atualizarCargaVerde('${carga.id}','motorista',this.value)"/></label>
+        <label class="field"><span>Telefone do motorista</span><input type="tel" value="${esc(carga.telefoneMotorista)}" oninput="atualizarCargaVerde('${carga.id}','telefoneMotorista',this.value)"/></label>
+        <label class="field"><span>Placa do caminhão</span><input type="text" style="text-transform:uppercase;" value="${esc(carga.placa)}" oninput="atualizarCargaVerde('${carga.id}','placa',this.value.toUpperCase())"/></label>
+        <label class="field"><span>Destino da carga</span><input type="text" value="${esc(carga.destino)}" oninput="atualizarCargaVerde('${carga.id}','destino',this.value)"/></label>
+        <label class="field"><span>Horário de saída</span><input type="time" value="${esc(carga.horarioSaida)}" oninput="atualizarCargaVerde('${carga.id}','horarioSaida',this.value)"/></label>
+        <label class="field"><span>NF / CT-e (opcional)</span><input type="text" value="${esc(carga.nfCte)}" oninput="atualizarCargaVerde('${carga.id}','nfCte',this.value)"/></label>
+      </div>`;
+
+    html += `<div style="font-size:11px; font-weight:700; text-transform:uppercase; color:#78716c; margin-bottom:6px;">🥥 Quantidade total</div>
+      <div class="grid grid-2" style="margin-bottom:14px;">
+        <label class="field"><span>Quantidade (frutos)</span><input type="number" value="${esc(carga.quantidadeTotal)}" oninput="atualizarCargaVerde('${carga.id}','quantidadeTotal',this.value)"/></label>
+      </div>`;
+
+    const amostras = carga.amostrasAgua || [];
+    const mediaAgua = amostras.length ? amostras.reduce((s, v) => s + v, 0) / amostras.length : null;
+    html += `<div style="font-size:11px; font-weight:700; text-transform:uppercase; color:#78716c; margin-bottom:6px;">💧 Amostra de água</div>
+      <div class="card" style="padding:10px; margin-bottom:14px;">
+        <div class="row-flex" style="margin-bottom:8px; flex-wrap:wrap; gap:8px;">
+          <div style="display:flex; gap:6px; align-items:center;">
+            <input type="number" id="amostraAguaVerdeInput-${carga.id}" placeholder="ml deste fruto" style="width:120px; padding:7px 9px; border:1px solid #d6d3d1; border-radius:8px; font-size:13px;" onkeydown="if(event.key==='Enter'){adicionarAmostraAguaVerde('${carga.id}');}"/>
+            <button class="btn ghost" style="width:auto; padding:7px 12px;" onclick="adicionarAmostraAguaVerde('${carga.id}')">➕ Adicionar</button>
+          </div>
+          ${mediaAgua !== null ? `<div style="font-weight:800; font-size:14px;">Média: ${fmt(mediaAgua,1)} ml <span class="muted" style="font-weight:400; font-size:11px;">(${amostras.length} amostra${amostras.length>1?"s":""})</span></div>` : `<span class="muted" style="font-size:12px;">Nenhuma amostra ainda.</span>`}
+        </div>
+        ${amostras.length > 0 ? `<div style="display:flex; flex-wrap:wrap; gap:6px;">` +
+          amostras.map((v, i) => `<span class="status-pill azul" style="display:inline-flex; align-items:center; gap:5px;">${fmt(v,0)} ml <button onclick="removerAmostraAguaVerde('${carga.id}',${i})" style="background:none; border:none; cursor:pointer; color:#1e3a6e; font-weight:900; padding:0;">✕</button></span>`).join("") +
+          `</div>` : ""}
+      </div>`;
+
+    const fotos = fotosDaCarga(carga.id);
+    const enviando = S._uploadCargaId === carga.id ? S._fotosEnviando : 0;
+    html += `<div style="font-size:11px; font-weight:700; text-transform:uppercase; color:#78716c; margin-bottom:6px;">📷 Fotos do carregamento${fotos.length ? ` (${fotos.length})` : ""}</div>
+      <div class="fotos-carga-btns">
+        <button onclick="selecionarFotosCarga('${carga.id}','Carga geral')">📷 Carga geral</button>
+        <button class="verde" onclick="selecionarFotosCarga('${carga.id}','Coco verde')">📷 Coco verde</button>
+        <button class="balanca" onclick="selecionarFotosCarga('${carga.id}','Aferição da balança')">⚖️ Aferição da balança</button>
+      </div>`;
+
+    if (fotos.length > 0 || enviando > 0) {
+      html += `<div class="fotos-grid">`;
+      fotos.forEach((f) => {
+        const classeTipo = classeTipoFoto(f.tipo);
+        html += `<div class="foto-item">
+          <img src="${esc(f.url)}" loading="lazy" onclick="window.open('${esc(f.url)}','_blank')"/>
+          <span class="foto-tipo-badge ${classeTipo}">${esc(f.tipo || "Geral")}</span>
+          <button class="foto-del" onclick="removerFotoCarga('${f.id}','${esc(f.fileId || "")}')">✕</button>
+        </div>`;
+      });
+      for (let i = 0; i < enviando; i++) html += `<div class="foto-item foto-uploading">⏳<br/>enviando…</div>`;
+      html += `</div>`;
+    } else {
+      html += `<div class="muted" style="font-size:11.5px; margin-bottom:10px;">Nenhuma foto ainda.</div>`;
+    }
+
+    html += `<div style="display:flex; justify-content:flex-end; gap:8px; margin-top:10px; flex-wrap:wrap;">`;
+    if (!arquivada) {
+      html += `<button class="btn danger" onclick="removeCargaVerde('${carga.id}')">🗑️ Excluir carga</button>`;
+      html += `<button class="btn" style="width:auto; background:#0f766e;" onclick="arquivarCargaVerde('${carga.id}')">📦 Finalizar e arquivar carga</button>`;
+    } else {
+      html += `<button class="btn ghost" style="width:auto;" onclick="reabrirCargaVerde('${carga.id}')">↩️ Reabrir carga</button>`;
+    }
+    html += `</div></div>`;
+  }
+
+  return html;
+}
 
 /* =========================================================================
    DESCARTES — vive dentro de cada carga agora, ligado direto pelo ID dela
@@ -2069,38 +2289,6 @@ window.atualizarCarga = function (cargaId, campo, valor) {
 
 // Amostra de água: guarda a lista inteira de leituras (em ml) direto no documento da carga.
 // Cada "adicionar" e "remover" já salva a lista atualizada na hora, sem precisar de botão salvar.
-window.adicionarAmostraAgua = function (cargaId) {
-  const input = document.getElementById("amostraAguaInput-" + cargaId);
-  const valor = Number(input && input.value);
-  if (!valor || valor <= 0) return;
-
-  const carga = S.cargas.find((c) => c.id === cargaId);
-  if (!carga) return;
-  const novasAmostras = [...(carga.amostrasAgua || []), valor];
-  const idx = S.cargas.findIndex((c) => c.id === cargaId);
-  S.cargas[idx] = { ...carga, amostrasAgua: novasAmostras };
-  if (input) input.value = "";
-  renderRomaneio();
-
-  marcarSalvando("romaneio");
-  updateDoc(doc(db, "cargas", cargaId), { amostrasAgua: novasAmostras })
-    .then(() => { if (navigator.onLine) setSaveStatus("romaneio", "saved"); })
-    .catch((e) => tratarErroSalvamento("romaneio", e));
-};
-
-window.removerAmostraAgua = function (cargaId, index) {
-  const carga = S.cargas.find((c) => c.id === cargaId);
-  if (!carga) return;
-  const novasAmostras = (carga.amostrasAgua || []).filter((_, i) => i !== index);
-  const idx = S.cargas.findIndex((c) => c.id === cargaId);
-  S.cargas[idx] = { ...carga, amostrasAgua: novasAmostras };
-  renderRomaneio();
-
-  marcarSalvando("romaneio");
-  updateDoc(doc(db, "cargas", cargaId), { amostrasAgua: novasAmostras })
-    .then(() => { if (navigator.onLine) setSaveStatus("romaneio", "saved"); })
-    .catch((e) => tratarErroSalvamento("romaneio", e));
-};
 
 window.atualizarAplic = function (setor, tipo, campo, valor, rowId) {
   const k = chaveAplic(setor, tipo);
@@ -3408,8 +3596,6 @@ function renderOcorrencias() {
 function montarLinhasRomaneio() {
   const rows = [];
   S.cargas.forEach((carga) => {
-    const amostras = carga.amostrasAgua || [];
-    const mediaAgua = amostras.length ? amostras.reduce((s, v) => s + v, 0) / amostras.length : "";
     bagsDaCarga(carga.id).forEach((l) => {
       const calc = calcLinhaRomaneio(l);
       rows.push({
@@ -3417,7 +3603,6 @@ function montarLinhasRomaneio() {
         "Data da Carga": carga.data, "Encarregado": carga.encarregado,
         "Motorista": carga.motorista, "Telefone Motorista": carga.telefoneMotorista, "Placa": carga.placa,
         "Destino": carga.destino, "Horário Saída": carga.horarioSaida, "NF/CT-e": carga.nfCte,
-        "Média Água (ml)": mediaAgua !== "" ? Number(mediaAgua.toFixed(1)) : "",
         "Nº Bag": l.idBag, "Data Descasca": l.dataDescasca, "Talhão": l.talhao, "Coco 1ª (frutos)": l.coco1,
         "Estocado 1ª (kg)": l.estocado1, "Data Carregamento": l.dataCarregamento, "Carregado 1ª (kg)": l.carregado1,
         "Diferença (kg)": calc.diferenca, "5 cocos carregado (g)": l.cincoCocosG,
@@ -3425,6 +3610,21 @@ function montarLinhasRomaneio() {
     });
   });
   return rows;
+}
+
+function montarLinhasRomaneioVerde() {
+  return S.cargasVerde.map((carga) => {
+    const amostras = carga.amostrasAgua || [];
+    const mediaAgua = amostras.length ? amostras.reduce((s, v) => s + v, 0) / amostras.length : "";
+    return {
+      "Nº Carga": carga.numero, "Status": carga.status === "arquivada" ? "Arquivada" : "Em andamento",
+      "Data da Carga": carga.data, "Encarregado": carga.encarregado,
+      "Motorista": carga.motorista, "Telefone Motorista": carga.telefoneMotorista, "Placa": carga.placa,
+      "Destino": carga.destino, "Horário Saída": carga.horarioSaida, "NF/CT-e": carga.nfCte,
+      "Quantidade Total (frutos)": carga.quantidadeTotal,
+      "Média Água (ml)": mediaAgua !== "" ? Number(mediaAgua.toFixed(1)) : "",
+    };
+  });
 }
 
 function montarLinhasDescartes() {
@@ -3597,6 +3797,7 @@ function montarLinhasAplic(tiposList) {
 window.exportarExcel = function () {
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(montarLinhasRomaneio()), "Romaneio");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(montarLinhasRomaneioVerde()), "Romaneio Verde");
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(montarLinhasDescartes()), "Descartes");
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(montarLinhasContagem()), "Contagem");
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(montarLinhasAplic(TIPOS_APLICACAO)), "Aplicações");
@@ -3624,6 +3825,7 @@ window.enviarBackupSheets = async function () {
     const payload = {
       sheets: {
         "Romaneio": montarLinhasRomaneio(),
+        "Romaneio Verde": montarLinhasRomaneioVerde(),
         "Descartes": montarLinhasDescartes(),
         "Contagem": montarLinhasContagem(),
         "Aplicações": montarLinhasAplic(TIPOS_APLICACAO),

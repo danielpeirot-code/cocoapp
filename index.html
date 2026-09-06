@@ -220,7 +220,7 @@
     <div>
       <div class="title">Controle de Campo — Coco</div>
       <div id="statusLine" class="status offline">verificando conexão…</div>
-      <div style="font-size:9px; color:#a8a29e; margin-top:1px;">v39</div>
+      <div style="font-size:9px; color:#a8a29e; margin-top:1px;">v40</div>
     </div>
     <div class="spacer"></div>
     <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
@@ -1816,14 +1816,18 @@ function renderContagemInner() {
   const modoDuasLinhas = !!config.censoCompleto; // Anão Verde: conta em duas colunas lado a lado, igual planilha
 
   // No Anão Verde não é "completar as 52 linhas" — é contar linha após linha (em dupla) até
-  // bater a meta de frutos definida pra hoje. A meta é a mesma usada na aba Colheita.
+  // bater a meta de frutos definida pra hoje. A meta é a mesma usada na aba Colheita, e o
+  // "contado hoje" soma TODOS os setores (a meta é do dia inteiro, não só desse setor) menos
+  // a baseline (pra quando já zerou o contador nessa mesma data, começando uma rodada nova).
   const hoje = todayISO();
   const metaChave = chaveMetaColheita(hoje, ctg.tipo);
   const meta = Number((S.metasColheita[metaChave] || {}).meta) || 0;
-  const somaHojeSetor = registrosSetor.filter((l) => l.data === hoje).reduce((s, l) => s + l.total, 0);
+  const totalHojeRaw = S.contagemLinhas.filter((l) => l.tipo === ctg.tipo && l.data === hoje).reduce((s, l) => s + (Number(l.total) || 0), 0);
+  const somaHojeSetor = Math.max(0, totalHojeRaw - baselineHoje(ctg.tipo));
   const faltamFrutos = Math.max(0, meta - somaHojeSetor);
-  const mediaHoje = registrosSetor.filter((l) => l.data === hoje).length
-    ? somaHojeSetor / registrosSetor.filter((l) => l.data === hoje).length : null;
+  const registrosHojeSetorAtual = registrosSetor.filter((l) => l.data === hoje);
+  const mediaHoje = registrosHojeSetorAtual.length
+    ? registrosHojeSetorAtual.reduce((s, l) => s + l.total, 0) / registrosHojeSetorAtual.length : null;
   const linhasEstimadasRestantes = (faltamFrutos > 0 && mediaHoje) ? Math.ceil(faltamFrutos / mediaHoje) : null;
 
   let html = `
@@ -1855,11 +1859,12 @@ function renderContagemInner() {
       <label class="field"><span>Meta de frutos hoje (${esc(ctg.tipo)})</span><input type="number" value="${meta || ""}" placeholder="ex: 5000" oninput="definirMetaColheita(this.value)"/></label>
       <label class="field"><span>Plantas por linha</span><input type="number" value="${esc(ctg.qtdPlantas)}" oninput="mudarQtdPlantas(this.value)"/></label>
     </div>
-    ${meta > 0 ? `<div class="grid grid-3" style="grid-template-columns:repeat(3,1fr); margin-bottom:12px;">
-      <div class="stat-box"><div class="lbl">Contado hoje</div><div class="val">${fmt(somaHojeSetor,0)}</div></div>
+    ${meta > 0 ? `<div class="grid grid-3" style="grid-template-columns:repeat(3,1fr); margin-bottom:8px;">
+      <div class="stat-box ${somaHojeSetor>=meta?'green':''}"><div class="lbl">Contado hoje (todos setores)</div><div class="val">${fmt(somaHojeSetor,0)}</div></div>
       <div class="stat-box ${faltamFrutos===0?'green':''}"><div class="lbl">Faltam</div><div class="val">${fmt(faltamFrutos,0)}</div></div>
       <div class="stat-box"><div class="lbl">~Linhas restantes</div><div class="val">${linhasEstimadasRestantes ?? "—"}</div></div>
-    </div>` : ""}
+    </div>
+    ${somaHojeSetor >= meta ? `<div style="background:#dcfce7; border-radius:8px; padding:7px 10px; margin-bottom:8px; font-size:12px; color:#166534; font-weight:700;">🎉 Bateu a meta! <button class="btn ghost" style="width:auto; padding:3px 8px; font-size:11px; margin-left:6px;" onclick="zerarContadorColheita('${ctg.tipo}', ${totalHojeRaw})">🔄 Zerar e começar nova rodada</button></div>` : ""}` : ""}
     <div class="muted" style="font-size:11px; margin-bottom:6px;">Anda pela rua contando uma árvore da linha A, uma da linha B, e assim por diante — preenche as duas colunas na mesma ordem que for passando.</div>
     <div class="tbl-wrap"><table class="tbl" style="min-width:340px;"><thead><tr>
       <th style="text-align:left;">Árvore</th><th>Linha ${esc(ctg.numLinha || "A")}</th><th>Linha ${esc(ctg.numLinhaB || "B")}</th>
@@ -2217,13 +2222,41 @@ function contagensDoDia(tipo, setor, data) {
   return S.contagemLinhas.filter((l) => l.tipo === tipo && l.setor === setor && l.data === data);
 }
 
+// "Contado hoje" soma toda contagem do dia — mas às vezes tem mais de uma "rodada" de colheita
+// no mesmo dia (bateu a meta, fechou uma carga, começa outra). Em vez de ficar somando o dia
+// inteiro sem parar, guarda-se uma "baseline" (o total de quando a rodada anterior terminou) e
+// o "contado hoje" exibido é o total real MENOS essa baseline — sem apagar nada da Contagem,
+// só ajusta o que aparece como "dessa rodada".
+function baselineHoje(tipo) {
+  const chave = chaveMetaColheita(todayISO(), tipo);
+  return Number((S.metasColheita[chave] || {}).baseline) || 0;
+}
+
 window.definirMetaColheita = function (valor) {
   const chave = chaveMetaColheita(todayISO(), S._colheitaTipo);
-  S.metasColheita = { ...S.metasColheita, [chave]: { meta: Number(valor) || 0 } };
+  const atual = S.metasColheita[chave] || {};
+  const novo = { ...atual, meta: Number(valor) || 0 };
+  S.metasColheita = { ...S.metasColheita, [chave]: novo };
   marcarSalvando("colheita");
-  setDoc(doc(db, "metasColheita", chave), { meta: Number(valor) || 0 })
+  setDoc(doc(db, "metasColheita", chave), novo)
     .then(() => { if (navigator.onLine) setSaveStatus("colheita", "saved"); })
     .catch((e) => tratarErroSalvamento("colheita", e));
+};
+
+// Zera o contador "dessa rodada" sem apagar nenhuma contagem — só marca o total de agora como
+// o novo "ponto de partida". Usa isso depois de fechar uma carga / bater a meta, pra começar a
+// próxima rodada do zero.
+window.zerarContadorColheita = function (tipo, totalHojeAtual) {
+  if (!confirm("Zerar o contador de \"colhido hoje\"? Nada da Contagem é apagado, só o contador dessa tela volta a zero pra começar uma nova rodada.")) return;
+  const chave = chaveMetaColheita(todayISO(), tipo);
+  const atual = S.metasColheita[chave] || {};
+  const novo = { ...atual, baseline: totalHojeAtual };
+  S.metasColheita = { ...S.metasColheita, [chave]: novo };
+  marcarSalvando("colheita");
+  setDoc(doc(db, "metasColheita", chave), novo)
+    .then(() => { if (navigator.onLine) setSaveStatus("colheita", "saved"); })
+    .catch((e) => tratarErroSalvamento("colheita", e));
+  renderColheita();
 };
 
 function renderColheita() {
@@ -2255,11 +2288,14 @@ function renderColheitaInner() {
   const mapaUltimas = construirMapaUltimasContagens();
 
   const contadasHoje = contagensDoDia(tipo, setor, hoje);
-  const totalHoje = contadasHoje.reduce((s, l) => s + (Number(l.total) || 0), 0);
+  const totalHojeTodosSetoresRaw = S.contagemLinhas.filter((l) => l.tipo === tipo && l.data === hoje).reduce((s, l) => s + (Number(l.total) || 0), 0);
+  const baseline = baselineHoje(tipo);
+  const totalHojeExibido = Math.max(0, totalHojeTodosSetoresRaw - baseline);
   const metaChave = chaveMetaColheita(hoje, tipo);
   const meta = Number((S.metasColheita[metaChave] || {}).meta) || 0;
-  const faltam = Math.max(0, meta - totalHoje);
-  const mediaPorLinhaHoje = contadasHoje.length ? totalHoje / contadasHoje.length : null;
+  const faltam = Math.max(0, meta - totalHojeExibido);
+  const bateuMeta = meta > 0 && totalHojeExibido >= meta;
+  const mediaPorLinhaHoje = contadasHoje.length ? contadasHoje.reduce((s, l) => s + (Number(l.total) || 0), 0) / contadasHoje.length : null;
   const linhasRestantesEstimadas = (faltam > 0 && mediaPorLinhaHoje) ? Math.ceil(faltam / mediaPorLinhaHoje) : null;
 
   // Quais setores desse tipo já têm linha disponível hoje — pra responder "em qual setor eu entro"
@@ -2296,12 +2332,15 @@ function renderColheitaInner() {
     <div style="font-size:11px; font-weight:700; text-transform:uppercase; color:#78716c; margin-bottom:6px;">Meta de hoje (${brDate(hoje)}) — ${esc(tipo)}</div>
     <div class="grid grid-2" style="margin-bottom:10px;">
       <label class="field"><span>Meta de frutos hoje</span><input type="number" value="${meta || ""}" placeholder="ex: 5000" oninput="definirMetaColheita(this.value)"/></label>
-      <div class="stat-box"><div class="lbl">Contado hoje (todos os setores)</div><div class="val">${fmt(S.contagemLinhas.filter(l=>l.tipo===tipo && l.data===hoje).reduce((s,l)=>s+(Number(l.total)||0),0),0)}</div></div>
+      <div class="stat-box ${bateuMeta?'green':''}"><div class="lbl">Contado hoje (todos os setores)</div><div class="val">${fmt(totalHojeExibido,0)}</div></div>
     </div>
-    ${meta > 0 ? `<div class="grid grid-2">
+    ${meta > 0 ? `<div class="grid grid-2" style="margin-bottom:10px;">
       <div class="stat-box ${faltam===0?'green':''}"><div class="lbl">Faltam</div><div class="val">${fmt(faltam,0)}</div></div>
       <div class="stat-box"><div class="lbl">Linhas estimadas restantes (${esc(setor)})</div><div class="val">${linhasRestantesEstimadas ?? "—"}</div></div>
     </div>` : ""}
+    ${bateuMeta ? `<div style="background:#dcfce7; border-radius:8px; padding:8px 10px; margin-bottom:8px; font-size:12.5px; color:#166534; font-weight:700;">🎉 Bateu a meta de hoje!</div>` : ""}
+    <button class="btn ghost" style="width:auto; font-size:11.5px;" onclick="zerarContadorColheita('${tipo}', ${totalHojeTodosSetoresRaw})">🔄 Zerar contador (começar nova rodada)</button>
+    <div class="muted" style="font-size:10.5px; margin-top:4px;">Não apaga nada da Contagem — só zera o que aparece aqui, pra começar a contar de novo em direção a uma nova meta (ex: depois de fechar uma carga).</div>
   </div>`;
 
   // Situação do ciclo de cada linha desse setor — disponível pra entrar colher ou ainda descansando

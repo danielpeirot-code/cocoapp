@@ -241,7 +241,7 @@
     <div>
       <div class="title">Controle de Campo — Coco</div>
       <div id="statusLine" class="status offline">verificando conexão…</div>
-      <div style="font-size:9px; color:#a7f3d0; margin-top:1px; opacity:.8;">v43</div>
+      <div style="font-size:9px; color:#a7f3d0; margin-top:1px; opacity:.8;">v46</div>
     </div>
     <div class="spacer"></div>
     <div id="climaPill" class="clima-pill" style="display:none;">
@@ -1792,11 +1792,11 @@ function renderDescarteDaCargaHTML(carga) {
         </tr>
       </tbody></table></div>
       <div class="grid grid-4" style="margin-top:10px;">
-        <div class="stat-box"><div class="lbl">Broto %</div><div class="val">${fmtPct(c.brotoPct)}</div></div>
-        <div class="stat-box"><div class="lbl">Perda até 350g</div><div class="val" style="color:#dc2626;">${fmtPct(c.perda350)}</div></div>
-        <div class="stat-box green"><div class="lbl">Aproveit. até 350g</div><div class="val">${fmtPct(c.aprov350)}</div></div>
-        <div class="stat-box"><div class="lbl">Perda até 400g</div><div class="val" style="color:#dc2626;">${fmtPct(c.perda400)}</div></div>
-        <div class="stat-box green" style="grid-column:span 3;"><div class="lbl">Aproveit. até 400g</div><div class="val">${fmtPct(c.aprov400)}</div></div>
+        <div class="stat-box ico"><div class="stat-ic">🌱</div><div><div class="lbl">Broto %</div><div class="val">${fmtPct(c.brotoPct)}</div></div></div>
+        <div class="stat-box ico vermelho"><div class="stat-ic vermelho">📉</div><div><div class="lbl">Perda até 350g</div><div class="val" style="color:#dc2626;">${fmtPct(c.perda350)}</div></div></div>
+        <div class="stat-box ico green"><div class="stat-ic">✅</div><div><div class="lbl">Aproveit. até 350g</div><div class="val">${fmtPct(c.aprov350)}</div></div></div>
+        <div class="stat-box ico vermelho"><div class="stat-ic vermelho">📉</div><div><div class="lbl">Perda até 400g</div><div class="val" style="color:#dc2626;">${fmtPct(c.perda400)}</div></div></div>
+        <div class="stat-box ico green" style="grid-column:span 3;"><div class="stat-ic">✅</div><div><div class="lbl">Aproveit. até 400g</div><div class="val">${fmtPct(c.aprov400)}</div></div></div>
       </div>
     </div>`;
     return html;
@@ -1933,10 +1933,10 @@ function renderContagemInner() {
       <label class="field"><span>Meta de frutos hoje (${esc(ctg.tipo)})</span><input type="number" value="${meta || ""}" placeholder="ex: 5000" oninput="definirMetaColheita(this.value)"/></label>
       <label class="field"><span>Plantas por linha</span><input type="number" value="${esc(ctg.qtdPlantas)}" oninput="mudarQtdPlantas(this.value)"/></label>
     </div>
-    ${meta > 0 ? `<div class="grid grid-3" style="grid-template-columns:repeat(3,1fr); margin-bottom:8px;">
-      <div class="stat-box ${somaHojeSetor>=meta?'green':''}"><div class="lbl">Contado hoje (todos setores)</div><div class="val">${fmt(somaHojeSetor,0)}</div></div>
-      <div class="stat-box ${faltamFrutos===0?'green':''}"><div class="lbl">Faltam</div><div class="val">${fmt(faltamFrutos,0)}</div></div>
-      <div class="stat-box"><div class="lbl">~Linhas restantes</div><div class="val">${linhasEstimadasRestantes ?? "—"}</div></div>
+    ${meta > 0 ? `<div class="grid grid-2" style="margin-bottom:8px;">
+      <div class="stat-box ico ${somaHojeSetor>=meta?'green':''}"><div class="stat-ic">👥</div><div><div class="lbl">Contado hoje (todos setores)</div><div class="val">${fmt(somaHojeSetor,0)}</div></div></div>
+      <div class="stat-box ico ${faltamFrutos===0?'green':''}"><div class="stat-ic laranja">🌴</div><div><div class="lbl">Faltam</div><div class="val">${fmt(faltamFrutos,0)}</div></div></div>
+      <div class="stat-box ico" style="grid-column:span 2;"><div class="stat-ic azul">📋</div><div><div class="lbl">~Linhas restantes</div><div class="val">${linhasEstimadasRestantes ?? "—"}</div></div></div>
     </div>
     ${somaHojeSetor >= meta ? `<div style="background:#dcfce7; border-radius:8px; padding:7px 10px; margin-bottom:8px; font-size:12px; color:#166534; font-weight:700;">🎉 Bateu a meta! <button class="btn ghost" style="width:auto; padding:3px 8px; font-size:11px; margin-left:6px;" onclick="zerarContadorColheita('${ctg.tipo}', ${totalHojeRaw})">🔄 Zerar e começar nova rodada</button></div>` : ""}` : ""}
     <div class="muted" style="font-size:11px; margin-bottom:6px;">Anda pela rua contando uma árvore da linha A, uma da linha B, e assim por diante — preenche as duas colunas na mesma ordem que for passando.</div>
@@ -1978,14 +1978,14 @@ function renderContagemInner() {
 
   if (config.censoCompleto) {
     html += `<div class="grid" style="grid-template-columns:repeat(2,1fr); margin-bottom:14px;">
-      <div class="stat-box"><div class="lbl">Total contado (histórico)</div><div class="val">${fmt(somaTotal,0)}</div></div>
-      <div class="stat-box"><div class="lbl">Linhas já contadas</div><div class="val">${registrosSetor.length}</div></div>
+      <div class="stat-box ico"><div class="stat-ic">🥥</div><div><div class="lbl">Total contado (histórico)</div><div class="val">${fmt(somaTotal,0)}</div></div></div>
+      <div class="stat-box ico"><div class="stat-ic azul">📋</div><div><div class="lbl">Linhas já contadas</div><div class="val">${registrosSetor.length}</div></div></div>
     </div>`;
   } else {
     html += `<div class="grid" style="grid-template-columns:repeat(3,1fr); margin-bottom:14px;">
-      <div class="stat-box"><div class="lbl">Soma total</div><div class="val">${fmt(somaTotal,0)}</div></div>
-      <div class="stat-box"><div class="lbl">Média/linha</div><div class="val">${fmt(media,1)}</div></div>
-      <div class="stat-box green"><div class="lbl">Estim. setor (${config.linhasPorSetor} linhas)</div><div class="val">${fmt(estimativa,0)}</div></div>
+      <div class="stat-box ico"><div class="stat-ic">🥥</div><div><div class="lbl">Soma total</div><div class="val">${fmt(somaTotal,0)}</div></div></div>
+      <div class="stat-box ico"><div class="stat-ic azul">📊</div><div><div class="lbl">Média/linha</div><div class="val">${fmt(media,1)}</div></div></div>
+      <div class="stat-box ico green"><div class="stat-ic">🎯</div><div><div class="lbl">Estim. setor (${config.linhasPorSetor} linhas)</div><div class="val">${fmt(estimativa,0)}</div></div></div>
     </div>`;
   }
 
@@ -2536,10 +2536,11 @@ function renderAplicacoes() {
 
     html += `<div class="aplic-section"><div class="card" style="padding:6px 4px 4px;">
       <button class="aplic-section-hdr" style="width:100%; background:none; border:none; cursor:pointer;" onclick="toggleAplicSecao('${tipo}')">
-        <span style="flex:1; text-align:left;">${icone} ${esc(tipo)} ${intervaloPadrao ? `<span class="muted" style="font-weight:400; font-size:11px;">(a cada ${intervaloPadrao}d, padrão)</span>` : `<span class="muted" style="font-weight:400; font-size:11px;">(monitoramento de campo)</span>`}</span>
+        <span class="stat-ic" style="width:28px; height:28px; font-size:13px; margin-right:2px;">${icone}</span>
+        <span style="flex:1; text-align:left;">${esc(tipo)} ${intervaloPadrao ? `<span class="muted" style="font-weight:400; font-size:11px;">(a cada ${intervaloPadrao}d, padrão)</span>` : `<span class="muted" style="font-weight:400; font-size:11px;">(monitoramento de campo)</span>`}</span>
         ${pend.atrasado ? `<span class="status-pill vermelho">${pend.atrasado} atrasado${pend.atrasado > 1 ? "s" : ""}</span>` : ""}
         ${pend.embreve ? `<span class="status-pill amarelo">${pend.embreve} em breve</span>` : ""}
-        <span class="muted" style="font-size:13px;">${colapsado ? "▸ abrir" : "▾ fechar"}</span>
+        <span class="chev" style="transform:rotate(${colapsado?"0":"90"}deg); transition:transform .15s;">›</span>
       </button>`;
 
     if (!colapsado) {
@@ -2856,17 +2857,20 @@ function renderIndicadores() {
   </div>
 
   <div class="grid grid-2" style="margin-bottom:14px;">
-    <div class="stat-box">
+    <div class="stat-box" style="position:relative;">
+      <span class="stat-ic" style="position:absolute; top:8px; right:8px; width:26px; height:26px; font-size:12px;">🌱</span>
       <div class="lbl">Carga produzida no mês</div>
       <div class="val" style="font-size:19px;">${fmt(atual.producaoKg,0)} kg</div>
       <div style="font-size:11px; margin-top:2px; color:#a8a29e;">${atual.nBagsProduzidos} bags — tudo que foi colhido/processado</div>
     </div>
-    <div class="stat-box">
+    <div class="stat-box" style="position:relative;">
+      <span class="stat-ic azul" style="position:absolute; top:8px; right:8px; width:26px; height:26px; font-size:12px;">🚛</span>
       <div class="lbl">Carga expedida no mês</div>
       <div class="val" style="font-size:19px;">${fmt(atual.expedidoKg,0)} kg</div>
       <div style="font-size:11px; margin-top:2px; color:#a8a29e;">${atual.nBagsExpedidos} bags — o que saiu de verdade</div>
     </div>
-    <div class="stat-box green" style="grid-column:span 2;">
+    <div class="stat-box green" style="grid-column:span 2; position:relative;">
+      <span class="stat-ic" style="position:absolute; top:8px; right:8px; width:26px; height:26px; font-size:12px;">📦</span>
       <div class="lbl">Estoque atual</div>
       <div class="val" style="font-size:19px;">${fmt(estoque,0)} kg</div>
       <div style="font-size:11px; margin-top:2px;">produzido mas ainda não expedido (todas as cargas, não só esse mês)</div>
@@ -2876,8 +2880,8 @@ function renderIndicadores() {
   <div class="card">
     <h3 style="margin-bottom:8px;">🗑️ Descarte no mês</h3>
     <div class="grid grid-2">
-      <div class="stat-box"><div class="lbl">Total descartado</div><div class="val">${fmt(atual.descarteKg,0)} kg</div></div>
-      <div class="stat-box"><div class="lbl">Broto (%) médio</div><div class="val">${fmtPct(atual.brotoPctMedio)}</div></div>
+      <div class="stat-box ico"><div class="stat-ic laranja">♻️</div><div><div class="lbl">Total descartado</div><div class="val">${fmt(atual.descarteKg,0)} kg</div></div></div>
+      <div class="stat-box ico"><div class="stat-ic">🌱</div><div><div class="lbl">Broto (%) médio</div><div class="val">${fmtPct(atual.brotoPctMedio)}</div></div></div>
     </div>
   </div>
 
@@ -3139,7 +3143,7 @@ function renderProgramacao() {
       html += `<div class="carga-card" style="border-left:5px solid ${cor.fg};">
         <button class="carga-head" onclick="toggleProg('${item.id}')">
           <div class="left">
-            <span>${aberto ? "▾" : "▸"}</span>
+            <span class="chev" style="transform:rotate(${aberto?"90":"0"}deg); transition:transform .15s; color:#a8a29e;">›</span>
             <span style="display:inline-block; width:9px; height:9px; border-radius:50%; background:${cor.fg};"></span>
             <span class="num">${esc(item.atividade) || "(sem nome)"}</span>
             <span class="badge">${esc(item.setor)}</span>
@@ -3557,11 +3561,15 @@ function renderEstoque() {
       const baixo = minimo > 0 && atual <= minimo;
       const prev = previsaoConsumo(ins.nome);
       const previsaoCurta = prev && prev.diasRestantes <= 14;
+      const iconeIns = ins.categoria === "Adubo" ? "🌱" : ins.categoria === "Defensivo" ? "🧴" : "📦";
       html += `<div style="padding:8px 0; border-bottom:1px solid #f0efee;">
         <div class="row-flex">
-          <div>
-            <b>${esc(ins.nome)}</b> <span class="muted" style="font-size:11px;">(${esc(ins.categoria)})</span>
-            ${baixo ? `<span class="status-pill vermelho" style="margin-left:6px;">⚠️ estoque baixo</span>` : ""}
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span class="stat-ic ${baixo?'vermelho':''}" style="width:30px; height:30px; font-size:14px; flex-shrink:0;">${iconeIns}</span>
+            <div>
+              <b>${esc(ins.nome)}</b> <span class="muted" style="font-size:11px;">(${esc(ins.categoria)})</span>
+              ${baixo ? `<div><span class="status-pill vermelho" style="margin-top:2px; display:inline-block;">⚠️ estoque baixo</span></div>` : ""}
+            </div>
           </div>
           <div style="text-align:right;">
             <div style="font-weight:800; font-size:15px; color:${baixo?"#dc2626":"#292524"};">${fmt(atual,1)} ${esc(ins.unidade)}</div>
@@ -3800,8 +3808,9 @@ function renderSetores() {
 
     html += `<div class="aplic-section"><div class="card" style="padding:6px 4px 4px;">
       <button class="aplic-section-hdr" style="width:100%; background:none; border:none; cursor:pointer;" onclick="toggleSetorCard('${talhao}')">
-        <span style="flex:1; text-align:left;">🌴 ${esc(talhao)} ${resumoBits ? `<span class="muted" style="font-weight:400; font-size:11px;">— ${esc(resumoBits)}</span>` : ""}</span>
-        <span class="muted" style="font-size:13px;">${colapsado ? "▸ abrir" : "▾ fechar"}</span>
+        <span class="stat-ic" style="width:28px; height:28px; font-size:13px; margin-right:2px;">🌴</span>
+        <span style="flex:1; text-align:left;">${esc(talhao)} ${resumoBits ? `<span class="muted" style="font-weight:400; font-size:11px;">— ${esc(resumoBits)}</span>` : ""}</span>
+        <span class="chev" style="transform:rotate(${colapsado?"0":"90"}deg); transition:transform .15s;">›</span>
       </button>`;
 
     if (!colapsado) {
@@ -3979,17 +3988,21 @@ function renderOcorrencias() {
     html += `<div class="empty">Nenhuma ocorrência registrada ainda.</div>`;
   }
 
+  const iconesOcorrencia = { "Incêndio": "🔥", "Praga": "🐛", "Doença": "🦠", "Falha de irrigação": "💧", "Quebra de equipamento": "🔧", "Falta de funcionário": "👤", "Problema de aplicação": "🧴", "Problema de balança": "⚖️", "Planta morta": "🥀", "Danos climáticos": "🌪️", "Outros": "⚠️" };
   lista.forEach((o) => {
     const enviandoFoto = S._ocorrenciaFotoEnviando === o.id;
-    html += `<div class="card" style="margin-bottom:10px;">
+    html += `<div class="card acento vermelho" style="margin-bottom:10px;">
       <div class="row-flex" style="align-items:flex-start;">
-        <div>
-          <span class="status-pill vermelho">${esc(o.tipo)}</span>
-          ${o.setor ? `<span class="muted" style="margin-left:6px;">📍 ${esc(o.setor)}</span>` : ""}
-          <span class="muted" style="margin-left:6px;">${brDate(o.data)}</span>
-          ${o.responsavel ? `<div class="muted" style="margin-top:2px;">Responsável: ${esc(o.responsavel)}</div>` : ""}
-          ${o.descricao ? `<div style="margin-top:4px;">${esc(o.descricao)}</div>` : ""}
-          ${o.providencia ? `<div class="muted" style="margin-top:4px;">✅ Providência: ${esc(o.providencia)}</div>` : ""}
+        <div style="display:flex; gap:9px; align-items:flex-start;">
+          <span class="stat-ic vermelho" style="width:32px; height:32px; font-size:15px; flex-shrink:0;">${iconesOcorrencia[o.tipo] || "⚠️"}</span>
+          <div>
+            <span class="status-pill vermelho">${esc(o.tipo)}</span>
+            ${o.setor ? `<span class="muted" style="margin-left:6px;">📍 ${esc(o.setor)}</span>` : ""}
+            <span class="muted" style="margin-left:6px;">${brDate(o.data)}</span>
+            ${o.responsavel ? `<div class="muted" style="margin-top:2px;">Responsável: ${esc(o.responsavel)}</div>` : ""}
+            ${o.descricao ? `<div style="margin-top:4px;">${esc(o.descricao)}</div>` : ""}
+            ${o.providencia ? `<div class="muted" style="margin-top:4px;">✅ Providência: ${esc(o.providencia)}</div>` : ""}
+          </div>
         </div>
         <button class="x-btn" onclick="removerOcorrencia('${o.id}','${esc(o.fotoFileId||"")}')">✕</button>
       </div>

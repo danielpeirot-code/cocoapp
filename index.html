@@ -244,7 +244,7 @@
     <div>
       <div class="title">Controle de Campo — Coco</div>
       <div id="statusLine" class="status offline">verificando conexão…</div>
-      <div style="font-size:9px; color:#a7f3d0; margin-top:1px; opacity:.8;">v48</div>
+      <div style="font-size:9px; color:#a7f3d0; margin-top:1px; opacity:.8;">v51</div>
     </div>
     <div class="spacer"></div>
     <div id="climaPill" class="clima-pill" style="display:none;">
@@ -2953,13 +2953,27 @@ const PALETA_CORES_ATIVIDADE = [
   { bg: "#dbeafe", fg: "#1e40af" }, { bg: "#dcfce7", fg: "#166534" }, { bg: "#fef9c3", fg: "#854d0e" },
   { bg: "#fce7f3", fg: "#9d174d" }, { bg: "#ede9fe", fg: "#5b21b6" }, { bg: "#ffedd5", fg: "#9a3412" },
   { bg: "#cffafe", fg: "#155e75" }, { bg: "#fee2e2", fg: "#991b1b" }, { bg: "#e0e7ff", fg: "#3730a3" },
-  { bg: "#f0fdf4", fg: "#15803d" },
+  { bg: "#f0fdf4", fg: "#15803d" }, { bg: "#fae8ff", fg: "#86198f" }, { bg: "#ecfccb", fg: "#3f6212" },
+  { bg: "#fef3c7", fg: "#92400e" }, { bg: "#e0f2fe", fg: "#075985" },
 ];
+// Antes a cor era sorteada por um "hash" do nome da atividade — o que podia coincidir e duas
+// atividades diferentes caírem na mesma cor por acaso (foi o que você viu acontecer). Agora a cor
+// é atribuída pela posição da atividade na lista cadastrada em ordem alfabética — assim, enquanto
+// você tiver até 14 atividades diferentes, nenhuma repete cor.
 function corAtividade(nome) {
-  let hash = 0;
-  const s = nome || "";
-  for (let i = 0; i < s.length; i++) hash = (hash * 31 + s.charCodeAt(i)) & 0xffffffff;
-  return PALETA_CORES_ATIVIDADE[Math.abs(hash) % PALETA_CORES_ATIVIDADE.length];
+  const nomesOrdenados = Object.values(S.atividadesPadrao)
+    .map((a) => a.nome)
+    .sort((a, b) => a.localeCompare(b, "pt-BR"));
+  let idx = nomesOrdenados.indexOf(nome);
+  if (idx === -1) {
+    // Atividade digitada de um jeito que não bate com nenhuma cadastrada no Rendimento
+    // (ex: registro antigo, texto livre) — cai de volta pro hash, só como reserva.
+    let hash = 0;
+    const s = nome || "";
+    for (let i = 0; i < s.length; i++) hash = (hash * 31 + s.charCodeAt(i)) & 0xffffffff;
+    idx = Math.abs(hash);
+  }
+  return PALETA_CORES_ATIVIDADE[idx % PALETA_CORES_ATIVIDADE.length];
 }
 
 function progVazia() {
@@ -2996,6 +3010,27 @@ window.criarColaborador = function () {
   addDoc(collection(db, "colaboradores"), { nome }).catch((e) => console.error(e));
   if (input) input.value = "";
 };
+
+// Importação em lote — cola vários nomes de uma vez (um por linha) em vez de cadastrar um
+// colaborador de cada vez. Pula quem já está cadastrado, pra não duplicar.
+window.importarColaboradores = function () {
+  const texto = document.getElementById("importarColaboradoresTexto");
+  const nomes = (texto ? texto.value : "").split("\n").map((l) => l.trim()).filter(Boolean);
+  if (nomes.length === 0) { alert("Cola pelo menos um nome, um por linha."); return; }
+
+  const jaExistentes = new Set(S.colaboradores.map((c) => c.nome.toLowerCase()));
+  let importados = 0, jaExistiam = 0;
+  nomes.forEach((nome) => {
+    if (jaExistentes.has(nome.toLowerCase())) { jaExistiam++; return; }
+    addDoc(collection(db, "colaboradores"), { nome }).catch((e) => console.error(e));
+    jaExistentes.add(nome.toLowerCase());
+    importados++;
+  });
+
+  if (texto) texto.value = "";
+  alert(`${importados} colaborador${importados>1?"es":""} importado${importados>1?"s":""}!${jaExistiam ? `\n${jaExistiam} já estava${jaExistiam>1?"m":""} cadastrado${jaExistiam>1?"s":""} (pulado${jaExistiam>1?"s":""}).` : ""}`);
+};
+
 window.removerColaborador = function (id) {
   pedirSenha(() => { deleteDoc(doc(db, "colaboradores", id)).catch((e) => console.error(e)); });
 };
@@ -3046,10 +3081,15 @@ function renderProgramacao() {
       <input type="date" value="${esc(S._progSemana)}" onchange="mudarProgSemana(this.value)"/>
     </label>
     <div class="muted" style="font-size:11.5px; margin-top:4px;">Semana ${numeroDaSemana(S._progSemana)} — ${brDate(S._progSemana)} até ${brDate(semanaFim.toISOString().slice(0,10))}</div>
-    <div style="display:flex; gap:6px; margin-top:10px;">
+    <div style="display:flex; gap:6px; margin-top:10px; flex-wrap:wrap;">
       <button class="btn ${S._progView!=='colaborador'?'':'ghost'}" style="width:auto;" onclick="mudarProgView('atividade')">📋 Por atividade</button>
       <button class="btn ${S._progView==='colaborador'?'':'ghost'}" style="width:auto;" onclick="mudarProgView('colaborador')">👤 Por colaborador</button>
+      ${itensSemana.length > 0 ? `<button class="btn ghost" style="width:auto;" onclick="duplicarSemanaInteira()">📆 Duplicar semana pra próxima (${itensSemana.length})</button>` : ""}
     </div>
+    ${itensSemana.length > 0 ? `<div style="display:flex; gap:6px; margin-top:8px; flex-wrap:wrap;">
+      <button class="btn ghost" style="width:auto; color:#128C7E; border:1px solid #128C7E; font-size:11.5px;" onclick="compartilharProgramacaoAtividadesWhatsapp()">📲 Compartilhar por atividade</button>
+      <button class="btn ghost" style="width:auto; color:#128C7E; border:1px solid #128C7E; font-size:11.5px;" onclick="compartilharProgramacaoColaboradorWhatsapp()">📲 Compartilhar por colaborador</button>
+    </div>` : ""}
   </div>`;
 
   if (S._progView === "colaborador") {
@@ -3102,10 +3142,17 @@ function renderProgramacao() {
     });
   }
   html += `</div>
-    <div style="display:flex; gap:6px; margin-bottom:10px;">
+    <div style="display:flex; gap:6px; margin-bottom:8px;">
       <input type="text" id="novoColaboradorInput" placeholder="Nome do novo colaborador" style="flex:1; padding:7px 9px; border:1px solid #d6d3d1; border-radius:8px; font-size:13px;" onkeydown="if(event.key==='Enter'){criarColaborador();}"/>
       <button class="btn ghost" style="width:auto;" onclick="criarColaborador()">➕</button>
     </div>
+    <details style="margin-bottom:10px;">
+      <summary style="font-size:11.5px; color:#78716c; cursor:pointer;">📋 Importar vários colaboradores de uma vez</summary>
+      <div style="margin-top:8px;">
+        <textarea id="importarColaboradoresTexto" rows="4" placeholder="Um nome por linha&#10;João Silva&#10;Maria Souza" style="width:100%; padding:8px 10px; border:1px solid #d6d3d1; border-radius:8px; font-size:13px; font-family:inherit; resize:vertical;"></textarea>
+        <button class="btn ghost" style="width:auto; margin-top:8px;" onclick="importarColaboradores()">📋 Importar todos</button>
+      </div>
+    </details>
     ${pessoasDoItem(nv).length > 0 ? `<div class="muted" style="font-size:11px; margin-bottom:10px; margin-top:-6px;">${pessoasDoItem(nv).length} pessoa${pessoasDoItem(nv).length>1?"s":""} selecionada${pessoasDoItem(nv).length>1?"s":""}</div>` : ""}
   `;
 
@@ -3322,6 +3369,89 @@ window.duplicarProgramacao = function (id) {
   renderProgramacao();
 };
 
+// Copia TODAS as atividades da semana atual pra próxima semana de uma vez — pra quem repete
+// muita coisa igual semana após semana (mesmo setor, mesma equipe), sem ter que duplicar
+// atividade por atividade. O executado sempre começa zerado, é uma semana nova.
+window.duplicarSemanaInteira = function () {
+  const itens = S.programacao.filter((p) => p.semana === S._progSemana);
+  if (itens.length === 0) return;
+  const proximaSemana = new Date(S._progSemana + "T00:00:00");
+  proximaSemana.setDate(proximaSemana.getDate() + 7);
+  const proximaSemanaISO = proximaSemana.toISOString().slice(0, 10);
+
+  if (!confirm(`Copiar ${itens.length} atividade${itens.length>1?"s":""} dessa semana pra semana de ${brDate(proximaSemanaISO)}? O executado começa zerado, é uma semana nova.`)) return;
+
+  const execZerado = {};
+  DIAS_SEMANA.forEach((d) => { execZerado[d.key] = ""; });
+
+  marcarSalvando("programacao");
+  itens.forEach((item) => {
+    const { id, ...resto } = item;
+    addDoc(collection(db, "programacao"), { ...resto, prog: { ...item.prog }, exec: execZerado, semana: proximaSemanaISO })
+      .catch((e) => tratarErroSalvamento("programacao", e));
+  });
+  if (navigator.onLine) setSaveStatus("programacao", "saved");
+
+  S._progSemana = proximaSemanaISO;
+  renderProgramacao();
+};
+
+// Compartilhamento no WhatsApp — usa compartilhamento nativo do celular quando dá (com o
+// WhatsApp aparecendo como uma das opções); no computador, cai pro link do WhatsApp Web.
+async function compartilharTextoWhatsapp(titulo, texto) {
+  if (navigator.share) {
+    try { await navigator.share({ title: titulo, text: texto }); return; }
+    catch (e) { if (e.name === "AbortError") return; console.warn("Falha no compartilhamento nativo, caindo pro link:", e); }
+  }
+  window.open(`https://wa.me/?text=${encodeURIComponent(texto)}`, "_blank");
+}
+
+window.compartilharProgramacaoAtividadesWhatsapp = function () {
+  const itens = S.programacao.filter((p) => p.semana === S._progSemana);
+  if (itens.length === 0) return;
+  const semanaFim = new Date(S._progSemana + "T00:00:00");
+  semanaFim.setDate(semanaFim.getDate() + 6);
+
+  let texto = `🗓️ *Programação — Semana ${numeroDaSemana(S._progSemana)}*\n${brDate(S._progSemana)} até ${brDate(semanaFim.toISOString().slice(0,10))}\n\n`;
+  itens.forEach((item) => {
+    texto += `🔸 *${item.atividade || "(sem nome)"}* — ${item.setor}\n`;
+    if (item.quemVaiFazer) texto += `👤 ${item.quemVaiFazer}\n`;
+    if (item.planejadoQtd) texto += `Planejado: ${item.planejadoQtd} ${item.planejadoUni || ""}${item.diasNec ? ` × ${item.diasNec} dias` : ""}\n`;
+    texto += `\n`;
+  });
+
+  compartilharTextoWhatsapp(`Programação Semana ${numeroDaSemana(S._progSemana)}`, texto.trim());
+};
+
+window.compartilharProgramacaoColaboradorWhatsapp = function () {
+  const itens = S.programacao.filter((p) => p.semana === S._progSemana);
+  if (itens.length === 0) return;
+  const colaboradoresSet = new Set();
+  itens.forEach((item) => {
+    (item.quemVaiFazer || "").split(",").map((n) => n.trim()).filter(Boolean).forEach((n) => colaboradoresSet.add(n));
+  });
+  const nomes = Array.from(colaboradoresSet).sort((a, b) => a.localeCompare(b, "pt-BR"));
+  if (nomes.length === 0) { alert("Ninguém informado em \"Quem vai fazer\" ainda essa semana."); return; }
+
+  let texto = `🗓️ *Quem faz o quê — Semana ${numeroDaSemana(S._progSemana)}*\n\n`;
+  nomes.forEach((nome) => {
+    texto += `👤 *${nome}*\n`;
+    DIAS_SEMANA.forEach((d) => {
+      const tarefas = itens.filter((item) => {
+        const temPessoa = (item.quemVaiFazer || "").split(",").map((n) => n.trim()).includes(nome);
+        const temDia = item.prog && item.prog[d.key] !== undefined && item.prog[d.key] !== "" && Number(item.prog[d.key]) !== 0;
+        return temPessoa && temDia;
+      });
+      if (tarefas.length > 0) {
+        texto += `${d.label}: ${tarefas.map((t) => `${t.atividade} (${t.setor})`).join(", ")}\n`;
+      }
+    });
+    texto += `\n`;
+  });
+
+  compartilharTextoWhatsapp(`Quem faz o quê — Semana ${numeroDaSemana(S._progSemana)}`, texto.trim());
+};
+
 /* =========================================================================
    RENDIMENTO POR ATIVIDADE
    Cadastro do rendimento padrão de cada atividade (unidade livre — ha/dia,
@@ -3374,6 +3504,31 @@ window.salvarAtividadePadrao = function () {
   renderRendimento();
 };
 
+// Importação em lote — cola várias linhas "nome; rendimento; unidade" de uma vez e cadastra
+// todas juntas, em vez de preencher o formulário uma atividade por vez.
+window.importarAtividadesPadrao = function () {
+  const texto = document.getElementById("importarAtividadesTexto");
+  const linhas = (texto ? texto.value : "").split("\n").map((l) => l.trim()).filter(Boolean);
+  if (linhas.length === 0) { alert("Cola pelo menos uma linha no formato: nome; rendimento; unidade"); return; }
+
+  let importadas = 0, comProblema = [];
+  marcarSalvando("rendimento");
+  linhas.forEach((linha) => {
+    const partes = linha.split(";").map((p) => p.trim());
+    const [nome, rendimentoPadrao, unidade] = partes;
+    if (!nome) { comProblema.push(linha); return; }
+    const chave = nome.toLowerCase();
+    setDoc(doc(db, "atividadesPadrao", chave), { nome, rendimentoPadrao: rendimentoPadrao || "", unidade: unidade || "" })
+      .catch((e) => tratarErroSalvamento("rendimento", e));
+    importadas++;
+  });
+  if (navigator.onLine) setSaveStatus("rendimento", "saved");
+
+  if (texto) texto.value = "";
+  alert(`${importadas} atividade${importadas>1?"s":""} importada${importadas>1?"s":""}!${comProblema.length ? `\n\nLinhas ignoradas (sem nome): ${comProblema.length}` : ""}`);
+  renderRendimento();
+};
+
 window.removerAtividadePadrao = function (chave) {
   pedirSenha(() => {
     marcarSalvando("rendimento");
@@ -3403,6 +3558,13 @@ function renderRendimento() {
       <button class="btn" onclick="salvarAtividadePadrao()">${S._editandoAtividadePadrao ? "💾 Salvar alteração" : "➕ Cadastrar"}</button>
       ${S._editandoAtividadePadrao ? `<button class="btn ghost" style="width:auto;" onclick="cancelarEdicaoAtividadePadrao()">Cancelar</button>` : ""}
     </div>
+  </div>`;
+
+  html += `<div class="card">
+    <h3 style="margin-bottom:6px; font-size:13px;">📋 Importar várias de uma vez</h3>
+    <div class="muted" style="font-size:11px; margin-bottom:8px;">Cola uma atividade por linha, no formato <b>nome; rendimento; unidade</b>. Exemplo:<br/>Roçagem; 2; ha/dia<br/>Adubação NPK; 500; kg/dia</div>
+    <textarea id="importarAtividadesTexto" rows="4" placeholder="Roçagem; 2; ha/dia&#10;Adubação NPK; 500; kg/dia" style="width:100%; padding:8px 10px; border:1px solid #d6d3d1; border-radius:8px; font-size:13px; font-family:inherit; resize:vertical;"></textarea>
+    <button class="btn ghost" style="width:auto; margin-top:8px;" onclick="importarAtividadesPadrao()">📋 Importar todas</button>
   </div>`;
 
   const chaves = Object.keys(S.atividadesPadrao).sort((a, b) => a.localeCompare(b, "pt-BR"));

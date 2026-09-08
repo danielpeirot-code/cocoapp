@@ -244,7 +244,7 @@
     <div>
       <div class="title">Controle de Campo — Coco</div>
       <div id="statusLine" class="status offline">verificando conexão…</div>
-      <div style="font-size:9px; color:#a7f3d0; margin-top:1px; opacity:.8;">v52</div>
+      <div style="font-size:9px; color:#a7f3d0; margin-top:1px; opacity:.8;">v54</div>
     </div>
     <div class="spacer"></div>
     <div id="climaPill" class="clima-pill" style="display:none;">
@@ -3088,7 +3088,8 @@ function renderProgramacao() {
     </div>
     ${itensSemana.length > 0 ? `<div style="display:flex; gap:6px; margin-top:8px; flex-wrap:wrap;">
       <button class="btn ghost" style="width:auto; color:#128C7E; border:1px solid #128C7E; font-size:11.5px;" onclick="compartilharProgramacaoAtividadesWhatsapp()">📲 Compartilhar por atividade</button>
-      <button class="btn ghost" style="width:auto; color:#128C7E; border:1px solid #128C7E; font-size:11.5px;" onclick="compartilharProgramacaoColaboradorWhatsapp()">📲 Compartilhar por colaborador</button>
+      <button class="btn ghost" style="width:auto; color:#128C7E; border:1px solid #128C7E; font-size:11.5px;" onclick="compartilharProgramacaoColaboradorWhatsapp()">📲 Compartilhar por colaborador (texto)</button>
+      <button class="btn ghost" style="width:auto; color:#128C7E; border:1px solid #128C7E; font-size:11.5px;" onclick="gerarImagemProgramacaoColaborador()">🖼️ Gerar imagem por colaborador</button>
     </div>` : ""}
   </div>`;
 
@@ -3437,23 +3438,143 @@ window.compartilharProgramacaoColaboradorWhatsapp = function () {
   const nomes = Array.from(colaboradoresSet).sort((a, b) => a.localeCompare(b, "pt-BR"));
   if (nomes.length === 0) { alert("Ninguém informado em \"Quem vai fazer\" ainda essa semana."); return; }
 
-  let texto = `🗓️ *Quem faz o quê — Semana ${numeroDaSemana(S._progSemana)}*\n\n`;
+  const semanaFim = new Date(S._progSemana + "T00:00:00");
+  semanaFim.setDate(semanaFim.getDate() + 6);
+
+  let texto = `🗓️ *Quem faz o quê — Semana ${numeroDaSemana(S._progSemana)}*\n${brDate(S._progSemana)} até ${brDate(semanaFim.toISOString().slice(0,10))}\n\n`;
+
   nomes.forEach((nome) => {
-    texto += `👤 *${nome}*\n`;
-    DIAS_SEMANA.forEach((d) => {
+    // Resumo de cada dia (junta com "+" se a pessoa tiver mais de uma tarefa no mesmo dia)
+    const porDia = DIAS_SEMANA.map((d) => {
       const tarefas = itens.filter((item) => {
         const temPessoa = (item.quemVaiFazer || "").split(",").map((n) => n.trim()).includes(nome);
         const temDia = item.prog && item.prog[d.key] !== undefined && item.prog[d.key] !== "" && Number(item.prog[d.key]) !== 0;
         return temPessoa && temDia;
       });
-      if (tarefas.length > 0) {
-        texto += `${d.label}: ${tarefas.map((t) => `${t.atividade} (${t.setor})`).join(", ")}\n`;
-      }
+      return tarefas.length > 0 ? tarefas.map((t) => t.atividade).join(" + ") : null;
     });
-    texto += `\n`;
+
+    // Agrupa dias seguidos com a MESMA tarefa numa faixa só (ex: "Ter-Sáb: Descascamento"),
+    // igual as células coloridas emendadas na sua planilha — bem mais compacto que uma linha por dia.
+    const linhas = [];
+    let i = 0;
+    while (i < DIAS_SEMANA.length) {
+      if (!porDia[i]) { i++; continue; }
+      let j = i;
+      while (j + 1 < DIAS_SEMANA.length && porDia[j + 1] === porDia[i]) j++;
+      const faixa = i === j ? DIAS_SEMANA[i].label : `${DIAS_SEMANA[i].label}-${DIAS_SEMANA[j].label}`;
+      linhas.push(`${faixa}: ${porDia[i]}`);
+      i = j + 1;
+    }
+
+    if (linhas.length > 0) texto += `👤 *${nome}*\n${linhas.join("\n")}\n\n`;
   });
 
   compartilharTextoWhatsapp(`Quem faz o quê — Semana ${numeroDaSemana(S._progSemana)}`, texto.trim());
+};
+
+// Desenha a tabela "quem faz o quê" como uma imagem de verdade (tipo a planilha) — mais fácil
+// de bater o olho que texto corrido, principalmente com bastante gente na equipe.
+window.gerarImagemProgramacaoColaborador = async function () {
+  const itens = S.programacao.filter((p) => p.semana === S._progSemana);
+  if (itens.length === 0) return;
+  const colaboradoresSet = new Set();
+  itens.forEach((item) => {
+    (item.quemVaiFazer || "").split(",").map((n) => n.trim()).filter(Boolean).forEach((n) => colaboradoresSet.add(n));
+  });
+  const nomes = Array.from(colaboradoresSet).sort((a, b) => a.localeCompare(b, "pt-BR"));
+  if (nomes.length === 0) { alert("Ninguém informado em \"Quem vai fazer\" ainda essa semana."); return; }
+
+  const semanaInicio = new Date(S._progSemana + "T00:00:00");
+  const colNomeW = 130, colDiaW = 138, rowH = 46, headerH = 58;
+  const largura = colNomeW + colDiaW * DIAS_SEMANA.length;
+  const altura = headerH + rowH * nomes.length;
+
+  const canvas = document.createElement("canvas");
+  canvas.width = largura;
+  canvas.height = altura;
+  const ctx = canvas.getContext("2d");
+
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, largura, altura);
+
+  // Cabeçalho: canto vazio + um bloco por dia da semana, com a data debaixo do nome do dia
+  ctx.fillStyle = "#1f2937";
+  ctx.fillRect(0, 0, largura, headerH);
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  DIAS_SEMANA.forEach((d, i) => {
+    const x = colNomeW + i * colDiaW;
+    const dataDia = new Date(semanaInicio);
+    dataDia.setDate(dataDia.getDate() + i);
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 15px Arial";
+    ctx.fillText(d.label.toUpperCase(), x + colDiaW / 2, headerH / 2 - 10);
+    ctx.font = "12px Arial";
+    ctx.fillStyle = "#d1d5db";
+    ctx.fillText(dataDia.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }), x + colDiaW / 2, headerH / 2 + 12);
+  });
+
+  // Uma linha por colaborador, uma célula colorida por dia (mesma cor da atividade que já usamos
+  // na tela "Por colaborador" — dias seguidos com a mesma tarefa acabam formando um bloco visual
+  // igual na sua planilha, mesmo sem mesclar célula de verdade).
+  nomes.forEach((nome, li) => {
+    const y = headerH + li * rowH;
+    ctx.fillStyle = li % 2 === 0 ? "#f3f4f6" : "#e5e7eb";
+    ctx.fillRect(0, y, colNomeW, rowH);
+    ctx.fillStyle = "#111827";
+    ctx.font = "bold 13px Arial";
+    ctx.textAlign = "left";
+    ctx.fillText(nome.toUpperCase(), 10, y + rowH / 2, colNomeW - 16);
+
+    DIAS_SEMANA.forEach((d, ci) => {
+      const x = colNomeW + ci * colDiaW;
+      const tarefas = itens.filter((item) => {
+        const temPessoa = (item.quemVaiFazer || "").split(",").map((n) => n.trim()).includes(nome);
+        const temDia = item.prog && item.prog[d.key] !== undefined && item.prog[d.key] !== "" && Number(item.prog[d.key]) !== 0;
+        return temPessoa && temDia;
+      });
+      const cor = tarefas.length > 0 ? corAtividade(tarefas[0].atividade) : null;
+      ctx.fillStyle = cor ? cor.bg : "#fafafa";
+      ctx.fillRect(x, y, colDiaW, rowH);
+      ctx.strokeStyle = "#d1d5db";
+      ctx.lineWidth = 1;
+      ctx.strokeRect(x + 0.5, y + 0.5, colDiaW - 1, rowH - 1);
+      if (tarefas.length > 0) {
+        ctx.fillStyle = cor.fg;
+        ctx.font = "12px Arial";
+        ctx.textAlign = "center";
+        ctx.fillText(tarefas.map((t) => t.atividade).join(" + "), x + colDiaW / 2, y + rowH / 2, colDiaW - 10);
+      }
+    });
+  });
+
+  ctx.strokeStyle = "#9ca3af";
+  ctx.lineWidth = 1.5;
+  ctx.strokeRect(0.5, 0.5, largura - 1, altura - 1);
+
+  canvas.toBlob(async (blob) => {
+    if (!blob) { alert("Não consegui gerar a imagem. Tenta de novo."); return; }
+    const nomeArquivo = `programacao-semana-${numeroDaSemana(S._progSemana)}.png`;
+    const arquivo = new File([blob], nomeArquivo, { type: "image/png" });
+
+    if (navigator.share && navigator.canShare && navigator.canShare({ files: [arquivo] })) {
+      try {
+        await navigator.share({ files: [arquivo], title: `Programação Semana ${numeroDaSemana(S._progSemana)}` });
+        return;
+      } catch (e) {
+        if (e.name === "AbortError") return;
+        console.warn("Falha ao compartilhar a imagem, baixando em vez disso:", e);
+      }
+    }
+    // Sem compartilhamento nativo disponível (ex: computador) — baixa a imagem direto.
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = nomeArquivo;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, "image/png");
 };
 
 /* =========================================================================

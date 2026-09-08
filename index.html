@@ -244,7 +244,7 @@
     <div>
       <div class="title">Controle de Campo — Coco</div>
       <div id="statusLine" class="status offline">verificando conexão…</div>
-      <div style="font-size:9px; color:#a7f3d0; margin-top:1px; opacity:.8;">v55</div>
+      <div style="font-size:9px; color:#a7f3d0; margin-top:1px; opacity:.8;">v56</div>
     </div>
     <div class="spacer"></div>
     <div id="climaPill" class="clima-pill" style="display:none;">
@@ -3579,75 +3579,88 @@ window.gerarImagemProgramacaoAtividades = function () {
   });
   y += alturaCab2;
 
-  // Corpo — agrupado por atividade. As colunas Atividade/Área/Trator/Implemento só mostram o
-  // texto na primeira linha do grupo (efeito parecido com célula mesclada do Excel).
+  // Corpo — agrupado por atividade. As colunas Atividade/Área/Trator/Implemento mostram o texto
+  // uma vez só, centralizado no meio do grupo (efeito de célula mesclada do Excel). O fundo
+  // dessas colunas é pintado de uma vez só, ANTES de escrever o texto — se pintasse de novo a
+  // cada linha (como estava antes), a repintura da 2ª linha em diante apagava metade do texto
+  // que tinha "vazado" pra baixo da 1ª linha. Foi esse o bug que cortava as informações.
   grupos.forEach((grupo, gi) => {
     const inicioGrupoY = y;
     const numLinhasGrupo = grupo.itens.length;
+    const alturaGrupo = numLinhasGrupo * alturaLinha;
     const corFundo = gi % 2 === 0 ? "#ffffff" : "#f7f7f7";
-    const centroGrupoY = inicioGrupoY + (numLinhasGrupo * alturaLinha) / 2;
+    const centroGrupoY = inicioGrupoY + alturaGrupo / 2;
+    const primeiroItem = grupo.itens[0];
 
-    grupo.itens.forEach((item, li) => {
-      let cx = 0;
-      ctx.fillStyle = corFundo;
-      ctx.fillRect(0, y, L.ativ + L.area + L.setor, alturaLinha);
-      ctx.font = "10px Arial";
-      ctx.fillStyle = "#111827";
+    // 1) Fundo das colunas mescladas (Atividades+Área, e Trator+Implementos), pintado uma vez só
+    ctx.fillStyle = corFundo;
+    ctx.fillRect(0, inicioGrupoY, L.ativ + L.area, alturaGrupo);
+    ctx.fillRect(L.ativ + L.area + L.setor + L.dia * numDias, inicioGrupoY, L.trator + L.impl, alturaGrupo);
 
-      if (li === 0) {
-        ctx.font = "bold 9.5px Arial";
-        desenharTextoComQuebra(ctx, grupo.atividade, cx + 5, centroGrupoY, L.ativ - 10, 11, "left");
-        ctx.font = "10px Arial";
-      }
-      cx += L.ativ;
+    // 2) Texto mesclado, uma vez só, centralizado na altura do grupo inteiro
+    ctx.fillStyle = "#111827";
+    ctx.font = "bold 9.5px Arial";
+    desenharTextoComQuebra(ctx, grupo.atividade, 5, centroGrupoY, L.ativ - 10, 11, "left");
+    ctx.textAlign = "center";
+    ctx.font = "10px Arial";
+    ctx.fillText(primeiroItem.area || "", L.ativ + L.area / 2, centroGrupoY);
+    ctx.font = "9.5px Arial";
+    const xTrator = L.ativ + L.area + L.setor + L.dia * numDias;
+    ctx.fillText(primeiroItem.veiculo || "-", xTrator + L.trator / 2, centroGrupoY);
+    desenharTextoComQuebra(ctx, primeiroItem.implemento || "-", xTrator + L.trator + L.impl / 2, centroGrupoY, L.impl - 8, 11, "center");
 
-      if (li === 0) {
-        ctx.textAlign = "center";
-        ctx.fillText(item.area || "", cx + L.area / 2, centroGrupoY);
-      }
-      cx += L.area;
-
-      ctx.textAlign = "center";
-      ctx.fillText(item.setor || "", cx + L.setor / 2, y + alturaLinha / 2);
+    // 3) Agora desenha o que É por linha (Setor, dias programados, produtos) — sem tocar de
+    // novo nas colunas mescladas de cima
+    let yLinha = inicioGrupoY;
+    grupo.itens.forEach((item) => {
+      let cx = L.ativ + L.area;
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(cx, yLinha, L.setor, alturaLinha);
+      ctx.fillStyle = "#111827"; ctx.font = "10px Arial"; ctx.textAlign = "center";
+      ctx.fillText(item.setor || "", cx + L.setor / 2, yLinha + alturaLinha / 2);
       cx += L.setor;
 
       DIAS_SEMANA.forEach((d) => {
         const valor = item.prog && item.prog[d.key];
         const temValor = valor !== undefined && valor !== "" && Number(valor) !== 0;
         ctx.fillStyle = temValor ? "#ffef62" : "#ffffff";
-        ctx.fillRect(cx, y, L.dia, alturaLinha);
-        ctx.strokeStyle = "#ddd"; ctx.strokeRect(cx, y, L.dia, alturaLinha);
+        ctx.fillRect(cx, yLinha, L.dia, alturaLinha);
+        ctx.strokeStyle = "#ddd"; ctx.strokeRect(cx, yLinha, L.dia, alturaLinha);
         if (temValor) {
           ctx.fillStyle = "#111827";
           ctx.textAlign = "center";
-          ctx.fillText(String(valor), cx + L.dia / 2, y + alturaLinha / 2);
+          ctx.fillText(String(valor), cx + L.dia / 2, yLinha + alturaLinha / 2);
         }
         cx += L.dia;
       });
 
-      ctx.fillStyle = corFundo;
-      ctx.fillRect(cx, y, L.trator + L.impl, alturaLinha);
-      if (li === 0) {
-        ctx.fillStyle = "#111827";
-        ctx.textAlign = "center";
-        ctx.font = "9.5px Arial";
-        ctx.fillText(item.veiculo || "-", cx + L.trator / 2, centroGrupoY);
-        desenharTextoComQuebra(ctx, item.implemento || "-", cx + L.trator + L.impl / 2, centroGrupoY, L.impl - 8, 11, "center");
-      }
-      cx += L.trator + L.impl;
+      cx += L.trator + L.impl; // já pintado/escrito acima (mesclado) — só pula essa faixa
 
       ctx.fillStyle = "#ffffff";
-      ctx.fillRect(cx, y, L.tipo + L.quant + L.uni, alturaLinha);
+      ctx.fillRect(cx, yLinha, L.tipo + L.quant + L.uni, alturaLinha);
       ctx.fillStyle = "#111827";
       ctx.font = "9.5px Arial";
       ctx.textAlign = "center";
-      ctx.fillText(item.produtoTipo || "-", cx + L.tipo / 2, y + alturaLinha / 2);
-      ctx.fillText(item.produtoQtd || "-", cx + L.tipo + L.quant / 2, y + alturaLinha / 2);
-      ctx.fillText(item.produtoUni || "-", cx + L.tipo + L.quant + L.uni / 2, y + alturaLinha / 2);
+      ctx.fillText(item.produtoTipo || "-", cx + L.tipo / 2, yLinha + alturaLinha / 2);
+      ctx.fillText(item.produtoQtd || "-", cx + L.tipo + L.quant / 2, yLinha + alturaLinha / 2);
+      ctx.fillText(item.produtoUni || "-", cx + L.tipo + L.quant + L.uni / 2, yLinha + alturaLinha / 2);
 
-      y += alturaLinha;
+      yLinha += alturaLinha;
     });
 
+    // 4) Linhas de grade finas separando cada setor dentro do grupo (só nas colunas por linha)
+    ctx.strokeStyle = "#eee";
+    for (let k = 1; k < numLinhasGrupo; k++) {
+      const yy = inicioGrupoY + k * alturaLinha;
+      ctx.beginPath();
+      ctx.moveTo(L.ativ + L.area, yy);
+      ctx.lineTo(L.ativ + L.area + L.setor + L.dia * numDias, yy);
+      ctx.stroke();
+    }
+
+    y += alturaGrupo;
+
+    // Linha mais forte separando de outra atividade
     ctx.strokeStyle = "#9ca3af";
     ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(largura, y); ctx.stroke();
   });

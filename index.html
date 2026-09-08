@@ -244,7 +244,7 @@
     <div>
       <div class="title">Controle de Campo — Coco</div>
       <div id="statusLine" class="status offline">verificando conexão…</div>
-      <div style="font-size:9px; color:#a7f3d0; margin-top:1px; opacity:.8;">v56</div>
+      <div style="font-size:9px; color:#a7f3d0; margin-top:1px; opacity:.8;">v57</div>
     </div>
     <div class="spacer"></div>
     <div id="climaPill" class="clima-pill" style="display:none;">
@@ -327,6 +327,7 @@ window.__state = {
   metasColheita: {},
   cargasVerde: [],
   configSeguranca: {},
+  configPagamento: {},
   currentTab: "romaneio",
   contagem: { tipo: "Híbrido", setor: "A3A4", numLinha: "", qtdPlantas: 78, valores: [], numLinhaB: "", valoresB: [] },
   _vozAtivo: false,
@@ -537,6 +538,11 @@ onAuthStateChanged(auth, (user) => {
 
   onSnapshot(doc(db, "configuracoes", "seguranca"), (d) => {
     S.configSeguranca = d.exists() ? d.data() : {};
+  }, (err) => console.error(err));
+
+  onSnapshot(doc(db, "configuracoes", "pagamentoDescasca"), (d) => {
+    S.configPagamento = d.exists() ? d.data() : {};
+    if (S.currentTab === "romaneio") renderTab();
   }, (err) => console.error(err));
 
   onSnapshot(collection(db, "colaboradores"), (snap) => {
@@ -871,6 +877,31 @@ function renderCargaCard(carga, linhasCalc, totalEstocado, totalCarregado, total
         <label class="field"><span>Destino da carga</span><input type="text" value="${esc(carga.destino)}" oninput="atualizarCarga('${carga.id}','destino',this.value)"/></label>
         <label class="field"><span>Horário de saída</span><input type="time" value="${esc(carga.horarioSaida)}" oninput="atualizarCarga('${carga.id}','horarioSaida',this.value)"/></label>
         <label class="field"><span>NF / CT-e (opcional)</span><input type="text" value="${esc(carga.nfCte)}" oninput="atualizarCarga('${carga.id}','nfCte',this.value)"/></label>
+      </div>`;
+
+    // Descasca manual — quando não usa a máquina, chama descascadores pra descascar na mão,
+    // pago por produção (quantidade × valor por unidade). O valor só muda com senha.
+    const listaDescasca = carga.descascaManual || [];
+    const totalUnidDescasca = listaDescasca.reduce((s, d) => s + (Number(d.quantidade) || 0), 0);
+    const totalPagoDescasca = listaDescasca.reduce((s, d) => s + (Number(d.quantidade) || 0) * (Number(d.valorUnidade) || 0), 0);
+    html += `<div style="font-size:11px; font-weight:700; text-transform:uppercase; color:#78716c; margin-bottom:6px;">🙌 Descasca manual (descascadores)</div>
+      <div class="card" style="padding:10px; margin-bottom:14px;">
+        <div class="row-flex" style="margin-bottom:8px;">
+          <span class="muted" style="font-size:11.5px;">Valor por unidade: <b style="color:#292524;">R$ ${valorDescascaAtual().toFixed(2)}</b></span>
+          <button class="btn ghost" style="width:auto; padding:4px 9px; font-size:10.5px;" onclick="trocarValorDescasca()">✏️ Alterar (senha)</button>
+        </div>
+        <div class="grid grid-2" style="margin-bottom:8px;">
+          <input type="text" id="descascaNomeInput-${carga.id}" placeholder="Nome do colaborador" style="padding:7px 9px; border:1px solid #d6d3d1; border-radius:8px; font-size:13px;"/>
+          <input type="number" id="descascaQtdInput-${carga.id}" placeholder="Qtd. descascada" style="padding:7px 9px; border:1px solid #d6d3d1; border-radius:8px; font-size:13px;"/>
+        </div>
+        <button class="btn ghost" style="width:auto;" onclick="adicionarDescascaManual('${carga.id}')">➕ Adicionar</button>
+        ${listaDescasca.length > 0 ? `<div style="margin-top:10px;">` +
+          listaDescasca.map((d, i) => `<div class="list-row" style="padding:6px 0;">
+            <span style="font-size:12.5px;"><b>${esc(d.colaborador)}</b> — ${fmt(d.quantidade,0)} un. × R$ ${Number(d.valorUnidade||0).toFixed(2)} = <b>R$ ${(Number(d.quantidade)*Number(d.valorUnidade||0)).toFixed(2)}</b></span>
+            <button class="x-btn" onclick="removerDescascaManual('${carga.id}',${i})">✕</button>
+          </div>`).join("") +
+          `<div style="margin-top:6px; font-weight:800; font-size:13px; color:#166534;">Total: ${fmt(totalUnidDescasca,0)} unidades — R$ ${totalPagoDescasca.toFixed(2)}</div>
+        </div>` : `<div class="muted" style="font-size:11px; margin-top:8px;">Nenhum lançamento ainda.</div>`}
       </div>`;
 
     if (!arquivada) {
@@ -2605,6 +2636,65 @@ window.atualizarCarga = function (cargaId, campo, valor) {
 
 // Amostra de água: guarda a lista inteira de leituras (em ml) direto no documento da carga.
 // Cada "adicionar" e "remover" já salva a lista atualizada na hora, sem precisar de botão salvar.
+
+// Valor pago por unidade descascada manualmente — fica guardado à parte (não no documento da
+// carga), porque é o MESMO valor pra qualquer carga, até alguém trocar. Cada lançamento guarda
+// o valor que estava valendo NA HORA (não recalcula pra trás se o valor mudar depois — assim o
+// histórico de pagamento fica correto mesmo que o valor por unidade mude no futuro).
+function valorDescascaAtual() {
+  return Number(S.configPagamento.valorUnidade) || 0.12;
+}
+
+window.trocarValorDescasca = function () {
+  pedirSenha(() => {
+    const atual = valorDescascaAtual();
+    const novoStr = prompt(`Valor atual: R$ ${atual.toFixed(2)} por unidade descascada.\nDigite o novo valor:`, atual.toFixed(2).replace(".", ","));
+    if (novoStr === null) return;
+    const novo = Number(String(novoStr).replace(",", "."));
+    if (!novo || novo <= 0) { alert("Valor inválido."); return; }
+    setDoc(doc(db, "configuracoes", "pagamentoDescasca"), { valorUnidade: novo })
+      .then(() => alert(`Valor atualizado pra R$ ${novo.toFixed(2)} por unidade.`))
+      .catch((e) => { console.error(e); alert("Não consegui salvar o valor novo. Tenta de novo."); });
+  });
+};
+
+window.adicionarDescascaManual = function (cargaId) {
+  const nomeInput = document.getElementById("descascaNomeInput-" + cargaId);
+  const qtdInput = document.getElementById("descascaQtdInput-" + cargaId);
+  const nome = nomeInput ? nomeInput.value.trim() : "";
+  const quantidade = Number(qtdInput ? qtdInput.value : 0);
+  if (!nome || !quantidade || quantidade <= 0) { alert("Preenche o nome do colaborador e a quantidade descascada."); return; }
+
+  const carga = S.cargas.find((c) => c.id === cargaId);
+  if (!carga) return;
+  const novaLista = [...(carga.descascaManual || []), { colaborador: nome, quantidade, valorUnidade: valorDescascaAtual(), data: todayISO() }];
+  const idx = S.cargas.findIndex((c) => c.id === cargaId);
+  S.cargas[idx] = { ...carga, descascaManual: novaLista };
+  if (nomeInput) nomeInput.value = "";
+  if (qtdInput) qtdInput.value = "";
+  renderRomaneio();
+
+  marcarSalvando("romaneio");
+  updateDoc(doc(db, "cargas", cargaId), { descascaManual: novaLista })
+    .then(() => { if (navigator.onLine) setSaveStatus("romaneio", "saved"); })
+    .catch((e) => tratarErroSalvamento("romaneio", e));
+};
+
+window.removerDescascaManual = function (cargaId, index) {
+  pedirSenha(() => {
+    const carga = S.cargas.find((c) => c.id === cargaId);
+    if (!carga) return;
+    const novaLista = (carga.descascaManual || []).filter((_, i) => i !== index);
+    const idx = S.cargas.findIndex((c) => c.id === cargaId);
+    S.cargas[idx] = { ...carga, descascaManual: novaLista };
+    renderRomaneio();
+
+    marcarSalvando("romaneio");
+    updateDoc(doc(db, "cargas", cargaId), { descascaManual: novaLista })
+      .then(() => { if (navigator.onLine) setSaveStatus("romaneio", "saved"); })
+      .catch((e) => tratarErroSalvamento("romaneio", e));
+  });
+};
 
 window.atualizarAplic = function (setor, tipo, campo, valor, rowId) {
   const k = chaveAplic(setor, tipo);
@@ -4548,6 +4638,20 @@ function montarLinhasRomaneio() {
   return rows;
 }
 
+function montarLinhasDescascaManual() {
+  const rows = [];
+  S.cargas.forEach((carga) => {
+    (carga.descascaManual || []).forEach((d) => {
+      rows.push({
+        "Nº Carga": carga.numero, "Data": d.data || carga.data, "Colaborador": d.colaborador,
+        "Quantidade": d.quantidade, "Valor/Unidade": Number(d.valorUnidade || 0),
+        "Total (R$)": Number(((Number(d.quantidade) || 0) * (Number(d.valorUnidade) || 0)).toFixed(2)),
+      });
+    });
+  });
+  return rows;
+}
+
 function montarLinhasRomaneioVerde() {
   return S.cargasVerde.map((carga) => {
     const amostras = carga.amostrasAgua || [];
@@ -4734,6 +4838,7 @@ window.exportarExcel = function () {
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(montarLinhasRomaneio()), "Romaneio");
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(montarLinhasRomaneioVerde()), "Romaneio Verde");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(montarLinhasDescascaManual()), "Descasca Manual");
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(montarLinhasDescartes()), "Descartes");
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(montarLinhasContagem()), "Contagem");
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(montarLinhasAplic(TIPOS_APLICACAO)), "Aplicações");
@@ -4762,6 +4867,7 @@ window.enviarBackupSheets = async function () {
       sheets: {
         "Romaneio": montarLinhasRomaneio(),
         "Romaneio Verde": montarLinhasRomaneioVerde(),
+        "Descasca Manual": montarLinhasDescascaManual(),
         "Descartes": montarLinhasDescartes(),
         "Contagem": montarLinhasContagem(),
         "Aplicações": montarLinhasAplic(TIPOS_APLICACAO),

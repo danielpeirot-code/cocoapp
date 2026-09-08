@@ -244,7 +244,7 @@
     <div>
       <div class="title">Controle de Campo — Coco</div>
       <div id="statusLine" class="status offline">verificando conexão…</div>
-      <div style="font-size:9px; color:#a7f3d0; margin-top:1px; opacity:.8;">v54</div>
+      <div style="font-size:9px; color:#a7f3d0; margin-top:1px; opacity:.8;">v55</div>
     </div>
     <div class="spacer"></div>
     <div id="climaPill" class="clima-pill" style="display:none;">
@@ -3087,7 +3087,8 @@ function renderProgramacao() {
       ${itensSemana.length > 0 ? `<button class="btn ghost" style="width:auto;" onclick="duplicarSemanaInteira()">📆 Duplicar semana pra próxima (${itensSemana.length})</button>` : ""}
     </div>
     ${itensSemana.length > 0 ? `<div style="display:flex; gap:6px; margin-top:8px; flex-wrap:wrap;">
-      <button class="btn ghost" style="width:auto; color:#128C7E; border:1px solid #128C7E; font-size:11.5px;" onclick="compartilharProgramacaoAtividadesWhatsapp()">📲 Compartilhar por atividade</button>
+      <button class="btn ghost" style="width:auto; color:#128C7E; border:1px solid #128C7E; font-size:11.5px;" onclick="compartilharProgramacaoAtividadesWhatsapp()">📲 Compartilhar por atividade (texto)</button>
+      <button class="btn ghost" style="width:auto; color:#128C7E; border:1px solid #128C7E; font-size:11.5px;" onclick="gerarImagemProgramacaoAtividades()">🖼️ Gerar imagem — Cronograma</button>
       <button class="btn ghost" style="width:auto; color:#128C7E; border:1px solid #128C7E; font-size:11.5px;" onclick="compartilharProgramacaoColaboradorWhatsapp()">📲 Compartilhar por colaborador (texto)</button>
       <button class="btn ghost" style="width:auto; color:#128C7E; border:1px solid #128C7E; font-size:11.5px;" onclick="gerarImagemProgramacaoColaborador()">🖼️ Gerar imagem por colaborador</button>
     </div>` : ""}
@@ -3475,6 +3476,208 @@ window.compartilharProgramacaoColaboradorWhatsapp = function () {
 
 // Desenha a tabela "quem faz o quê" como uma imagem de verdade (tipo a planilha) — mais fácil
 // de bater o olho que texto corrido, principalmente com bastante gente na equipe.
+// Quebra texto em várias linhas pra caber numa largura máxima, centralizado verticalmente
+// em torno de yCentro — usado nos nomes longos de atividade/implemento na imagem do cronograma.
+function desenharTextoComQuebra(ctx, texto, x, yCentro, maxWidth, lineHeight, alinhamento) {
+  ctx.textAlign = alinhamento || "left";
+  const palavras = String(texto || "").split(" ");
+  const linhas = [];
+  let linhaAtual = "";
+  palavras.forEach((p) => {
+    const teste = linhaAtual ? linhaAtual + " " + p : p;
+    if (ctx.measureText(teste).width > maxWidth && linhaAtual) {
+      linhas.push(linhaAtual);
+      linhaAtual = p;
+    } else {
+      linhaAtual = teste;
+    }
+  });
+  if (linhaAtual) linhas.push(linhaAtual);
+  const inicioY = yCentro - ((linhas.length - 1) * lineHeight) / 2;
+  linhas.forEach((linha, i) => ctx.fillText(linha, x, inicioY + i * lineHeight));
+}
+
+// Gera o "cronograma" por atividade como imagem — igual a planilha que vocês já usam: uma
+// atividade pode ocupar várias linhas (uma por setor), com os dias programados em destaque,
+// veículo/implemento e os produtos usados. Os dados já existem no cadastro, só reorganiza pra imagem.
+window.gerarImagemProgramacaoAtividades = function () {
+  const itens = S.programacao.filter((p) => p.semana === S._progSemana);
+  if (itens.length === 0) return;
+
+  // Agrupa por nome da atividade, mantendo a ordem em que já aparecem
+  const grupos = [];
+  const indicePorAtividade = {};
+  itens.forEach((item) => {
+    const chave = item.atividade || "(sem nome)";
+    if (!(chave in indicePorAtividade)) {
+      indicePorAtividade[chave] = grupos.length;
+      grupos.push({ atividade: chave, itens: [] });
+    }
+    grupos[indicePorAtividade[chave]].itens.push(item);
+  });
+
+  const L = { ativ: 200, area: 50, setor: 46, dia: 42, trator: 58, impl: 90, tipo: 44, quant: 52, uni: 34 };
+  const numDias = DIAS_SEMANA.length;
+  const largura = L.ativ + L.area + L.setor + L.dia * numDias + L.trator + L.impl + L.tipo + L.quant + L.uni;
+  const alturaTitulo = 34, alturaCab1 = 24, alturaCab2 = 24, alturaLinha = 28;
+  const totalLinhas = itens.length;
+  const altura = alturaTitulo + alturaCab1 + alturaCab2 + alturaLinha * totalLinhas;
+
+  const canvas = document.createElement("canvas");
+  canvas.width = largura;
+  canvas.height = altura;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, largura, altura);
+  ctx.textBaseline = "middle";
+
+  // Título
+  ctx.fillStyle = "#c0622a";
+  ctx.fillRect(0, 0, largura, alturaTitulo);
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "bold 16px Arial";
+  ctx.textAlign = "center";
+  ctx.fillText(`CRONOGRAMA — SEMANA ${numeroDaSemana(S._progSemana)}`, largura / 2, alturaTitulo / 2);
+
+  let y = alturaTitulo;
+
+  // Cabeçalho nível 1 (grupos de coluna)
+  let x = 0;
+  [
+    { label: "Atividades", w: L.ativ + L.area + L.setor, cor: "#c8e0c3" },
+    { label: "Programado", w: L.dia * numDias, cor: "#ffef62" },
+    { label: "Veículos e Implementos", w: L.trator + L.impl, cor: "#e5e7eb" },
+    { label: "Produtos", w: L.tipo + L.quant + L.uni, cor: "#e5e7eb" },
+  ].forEach((g) => {
+    ctx.fillStyle = g.cor;
+    ctx.fillRect(x, y, g.w, alturaCab1);
+    ctx.strokeStyle = "#999"; ctx.strokeRect(x, y, g.w, alturaCab1);
+    ctx.fillStyle = "#1f2937";
+    ctx.font = "bold 11px Arial";
+    ctx.textAlign = "center";
+    ctx.fillText(g.label, x + g.w / 2, y + alturaCab1 / 2);
+    x += g.w;
+  });
+  y += alturaCab1;
+
+  // Cabeçalho nível 2 (colunas individuais)
+  x = 0;
+  ctx.font = "bold 9.5px Arial";
+  [
+    { label: "Atividades", w: L.ativ, cor: "#dcecd9" }, { label: "Área", w: L.area, cor: "#dcecd9" }, { label: "Setor", w: L.setor, cor: "#dcecd9" },
+    ...DIAS_SEMANA.map((d) => ({ label: d.label, w: L.dia, cor: "#ffef62" })),
+    { label: "Trator", w: L.trator, cor: "#f3f4f6" }, { label: "Implem.", w: L.impl, cor: "#f3f4f6" },
+    { label: "Tipo", w: L.tipo, cor: "#f3f4f6" }, { label: "Quant.", w: L.quant, cor: "#f3f4f6" }, { label: "Uni.", w: L.uni, cor: "#f3f4f6" },
+  ].forEach((c) => {
+    ctx.fillStyle = c.cor;
+    ctx.fillRect(x, y, c.w, alturaCab2);
+    ctx.strokeStyle = "#999"; ctx.strokeRect(x, y, c.w, alturaCab2);
+    ctx.fillStyle = "#1f2937";
+    ctx.textAlign = "center";
+    ctx.fillText(c.label, x + c.w / 2, y + alturaCab2 / 2);
+    x += c.w;
+  });
+  y += alturaCab2;
+
+  // Corpo — agrupado por atividade. As colunas Atividade/Área/Trator/Implemento só mostram o
+  // texto na primeira linha do grupo (efeito parecido com célula mesclada do Excel).
+  grupos.forEach((grupo, gi) => {
+    const inicioGrupoY = y;
+    const numLinhasGrupo = grupo.itens.length;
+    const corFundo = gi % 2 === 0 ? "#ffffff" : "#f7f7f7";
+    const centroGrupoY = inicioGrupoY + (numLinhasGrupo * alturaLinha) / 2;
+
+    grupo.itens.forEach((item, li) => {
+      let cx = 0;
+      ctx.fillStyle = corFundo;
+      ctx.fillRect(0, y, L.ativ + L.area + L.setor, alturaLinha);
+      ctx.font = "10px Arial";
+      ctx.fillStyle = "#111827";
+
+      if (li === 0) {
+        ctx.font = "bold 9.5px Arial";
+        desenharTextoComQuebra(ctx, grupo.atividade, cx + 5, centroGrupoY, L.ativ - 10, 11, "left");
+        ctx.font = "10px Arial";
+      }
+      cx += L.ativ;
+
+      if (li === 0) {
+        ctx.textAlign = "center";
+        ctx.fillText(item.area || "", cx + L.area / 2, centroGrupoY);
+      }
+      cx += L.area;
+
+      ctx.textAlign = "center";
+      ctx.fillText(item.setor || "", cx + L.setor / 2, y + alturaLinha / 2);
+      cx += L.setor;
+
+      DIAS_SEMANA.forEach((d) => {
+        const valor = item.prog && item.prog[d.key];
+        const temValor = valor !== undefined && valor !== "" && Number(valor) !== 0;
+        ctx.fillStyle = temValor ? "#ffef62" : "#ffffff";
+        ctx.fillRect(cx, y, L.dia, alturaLinha);
+        ctx.strokeStyle = "#ddd"; ctx.strokeRect(cx, y, L.dia, alturaLinha);
+        if (temValor) {
+          ctx.fillStyle = "#111827";
+          ctx.textAlign = "center";
+          ctx.fillText(String(valor), cx + L.dia / 2, y + alturaLinha / 2);
+        }
+        cx += L.dia;
+      });
+
+      ctx.fillStyle = corFundo;
+      ctx.fillRect(cx, y, L.trator + L.impl, alturaLinha);
+      if (li === 0) {
+        ctx.fillStyle = "#111827";
+        ctx.textAlign = "center";
+        ctx.font = "9.5px Arial";
+        ctx.fillText(item.veiculo || "-", cx + L.trator / 2, centroGrupoY);
+        desenharTextoComQuebra(ctx, item.implemento || "-", cx + L.trator + L.impl / 2, centroGrupoY, L.impl - 8, 11, "center");
+      }
+      cx += L.trator + L.impl;
+
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(cx, y, L.tipo + L.quant + L.uni, alturaLinha);
+      ctx.fillStyle = "#111827";
+      ctx.font = "9.5px Arial";
+      ctx.textAlign = "center";
+      ctx.fillText(item.produtoTipo || "-", cx + L.tipo / 2, y + alturaLinha / 2);
+      ctx.fillText(item.produtoQtd || "-", cx + L.tipo + L.quant / 2, y + alturaLinha / 2);
+      ctx.fillText(item.produtoUni || "-", cx + L.tipo + L.quant + L.uni / 2, y + alturaLinha / 2);
+
+      y += alturaLinha;
+    });
+
+    ctx.strokeStyle = "#9ca3af";
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(largura, y); ctx.stroke();
+  });
+
+  ctx.strokeStyle = "#555"; ctx.lineWidth = 1.5;
+  ctx.strokeRect(0.5, 0.5, largura - 1, altura - 1);
+
+  canvas.toBlob(async (blob) => {
+    if (!blob) { alert("Não consegui gerar a imagem. Tenta de novo."); return; }
+    const nomeArquivo = `cronograma-semana-${numeroDaSemana(S._progSemana)}.png`;
+    const arquivo = new File([blob], nomeArquivo, { type: "image/png" });
+
+    if (navigator.share && navigator.canShare && navigator.canShare({ files: [arquivo] })) {
+      try {
+        await navigator.share({ files: [arquivo], title: `Cronograma Semana ${numeroDaSemana(S._progSemana)}` });
+        return;
+      } catch (e) {
+        if (e.name === "AbortError") return;
+        console.warn("Falha ao compartilhar a imagem, baixando em vez disso:", e);
+      }
+    }
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = nomeArquivo;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, "image/png");
+};
+
 window.gerarImagemProgramacaoColaborador = async function () {
   const itens = S.programacao.filter((p) => p.semana === S._progSemana);
   if (itens.length === 0) return;

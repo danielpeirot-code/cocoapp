@@ -244,7 +244,7 @@
     <div>
       <div class="title">Controle de Campo — Coco</div>
       <div id="statusLine" class="status offline">verificando conexão…</div>
-      <div style="font-size:9px; color:#a7f3d0; margin-top:1px; opacity:.8;">v51</div>
+      <div style="font-size:9px; color:#a7f3d0; margin-top:1px; opacity:.8;">v52</div>
     </div>
     <div class="spacer"></div>
     <div id="climaPill" class="clima-pill" style="display:none;">
@@ -3127,6 +3127,14 @@ function renderProgramacao() {
     html += `<button class="btn ghost" style="width:auto; margin-bottom:8px; font-size:11.5px;" onclick="S._novaProg.planejadoQtd='${infoSetorNv.area}'; S._novaProg.planejadoUni='ha'; renderProgramacao();">📥 Usar área do setor ${esc(nv.setor)} (${esc(infoSetorNv.area)} ha)</button>`;
   }
 
+  html += `<div class="card" style="background:#f0fdf4; margin-bottom:10px; padding:10px;">
+    <div style="font-size:12px; font-weight:700; color:#166534; margin-bottom:2px;">🗓️ Em quais dias? (quantidade programada em cada um)</div>
+    <div class="muted" style="font-size:11px; margin-bottom:8px;">Preenche só os dias que vai fazer — ex: pra programar só pra quarta, preenche apenas o campo "Qua".</div>
+    <div class="grid grid-2" style="gap:8px;">
+      ${DIAS_SEMANA.map(d=>`<label class="field"><span>${d.label}</span><input type="number" value="${esc(nv.prog[d.key])}" oninput="S._novaProg.prog['${d.key}']=this.value" placeholder="0"/></label>`).join("")}
+    </div>
+  </div>`;
+
   html += `<div style="font-size:10px; font-weight:700; text-transform:uppercase; color:#78716c; margin-bottom:6px;">Quem vai fazer</div>
     <div style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:6px;">`;
   if (S.colaboradores.length === 0) {
@@ -3176,10 +3184,6 @@ function renderProgramacao() {
         </div>
       </div>
     </details>
-    <div style="font-size:10px; font-weight:700; text-transform:uppercase; color:#78716c; margin-bottom:6px;">Programado por dia (quantidade)</div>
-    <div class="grid" style="grid-template-columns:repeat(7,1fr); gap:5px; margin-bottom:10px;">
-      ${DIAS_SEMANA.map(d=>`<label class="field"><span>${d.label}</span><input type="number" value="${esc(nv.prog[d.key])}" oninput="S._novaProg.prog['${d.key}']=this.value"/></label>`).join("")}
-    </div>
     <button class="btn" onclick="criarProgramacao()">➕ Adicionar à semana</button>
   </div>`;
 

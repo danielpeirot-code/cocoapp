@@ -17,9 +17,11 @@
   html, body { margin:0; padding:0; background:#f5f5f4; font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif; color:#292524; }
   #app { min-height:100vh; padding-bottom: 0; }
 
-  .header { background:linear-gradient(135deg, #065f46, #047857); color:#fff; padding:12px 14px; display:flex; align-items:center; gap:10px; position:sticky; top:0; z-index:20; box-shadow:0 2px 6px rgba(0,0,0,.12); overflow:hidden; }
+  .header { background:linear-gradient(135deg, #065f46, #047857); color:#fff; padding:10px 14px 8px; display:flex; flex-direction:column; gap:6px; position:sticky; top:0; z-index:20; box-shadow:0 2px 6px rgba(0,0,0,.12); overflow:hidden; }
   .header-palmeira { position:absolute; right:6px; top:-18px; width:74px; height:auto; pointer-events:none; z-index:0; opacity:.55; }
   .header > *:not(.header-palmeira) { position:relative; z-index:1; }
+  .header-linha1 { display:flex; align-items:center; gap:10px; }
+  .header-linha2 { display:flex; align-items:center; gap:6px; padding-top:6px; border-top:1px solid rgba(255,255,255,.14); }
   .header .icon-badge { width:38px; height:38px; border-radius:12px; background:rgba(255,255,255,.16); display:flex; align-items:center; justify-content:center; font-size:19px; flex-shrink:0; }
   .header .title { font-weight:800; font-size:14.5px; line-height:1.2; }
   .header .status { font-size:10.5px; line-height:1.3; display:flex; align-items:center; gap:5px; margin-top:2px; }
@@ -27,9 +29,9 @@
   .status.offline { color:#fcd34d; font-weight:600; }
   .header .spacer { flex:1; }
   .clima-pill { background:rgba(255,255,255,.16); border-radius:99px; padding:6px 10px; font-size:12px; font-weight:700; display:flex; align-items:center; gap:4px; margin-right:2px; }
-  .btn-export { background:rgba(255,255,255,.16); color:#fff; border:none; border-radius:10px; padding:7px 11px; font-size:11px; font-weight:700; display:flex; align-items:center; gap:5px; cursor:pointer; }
+  .btn-export { background:rgba(255,255,255,.16); color:#fff; border:none; border-radius:10px; padding:6px 10px; font-size:10.5px; font-weight:700; display:flex; align-items:center; gap:5px; cursor:pointer; }
   .btn-export:active { background:rgba(255,255,255,.3); }
-  .backup-pill { font-size:9.5px; color:#d1fae5; min-height:11px; }
+  .backup-pill { font-size:9.5px; color:#d1fae5; }
   .backup-pill.enviando { color:#fcd34d; }
   .backup-pill.ok { color:#a7f3d0; font-weight:700; }
   .backup-pill.erro { color:#fca5a5; font-weight:700; }
@@ -240,23 +242,24 @@
 <div id="app">
   <div class="header">
     <img class="header-palmeira" src="coqueiro.png" alt="" aria-hidden="true"/>
-    <span class="icon-badge">🌴</span>
-    <div>
-      <div class="title">Controle de Campo — Coco</div>
-      <div id="statusLine" class="status offline">verificando conexão…</div>
-      <div style="font-size:9px; color:#a7f3d0; margin-top:1px; opacity:.8;">v57</div>
-    </div>
-    <div class="spacer"></div>
-    <div id="climaPill" class="clima-pill" style="display:none;">
-      <span id="climaIcone">☀️</span><span id="climaTemp"></span>
-    </div>
-    <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
-    <div style="display:flex; flex-direction:column; align-items:flex-end; gap:3px;">
-      <div style="display:flex; gap:6px;">
-        <button class="btn-export" onclick="exportarExcel()">⬇️ Excel</button>
-        <button class="btn-export" onclick="enviarBackupSheets()">📊 Sheets</button>
+    <div class="header-linha1">
+      <span class="icon-badge">🌴</span>
+      <div>
+        <div class="title">Controle de Campo — Coco</div>
+        <div id="statusLine" class="status offline">verificando conexão…</div>
       </div>
+      <div class="spacer"></div>
+      <div id="climaPill" class="clima-pill" style="display:none;">
+        <span id="climaIcone">☀️</span><span id="climaTemp"></span>
+      </div>
+      <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
+    </div>
+    <div class="header-linha2">
+      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v58</span>
+      <div class="spacer"></div>
       <span id="backupPill" class="backup-pill"></span>
+      <button class="btn-export" onclick="exportarExcel()">⬇️ Excel</button>
+      <button class="btn-export" onclick="enviarBackupSheets()">📊 Sheets</button>
     </div>
   </div>
 
@@ -869,6 +872,11 @@ function renderCargaCard(carga, linhasCalc, totalEstocado, totalCarregado, total
   if (aberto) {
     html += `<div class="carga-body">`;
 
+    html += `<div class="row-flex" style="margin-bottom:10px; background:#fef3c7; border-radius:8px; padding:8px 10px;">
+      <span style="font-size:12px;">Nº da carga: <b>${esc(carga.numero)}</b></span>
+      <button class="btn ghost" style="width:auto; padding:4px 9px; font-size:10.5px;" onclick="editarNumeroCarga('${carga.id}')">✏️ Editar (senha)</button>
+    </div>`;
+
     html += `<div style="font-size:11px; font-weight:700; text-transform:uppercase; color:#78716c; margin-bottom:6px;">🚛 Transporte</div>
       <div class="grid grid-4" style="margin-bottom:14px;">
         <label class="field"><span>Motorista</span><input type="text" value="${esc(carga.motorista)}" oninput="atualizarCarga('${carga.id}','motorista',this.value)"/></label>
@@ -1026,7 +1034,8 @@ function renderCargaCard(carga, linhasCalc, totalEstocado, totalCarregado, total
     html += renderDescarteDaCargaHTML(carga);
 
     html += `<div style="display:flex; justify-content:flex-end; gap:8px; margin-top:10px; flex-wrap:wrap;">`;
-    html += `<button class="btn ghost" style="width:auto; color:#128C7E; border:1px solid #128C7E;" onclick="compartilharCargaWhatsapp('${carga.id}')">📲 Compartilhar</button>`;
+    html += `<button class="btn ghost" style="width:auto; color:#128C7E; border:1px solid #128C7E;" onclick="compartilharCargaWhatsapp('${carga.id}')">📲 Compartilhar (texto)</button>`;
+    html += `<button class="btn ghost" style="width:auto; color:#128C7E; border:1px solid #128C7E;" onclick="gerarImagemPesoUnidades('${carga.id}')">🖼️ Gerar imagem (Peso/Unidades)</button>`;
     if (!arquivada) {
       html += `<button class="btn danger" onclick="removeCarga('${carga.id}')">🗑️ Excluir carga</button>`;
       html += `<button class="btn" style="width:auto; background:#0f766e;" onclick="arquivarCarga('${carga.id}')">📦 Finalizar e arquivar carga</button>`;
@@ -1343,6 +1352,92 @@ window.compartilharCargaWhatsapp = async function (cargaId) {
   // Fallback pra quando o celular/navegador não tem compartilhamento nativo (ex: computador):
   // abre o WhatsApp Web já com o texto pronto. As fotos, nesse caso, precisam ser anexadas na mão.
   window.open(`https://wa.me/?text=${encodeURIComponent(texto)}`, "_blank");
+};
+
+// Tabelinha "Total de Peso e Unidades" — só 1ª qualidade (o app não separa 2ª). Desenhada em
+// escala 3x (depois compactada de volta no tamanho normal) pra sair nítida mesmo em telas de
+// alta densidade — sem isso, a imagem saía borrada quando ampliada no celular.
+window.gerarImagemPesoUnidades = function (cargaId) {
+  const carga = S.cargas.find((c) => c.id === cargaId);
+  if (!carga) return;
+  const bags = bagsDaCarga(cargaId);
+  if (bags.length === 0) { alert("Essa carga ainda não tem bag nenhum lançado."); return; }
+
+  const totalUnidades1 = bags.reduce((s, b) => s + (Number(b.coco1) || 0), 0);
+  const totalPeso1 = bags.reduce((s, b) => s + (Number(b.carregado1) || 0), 0);
+  const qtdSacos = bags.length;
+  const pesoMedio = qtdSacos > 0 ? totalPeso1 / qtdSacos : 0;
+
+  const linhas = [
+    ["Unidades de 1ª", `${fmt(totalUnidades1,0)} Uni`],
+    ["Peso de 1ª", `${fmt(totalPeso1,0)} kg`],
+    ["Quantidade de sacos", `${qtdSacos} sacos`],
+    ["Peso Total", `${fmt(totalPeso1,0)} kg`],
+    ["Peso Médio", `${pesoMedio.toFixed(3)} kg`],
+  ];
+
+  const escala = 3; // resolução mais alta — sem isso a imagem sai borrada ao ampliar
+  const larguraBase = 300, alturaLinhaBase = 30, alturaTituloBase = 34;
+  const alturaBase = alturaTituloBase + alturaLinhaBase * linhas.length;
+
+  const canvas = document.createElement("canvas");
+  canvas.width = larguraBase * escala;
+  canvas.height = alturaBase * escala;
+  const ctx = canvas.getContext("2d");
+  ctx.scale(escala, escala);
+  ctx.textBaseline = "middle";
+
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, larguraBase, alturaBase);
+
+  ctx.fillStyle = "#1f2937";
+  ctx.fillRect(0, 0, larguraBase, alturaTituloBase);
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "bold 15px Arial";
+  ctx.textAlign = "center";
+  ctx.fillText(`Carga Nº ${carga.numero} — Total de Peso e Unidades`, larguraBase / 2, alturaTituloBase / 2);
+
+  let y = alturaTituloBase;
+  linhas.forEach(([label, valor], i) => {
+    ctx.fillStyle = i % 2 === 0 ? "#f3f4f6" : "#ffffff";
+    ctx.fillRect(0, y, larguraBase, alturaLinhaBase);
+    ctx.fillStyle = "#111827";
+    ctx.font = "bold 12.5px Arial";
+    ctx.textAlign = "left";
+    ctx.fillText(label, 12, y + alturaLinhaBase / 2);
+    ctx.font = "12.5px Arial";
+    ctx.textAlign = "right";
+    ctx.fillText(valor, larguraBase - 12, y + alturaLinhaBase / 2);
+    y += alturaLinhaBase;
+  });
+
+  ctx.strokeStyle = "#9ca3af";
+  ctx.lineWidth = 1;
+  ctx.strokeRect(0.5, 0.5, larguraBase - 1, alturaBase - 1);
+  y = alturaTituloBase;
+  linhas.forEach(() => { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(larguraBase, y); ctx.stroke(); y += alturaLinhaBase; });
+
+  canvas.toBlob(async (blob) => {
+    if (!blob) { alert("Não consegui gerar a imagem. Tenta de novo."); return; }
+    const nomeArquivo = `carga-${carga.numero}-peso-unidades.png`;
+    const arquivo = new File([blob], nomeArquivo, { type: "image/png" });
+
+    if (navigator.share && navigator.canShare && navigator.canShare({ files: [arquivo] })) {
+      try {
+        await navigator.share({ files: [arquivo], title: `Carga ${carga.numero} — Peso e Unidades` });
+        return;
+      } catch (e) {
+        if (e.name === "AbortError") return;
+        console.warn("Falha ao compartilhar a imagem, baixando em vez disso:", e);
+      }
+    }
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = nomeArquivo;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, "image/png");
 };
 
 window.compartilharCargaVerdeWhatsapp = async function (cargaId) {
@@ -2620,6 +2715,19 @@ const _cargaTimers = {};
 // Autosave dos dados de transporte (motorista, placa, destino, horário) — cada campo salva
 // sozinho meio segundo depois de parar de digitar, sem re-renderizar a tela (senão perderia
 // o foco do campo a cada letra digitada).
+window.editarNumeroCarga = function (cargaId) {
+  pedirSenha(() => {
+    const carga = S.cargas.find((c) => c.id === cargaId);
+    if (!carga) return;
+    const novoStr = prompt("Novo número da carga:", carga.numero);
+    if (novoStr === null) return; // cancelou
+    const novo = novoStr.trim();
+    if (!novo) { alert("O número não pode ficar em branco."); return; }
+    atualizarCarga(cargaId, "numero", novo);
+    renderRomaneio();
+  });
+};
+
 window.atualizarCarga = function (cargaId, campo, valor) {
   const idx = S.cargas.findIndex((c) => c.id === cargaId);
   if (idx >= 0) S.cargas[idx] = { ...S.cargas[idx], [campo]: valor };

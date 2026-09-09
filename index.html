@@ -255,7 +255,7 @@
       <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
     </div>
     <div class="header-linha2">
-      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v60</span>
+      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v61</span>
       <div class="spacer"></div>
       <span id="backupPill" class="backup-pill"></span>
       <button class="btn-export" onclick="exportarExcel()">⬇️ Excel</button>
@@ -1039,7 +1039,7 @@ function renderCargaCard(carga, linhasCalc, totalEstocado, totalCarregado, total
 
     html += `<div style="display:flex; justify-content:flex-end; gap:8px; margin-top:10px; flex-wrap:wrap;">`;
     html += `<button class="btn ghost" style="width:auto; color:#128C7E; border:1px solid #128C7E;" onclick="compartilharCargaWhatsapp('${carga.id}')">📲 Compartilhar (texto)</button>`;
-    html += `<button class="btn ghost" style="width:auto; color:#128C7E; border:1px solid #128C7E;" onclick="gerarImagemPesoUnidades('${carga.id}')">🖼️ Gerar imagem (Peso/Unidades)</button>`;
+    html += `<button class="btn ghost" style="width:auto; color:#128C7E; border:1px solid #128C7E;" onclick="gerarImagemPesoUnidades('${carga.id}')">🖼️ Gerar imagem (com fotos)</button>`;
     if (!arquivada) {
       html += `<button class="btn danger" onclick="removeCarga('${carga.id}')">🗑️ Excluir carga</button>`;
       html += `<button class="btn" style="width:auto; background:#0f766e;" onclick="arquivarCarga('${carga.id}')">📦 Finalizar e arquivar carga</button>`;
@@ -1361,27 +1361,36 @@ window.compartilharCargaWhatsapp = async function (cargaId) {
 // Tabelinha "Total de Peso e Unidades" — só 1ª qualidade (o app não separa 2ª). Desenhada em
 // escala 3x (depois compactada de volta no tamanho normal) pra sair nítida mesmo em telas de
 // alta densidade — sem isso, a imagem saía borrada quando ampliada no celular.
-window.gerarImagemPesoUnidades = function (cargaId) {
+// Imagem-resumo da carga — mesmas informações que já vão no "Compartilhar (texto)", só que em
+// forma de tabela desenhada (mais fácil de bater o olho), com o Peso Médio (carregado ÷
+// quantidade em unidades) e, junto no mesmo compartilhamento, as fotos da carga já lançadas.
+window.gerarImagemPesoUnidades = async function (cargaId) {
   const carga = S.cargas.find((c) => c.id === cargaId);
   if (!carga) return;
   const bags = bagsDaCarga(cargaId);
-  if (bags.length === 0) { alert("Essa carga ainda não tem bag nenhum lançado."); return; }
+  const linhasCalc = bags.map((l) => ({ ...l, ...calcLinhaRomaneio(l) }));
+  const totalCoco = linhasCalc.reduce((s, l) => s + (Number(l.coco1) || 0), 0);
+  const totalEstocado = linhasCalc.reduce((s, l) => s + l.estocado1, 0);
+  const totalCarregado = linhasCalc.reduce((s, l) => s + l.carregado1, 0);
+  const totalDiferenca = totalCarregado - totalEstocado;
+  const pesoMedio = totalCoco > 0 ? totalCarregado / totalCoco : 0;
 
-  const totalUnidades1 = bags.reduce((s, b) => s + (Number(b.coco1) || 0), 0);
-  const totalPeso1 = bags.reduce((s, b) => s + (Number(b.carregado1) || 0), 0);
-  const qtdSacos = bags.length;
-  const pesoMedio = qtdSacos > 0 ? totalPeso1 / qtdSacos : 0;
+  const linhas = [];
+  if (carga.encarregado) linhas.push(["Encarregado", carga.encarregado]);
+  if (carga.motorista) linhas.push(["Motorista", carga.motorista + (carga.telefoneMotorista ? ` (${carga.telefoneMotorista})` : "")]);
+  if (carga.placa) linhas.push(["Placa", carga.placa]);
+  if (carga.destino) linhas.push(["Destino", carga.destino]);
+  if (carga.horarioSaida) linhas.push(["Horário de saída", carga.horarioSaida]);
+  if (carga.nfCte) linhas.push(["NF/CT-e", carga.nfCte]);
+  linhas.push(["Bags", String(linhasCalc.length)]);
+  linhas.push(["Quantidade", `${fmt(totalCoco, 0)} cocos`]);
+  linhas.push(["Estocado", `${fmt(totalEstocado, 0)} kg`]);
+  linhas.push(["Carregado", `${fmt(totalCarregado, 0)} kg`]);
+  linhas.push(["Diferença", `${fmt(totalDiferenca, 0)} kg`]);
+  linhas.push(["Peso Médio", `${pesoMedio.toFixed(3)} kg/unid`]);
 
-  const linhas = [
-    ["Unidades de 1ª", `${fmt(totalUnidades1,0)} Uni`],
-    ["Peso de 1ª", `${fmt(totalPeso1,0)} kg`],
-    ["Quantidade de sacos", `${qtdSacos} sacos`],
-    ["Peso Total", `${fmt(totalPeso1,0)} kg`],
-    ["Peso Médio", `${pesoMedio.toFixed(3)} kg`],
-  ];
-
-  const escala = 3; // resolução mais alta — sem isso a imagem sai borrada ao ampliar
-  const larguraBase = 300, alturaLinhaBase = 30, alturaTituloBase = 34;
+  const escala = 3; // resolução mais alta — sem isso a imagem sai borrada ao ampliar/dar zoom
+  const larguraBase = 320, alturaLinhaBase = 28, alturaTituloBase = 40;
   const alturaBase = alturaTituloBase + alturaLinhaBase * linhas.length;
 
   const canvas = document.createElement("canvas");
@@ -1394,22 +1403,26 @@ window.gerarImagemPesoUnidades = function (cargaId) {
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, larguraBase, alturaBase);
 
-  ctx.fillStyle = "#1f2937";
+  ctx.fillStyle = "#065f46";
   ctx.fillRect(0, 0, larguraBase, alturaTituloBase);
   ctx.fillStyle = "#ffffff";
   ctx.font = "bold 15px Arial";
   ctx.textAlign = "center";
-  ctx.fillText(`Carga Nº ${carga.numero} — Total de Peso e Unidades`, larguraBase / 2, alturaTituloBase / 2);
+  ctx.fillText(`🌴 Carga Nº ${carga.numero}`, larguraBase / 2, alturaTituloBase / 2 - 8);
+  ctx.font = "11.5px Arial";
+  ctx.fillText(brDate(carga.data), larguraBase / 2, alturaTituloBase / 2 + 10);
 
   let y = alturaTituloBase;
   linhas.forEach(([label, valor], i) => {
-    ctx.fillStyle = i % 2 === 0 ? "#f3f4f6" : "#ffffff";
+    const destaque = label === "Peso Médio";
+    ctx.fillStyle = destaque ? "#dcfce7" : (i % 2 === 0 ? "#f3f4f6" : "#ffffff");
     ctx.fillRect(0, y, larguraBase, alturaLinhaBase);
     ctx.fillStyle = "#111827";
     ctx.font = "bold 12.5px Arial";
     ctx.textAlign = "left";
     ctx.fillText(label, 12, y + alturaLinhaBase / 2);
-    ctx.font = "12.5px Arial";
+    ctx.font = destaque ? "bold 12.5px Arial" : "12.5px Arial";
+    ctx.fillStyle = destaque ? "#166534" : "#111827";
     ctx.textAlign = "right";
     ctx.fillText(valor, larguraBase - 12, y + alturaLinhaBase / 2);
     y += alturaLinhaBase;
@@ -1421,27 +1434,50 @@ window.gerarImagemPesoUnidades = function (cargaId) {
   y = alturaTituloBase;
   linhas.forEach(() => { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(larguraBase, y); ctx.stroke(); y += alturaLinhaBase; });
 
-  canvas.toBlob(async (blob) => {
-    if (!blob) { alert("Não consegui gerar a imagem. Tenta de novo."); return; }
-    const nomeArquivo = `carga-${carga.numero}-peso-unidades.png`;
-    const arquivo = new File([blob], nomeArquivo, { type: "image/png" });
+  const blobResumo = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+  if (!blobResumo) { alert("Não consegui gerar a imagem. Tenta de novo."); return; }
+  const nomeResumo = `carga-${carga.numero}-resumo.png`;
+  const arquivoResumo = new File([blobResumo], nomeResumo, { type: "image/png" });
 
-    if (navigator.share && navigator.canShare && navigator.canShare({ files: [arquivo] })) {
+  // Junta as fotos que já foram tiradas dessa carga, pra ir tudo junto no mesmo compartilhamento
+  const fotos = fotosDaCarga(cargaId);
+  let arquivosFotos = [];
+  if (fotos.length > 0) {
+    try {
+      const blobs = await Promise.all(fotos.map((f) => fetch(f.url).then((r) => r.blob())));
+      arquivosFotos = blobs.map((b, i) => new File([b], `carga-${carga.numero}-foto-${i + 1}.jpg`, { type: b.type || "image/jpeg" }));
+    } catch (e) {
+      console.warn("Não consegui baixar as fotos da carga pra juntar no compartilhamento:", e);
+    }
+  }
+
+  const todosArquivos = [arquivoResumo, ...arquivosFotos];
+
+  async function tentarCompartilhar(arquivos) {
+    if (navigator.share && navigator.canShare && navigator.canShare({ files: arquivos })) {
       try {
-        await navigator.share({ files: [arquivo], title: `Carga ${carga.numero} — Peso e Unidades` });
-        return;
+        await navigator.share({ files: arquivos, title: `Carga ${carga.numero}` });
+        return true;
       } catch (e) {
-        if (e.name === "AbortError") return;
-        console.warn("Falha ao compartilhar a imagem, baixando em vez disso:", e);
+        if (e.name === "AbortError") return true; // cancelou, não insiste no fallback
+        console.warn("Falha ao compartilhar:", e);
+        return false;
       }
     }
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = nomeArquivo;
-    a.click();
-    URL.revokeObjectURL(url);
-  }, "image/png");
+    return false;
+  }
+
+  // Tenta com tudo junto (resumo + fotos); se o celular recusar (ex: muita coisa de uma vez),
+  // tenta só o resumo; se nem isso der, baixa o resumo direto.
+  if (await tentarCompartilhar(todosArquivos)) return;
+  if (arquivosFotos.length > 0 && (await tentarCompartilhar([arquivoResumo]))) return;
+
+  const url = URL.createObjectURL(blobResumo);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = nomeResumo;
+  a.click();
+  URL.revokeObjectURL(url);
 };
 
 window.compartilharCargaVerdeWhatsapp = async function (cargaId) {

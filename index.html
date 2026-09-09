@@ -255,7 +255,7 @@
       <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
     </div>
     <div class="header-linha2">
-      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v58</span>
+      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v60</span>
       <div class="spacer"></div>
       <span id="backupPill" class="backup-pill"></span>
       <button class="btn-export" onclick="exportarExcel()">⬇️ Excel</button>
@@ -659,7 +659,11 @@ function calcDescarte(d) {
   const aprov350 = (brotoPct !== null && perda350 !== null) ? 1 - (brotoPct||0) - (perda350||0) : null;
   const perda400 = (pctKg.refugos||0) + (pctKg.g350_400||0);
   const aprov400 = 1 - (brotoPct||0) - perda400;
-  return { totalKg, totalUnid, pctKg, pctUnid, brotoPct, perda350, aprov350, perda400, aprov400 };
+  // Descarte "de verdade" (o que realmente se perde) é só Brotos + Refugos + 350-400g. As faixas
+  // 400-500g e Acima de 500g NÃO são descarte — são coco bom, só separado por tamanho. Por isso
+  // esse total NÃO soma as 5 categorias como o "totalKg" acima faz (que é o processado inteiro).
+  const totalKgDescarteReal = num(d.cats.brotos.kg) + num(d.cats.refugos.kg) + num(d.cats.g350_400.kg);
+  return { totalKg, totalUnid, pctKg, pctUnid, brotoPct, perda350, aprov350, perda400, aprov400, totalKgDescarteReal };
 }
 
 function calcAplicacao(reg, tipo) {
@@ -942,7 +946,7 @@ function renderCargaCard(carga, linhasCalc, totalEstocado, totalCarregado, total
       html += `<div style="font-size:11px; font-weight:700; text-transform:uppercase; color:#92400e; margin-bottom:6px;">🚛 Carregamento — completando o BAG ${esc(el.idBagLabel||"")}</div>
         <div class="grid grid-4" style="background:#fffbeb; border:1px solid #fde68a; border-radius:9px; padding:10px; margin-bottom:14px;">
           <label class="field"><span>Data do carregamento</span><input type="date" value="${esc(el.dataCarregamento)}" oninput="S._editLinha.dataCarregamento=this.value"/></label>
-          <label class="field"><span>Carregado 1ª (kg)</span><input class="amarelo" type="number" value="${esc(el.carregado1)}" oninput="S._editLinha.carregado1=this.value"/></label>
+          <label class="field"><span>Carregado 1ª (kg)</span><input class="amarelo" type="number" value="${esc(el.carregado1)}" oninput="S._editLinha.carregado1=this.value; if(this.value && !S._editLinha.dataCarregamento){ S._editLinha.dataCarregamento=todayISO(); renderRomaneio(); }"/></label>
           <label class="field"><span>5 cocos carreg. (g)</span><input class="amarelo" type="number" value="${esc(el.cincoCocosG)}" oninput="S._editLinha.cincoCocosG=this.value"/></label>
           <div class="field" style="justify-content:flex-end; flex-direction:row; gap:6px;">
             <button class="btn" style="width:auto; background:#0f766e;" onclick="salvarEdicaoLinha()">💾 Salvar</button>
@@ -1907,8 +1911,9 @@ function renderDescarteDaCargaHTML(carga) {
           <td>—</td><td>${fmt(Number(existente.descartesUnid)||0,0)}</td><td>—</td><td>${fmtPct(c.pctDescartesUnid)}</td>
         </tr>`;
     CATS_DESCARTES.forEach((cat) => {
+      const naoEDescarte = cat.key === "g400_500" || cat.key === "acima500";
       html += `<tr>
-          <td style="text-align:left; font-weight:600;">${cat.label}</td>
+          <td style="text-align:left; font-weight:600;">${cat.label} ${naoEDescarte ? `<span class="muted" style="font-weight:400; font-size:10px;">(não é descarte)</span>` : ""}</td>
           <td>${fmt(Number(existente.cats[cat.key].kg)||0,0)}</td>
           <td>${fmt(Number(existente.cats[cat.key].unid)||0,0)}</td>
           <td>${fmtPct(c.pctKg[cat.key])}</td>
@@ -1916,10 +1921,13 @@ function renderDescarteDaCargaHTML(carga) {
         </tr>`;
     });
     html += `<tr style="font-weight:700; background:#fafaf9;">
-          <td style="text-align:left;">TOTAL</td>
+          <td style="text-align:left;">Total processado</td>
           <td>${fmt(c.totalKg,0)}</td><td>${fmt(c.totalUnid,0)}</td><td>100%</td><td>100%</td>
         </tr>
       </tbody></table></div>
+      <div style="background:#FFC7CE; color:#9c0006; border-radius:8px; padding:8px 10px; margin-top:10px; font-weight:700; font-size:13px;">
+        🗑️ Descarte real: ${fmt(c.totalKgDescarteReal,0)} kg <span style="font-weight:400; font-size:11px;">(só Brotos + Refugos + 350-400g — 400-500g e Acima 500g são coco bom, só separado por tamanho)</span>
+      </div>
       <div class="grid grid-4" style="margin-top:10px;">
         <div class="stat-box ico"><div class="stat-ic">🌱</div><div><div class="lbl">Broto %</div><div class="val">${fmtPct(c.brotoPct)}</div></div></div>
         <div class="stat-box ico vermelho"><div class="stat-ic vermelho">📉</div><div><div class="lbl">Perda até 350g</div><div class="val" style="color:#dc2626;">${fmtPct(c.perda350)}</div></div></div>
@@ -2853,8 +2861,8 @@ function calcIndicadoresMes(mes) {
   let descarteKg = 0, brotoKgSoma = 0, totalKgSoma = 0;
   descartesMes.forEach((r) => {
     const c = calcDescarte(r);
-    descarteKg += c.totalKg;
-    totalKgSoma += c.totalKg;
+    descarteKg += c.totalKgDescarteReal; // só Brotos+Refugos+350-400g — 400-500g e Acima 500g não são descarte
+    totalKgSoma += c.totalKg; // esse aqui continua sendo o processado inteiro, pra calcular o % de broto certo
     brotoKgSoma += (Number(r.cats.brotos.kg) || 0);
   });
   const brotoPctMedio = totalKgSoma ? brotoKgSoma / totalKgSoma : null;
@@ -3049,6 +3057,16 @@ function renderIndicadores() {
   const areasSorted = Object.entries(atual.porArea).sort((a, b) => b[1] - a[1]);
   const maxArea = areasSorted.length ? areasSorted[0][1] : 0;
 
+  // Detecta bags com peso carregado preenchido mas SEM data de carregamento — esses bags saem
+  // do "estoque pendente" (porque tecnicamente já foram carregados) mas nunca entram em NENHUM
+  // mês do "Carga Expedida", porque esse indicador filtra estritamente pela data. É a causa mais
+  // comum de "Carga Expedida" aparecer zerada mesmo já tendo peso carregado lançado.
+  const bagsSemData = S.bags.filter((b) => {
+    const temPeso = b.carregado1 !== undefined && b.carregado1 !== null && b.carregado1 !== "" && Number(b.carregado1) > 0;
+    const semData = !b.dataCarregamento;
+    return temPeso && semData;
+  });
+
   let html = `
   <div class="card">
     <h3 style="margin-bottom:8px;">📈 Indicadores</h3>
@@ -3056,7 +3074,10 @@ function renderIndicadores() {
       <input type="month" value="${esc(mes)}" onchange="mudarMesIndicadores(this.value)"/>
     </label>
   </div>
-
+  ${bagsSemData.length > 0 ? `<div class="card acento laranja">
+    <div style="font-size:12.5px; font-weight:700; color:#9a3412; margin-bottom:4px;">⚠️ ${bagsSemData.length} bag${bagsSemData.length>1?"s têm":" tem"} peso carregado lançado mas sem "Data do carregamento"</div>
+    <div class="muted" style="font-size:11px;">Isso faz esse${bagsSemData.length>1?"s bags não entrarem":" bag não entrar"} em NENHUM mês do "Carga Expedida" (mesmo já contando certinho no estoque). Corrige indo na aba Romaneio, abrindo a carga e preenchendo a data desse${bagsSemData.length>1?"s bags":" bag"}: ${bagsSemData.slice(0,8).map(b=>esc(b.idBag)).join(", ")}${bagsSemData.length>8?"…":""}</div>
+  </div>` : ""}
   <div class="grid grid-2" style="margin-bottom:14px;">
     <div class="stat-box" style="position:relative;">
       <span class="stat-ic" style="position:absolute; top:8px; right:8px; width:26px; height:26px; font-size:12px;">🌱</span>
@@ -4784,6 +4805,7 @@ function montarLinhasDescartes() {
       row[`${cat.label} (unid)`] = r.cats[cat.key].unid;
     });
     row["TOTAL (kg)"] = c.totalKg; row["TOTAL (unid)"] = c.totalUnid;
+    row["Descarte real (kg)"] = c.totalKgDescarteReal;
     row["Broto (%)"] = c.brotoPct; row["Perda até 350g (%)"] = c.perda350; row["Aproveit. até 350g (%)"] = c.aprov350;
     row["Perda até 400g (%)"] = c.perda400; row["Aproveit. até 400g (%)"] = c.aprov400;
     return row;

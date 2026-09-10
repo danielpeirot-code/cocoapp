@@ -255,7 +255,7 @@
       <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
     </div>
     <div class="header-linha2">
-      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v61</span>
+      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v62</span>
       <div class="spacer"></div>
       <span id="backupPill" class="backup-pill"></span>
       <button class="btn-export" onclick="exportarExcel()">⬇️ Excel</button>
@@ -280,6 +280,7 @@
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {
@@ -3162,6 +3163,11 @@ function renderIndicadores() {
   html += `</div>
 
   <div class="card">
+    <h3 style="margin-bottom:10px;">📊 Evolução — últimos 6 meses</h3>
+    <canvas id="graficoEvolucaoIndicadores" height="220"></canvas>
+  </div>
+
+  <div class="card">
     <h3 style="margin-bottom:10px;">📊 Comparação com ${esc(mesLabel(mesAnt))}</h3>
     <table class="tbl">
       <thead><tr><th style="text-align:left;">Indicador</th><th>${esc(mesLabel(mes))}</th><th>${esc(mesLabel(mesAnt))}</th><th>Variação</th></tr></thead>
@@ -3174,6 +3180,38 @@ function renderIndicadores() {
   </div>`;
 
   document.getElementById("tabContent").innerHTML = html;
+  desenharGraficoEvolucaoIndicadores(mes);
+}
+
+// Gráfico de barras dos últimos 6 meses (terminando no mês selecionado) — Produção, Expedido
+// e Descarte lado a lado, pra dar pra ver tendência/padrão, não só o instantâneo de um mês só.
+let _graficoEvolucaoInstancia = null;
+function desenharGraficoEvolucaoIndicadores(mesFinal) {
+  const canvas = document.getElementById("graficoEvolucaoIndicadores");
+  if (!canvas || typeof Chart === "undefined") return;
+
+  const meses = [];
+  let m = mesFinal;
+  for (let i = 0; i < 6; i++) { meses.unshift(m); m = mesAnterior(m); }
+  const dados = meses.map((mm) => calcIndicadoresMes(mm));
+
+  if (_graficoEvolucaoInstancia) _graficoEvolucaoInstancia.destroy();
+  _graficoEvolucaoInstancia = new Chart(canvas.getContext("2d"), {
+    type: "bar",
+    data: {
+      labels: meses.map((mm) => mesLabel(mm).replace(/\/\d{2}(\d{2})$/, "/$1")),
+      datasets: [
+        { label: "Produzido", data: dados.map((d) => d.producaoKg), backgroundColor: "#059669" },
+        { label: "Expedido", data: dados.map((d) => d.expedidoKg), backgroundColor: "#2563eb" },
+        { label: "Descarte", data: dados.map((d) => d.descarteKg), backgroundColor: "#dc2626" },
+      ],
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { position: "bottom", labels: { boxWidth: 12, font: { size: 11 } } } },
+      scales: { y: { beginAtZero: true, ticks: { font: { size: 10 } } }, x: { ticks: { font: { size: 10 } } } },
+    },
+  });
 }
 
 window.mudarMesIndicadores = function (val) {

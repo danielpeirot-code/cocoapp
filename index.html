@@ -255,7 +255,7 @@
       <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
     </div>
     <div class="header-linha2">
-      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v62</span>
+      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v63</span>
       <div class="spacer"></div>
       <span id="backupPill" class="backup-pill"></span>
       <button class="btn-export" onclick="exportarExcel()">⬇️ Excel</button>
@@ -280,7 +280,7 @@
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {
@@ -3188,7 +3188,15 @@ function renderIndicadores() {
 let _graficoEvolucaoInstancia = null;
 function desenharGraficoEvolucaoIndicadores(mesFinal) {
   const canvas = document.getElementById("graficoEvolucaoIndicadores");
-  if (!canvas || typeof Chart === "undefined") return;
+  if (!canvas) return;
+  if (typeof Chart === "undefined") {
+    // Antes isso deixava a área em branco sem explicar nada — agora avisa o motivo mais provável
+    // (a biblioteca do gráfico não conseguiu carregar da internet) em vez de ficar mudo.
+    const pai = canvas.parentElement;
+    if (pai) pai.innerHTML = `<h3 style="margin-bottom:10px;">📊 Evolução — últimos 6 meses</h3>
+      <div class="muted" style="font-size:12px;">⚠️ Não consegui carregar a biblioteca do gráfico agora — geralmente é falta de internet na primeira vez que abre o app depois de uma atualização. Abre com internet uma vez que resolve (depois fica salvo e funciona offline).</div>`;
+    return;
+  }
 
   const meses = [];
   let m = mesFinal;

@@ -1,4 +1,4 @@
-const CACHE_NAME = "coco-campo-v62";
+const CACHE_NAME = "coco-campo-v63";
 const APP_SHELL = [
   "./",
   "manifest.json",

@@ -265,7 +265,7 @@
       <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
     </div>
     <div class="header-linha2">
-      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v75</span>
+      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v76</span>
       <div class="spacer"></div>
       <span id="backupPill" class="backup-pill"></span>
       <button class="btn-export" onclick="exportarExcel()">⬇️ Excel</button>
@@ -1905,7 +1905,7 @@ function renderCargaVerdeCard(carga) {
           <span class="muted">${aberto ? "▾" : "▸"}</span>
         </div>
       </div>
-      ${carga.quantidadeTotal ? `<div class="muted" style="font-size:12px; margin-top:4px;">Quantidade: <b style="color:#292524;">${fmt(Number(carga.quantidadeTotal),0)} frutos</b></div>` : ""}
+      ${carga.quantidadeTotal ? `<div class="muted" style="font-size:12px; margin-top:4px;">Quantidade: <b style="color:#292524;">${fmt(Number(carga.quantidadeTotal),0)} frutos</b>${carga.setor ? ` — Setor ${esc(carga.setor)}` : ""}</div>` : ""}
     </button>`;
 
   if (aberto) {
@@ -1924,6 +1924,12 @@ function renderCargaVerdeCard(carga) {
     html += `<div style="font-size:11px; font-weight:700; text-transform:uppercase; color:#78716c; margin-bottom:6px;">🥥 Quantidade total</div>
       <div class="grid grid-2" style="margin-bottom:14px;">
         <label class="field"><span>Quantidade (frutos)</span><input type="number" value="${esc(carga.quantidadeTotal)}" oninput="atualizarCargaVerde('${carga.id}','quantidadeTotal',this.value)"/></label>
+        <label class="field"><span>Setor de origem</span>
+          <select onchange="atualizarCargaVerde('${carga.id}','setor',this.value)">
+            <option value="" ${!carga.setor?"selected":""}>—</option>
+            ${TALHOES.map(t=>`<option value="${t}" ${carga.setor===t?"selected":""}>${t}</option>`).join("")}
+          </select>
+        </label>
       </div>`;
 
     const amostras = carga.amostrasAgua || [];
@@ -3020,7 +3026,17 @@ function calcIndicadoresMes(mes) {
     porArea[t] = (porArea[t] || 0) + (Number(b.estocado1) || 0);
   });
 
-  return { producaoKg, expedidoKg, descarteKg, brotoPctMedio, porArea, nBagsProduzidos: bagsProduzidos.length, nBagsExpedidos: bagsExpedidos.length };
+  // Romaneio Verde é medido em frutos, não em kg — por isso entra separado, não somado com o
+  // resto (misturar kg com frutos não faria sentido nenhum).
+  const cargasVerdeMes = S.cargasVerde.filter((c) => (c.data || "").slice(0, 7) === mes);
+  const producaoVerdeFrutos = cargasVerdeMes.reduce((s, c) => s + (Number(c.quantidadeTotal) || 0), 0);
+  const porAreaVerde = {};
+  cargasVerdeMes.forEach((c) => {
+    const t = c.setor || "—";
+    porAreaVerde[t] = (porAreaVerde[t] || 0) + (Number(c.quantidadeTotal) || 0);
+  });
+
+  return { producaoKg, expedidoKg, descarteKg, brotoPctMedio, porArea, nBagsProduzidos: bagsProduzidos.length, nBagsExpedidos: bagsExpedidos.length, producaoVerdeFrutos, porAreaVerde, nCargasVerde: cargasVerdeMes.length };
 }
 
 function calcEstoqueAtual() {
@@ -3353,6 +3369,8 @@ function renderIndicadores() {
 
   const areasSorted = Object.entries(atual.porArea).sort((a, b) => b[1] - a[1]);
   const maxArea = areasSorted.length ? areasSorted[0][1] : 0;
+  const areasSortedVerde = Object.entries(atual.porAreaVerde).sort((a, b) => b[1] - a[1]);
+  const maxAreaVerde = areasSortedVerde.length ? areasSortedVerde[0][1] : 0;
 
   // Detecta bags com peso carregado preenchido mas SEM data de carregamento — esses bags saem
   // do "estoque pendente" (porque tecnicamente já foram carregados) mas nunca entram em NENHUM
@@ -3402,6 +3420,24 @@ function renderIndicadores() {
       <div class="stat-box ico"><div class="stat-ic laranja">♻️</div><div><div class="lbl">Total descartado</div><div class="val">${fmt(atual.descarteKg,0)} kg</div></div></div>
       <div class="stat-box ico"><div class="stat-ic">🌱</div><div><div class="lbl">Broto (%) médio</div><div class="val">${fmtPct(atual.brotoPctMedio)}</div></div></div>
     </div>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-bottom:8px;">🥥 Romaneio Verde (mês)</h3>
+    <div class="muted" style="font-size:10.5px; margin-bottom:8px;">Medido em frutos, não em kg — por isso fica separado dos números do coco seco acima.</div>
+    <div class="grid grid-2" style="margin-bottom:${areasSortedVerde.length>0?"10px":"0"};">
+      <div class="stat-box ico"><div class="stat-ic">🥥</div><div><div class="lbl">Total de frutos</div><div class="val">${fmt(atual.producaoVerdeFrutos,0)}</div></div></div>
+      <div class="stat-box ico azul"><div class="stat-ic azul">🚛</div><div><div class="lbl">Cargas verdes</div><div class="val">${atual.nCargasVerde}</div></div></div>
+    </div>
+    ${areasSortedVerde.length > 0 ? areasSortedVerde.map(([talhao, qtd]) => {
+      const pct = maxAreaVerde ? (qtd / maxAreaVerde) * 100 : 0;
+      return `<div style="margin-bottom:8px;">
+        <div class="row-flex" style="font-size:12.5px; margin-bottom:2px;"><b>${esc(talhao)}</b><span>${fmt(qtd,0)} frutos</span></div>
+        <div style="background:#f0efee; border-radius:99px; height:8px; overflow:hidden;">
+          <div style="background:#16a34a; height:100%; width:${pct}%;"></div>
+        </div>
+      </div>`;
+    }).join("") : `<div class="muted" style="font-size:11px;">Nenhuma carga verde com setor preenchido esse mês ainda.</div>`}
   </div>
 
   <div class="card">
@@ -5177,7 +5213,7 @@ function montarLinhasRomaneioVerde() {
       "Data da Carga": carga.data, "Encarregado": carga.encarregado,
       "Motorista": carga.motorista, "Telefone Motorista": carga.telefoneMotorista, "Placa": carga.placa,
       "Destino": carga.destino, "Horário Saída": carga.horarioSaida, "NF/CT-e": carga.nfCte,
-      "Quantidade Total (frutos)": carga.quantidadeTotal,
+      "Setor de Origem": carga.setor || "", "Quantidade Total (frutos)": carga.quantidadeTotal,
       "Média Água (ml)": mediaAgua !== "" ? Number(mediaAgua.toFixed(1)) : "",
     };
   });

@@ -255,7 +255,7 @@
       <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
     </div>
     <div class="header-linha2">
-      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v63</span>
+      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v64</span>
       <div class="spacer"></div>
       <span id="backupPill" class="backup-pill"></span>
       <button class="btn-export" onclick="exportarExcel()">⬇️ Excel</button>
@@ -750,6 +750,7 @@ const CATEGORIAS_NAV = [
   ] },
   { id: "fazenda", label: "Fazenda", icon: "🗺️", senha: true, tabs: [{ id: "setores", label: "Setores", icon: "🗺️" }] },
   { id: "relatorios", label: "Relatórios", icon: "📊", senha: true, tabs: [{ id: "indicadores", label: "Indicadores", icon: "📈" }] },
+  { id: "configuracoes", label: "Config.", icon: "⚙️", senha: true, tabs: [{ id: "configuracoes", label: "Configurações", icon: "⚙️" }] },
 ];
 
 function categoriaDaAba(tab) {
@@ -814,6 +815,7 @@ function renderTab() {
     else if (S.currentTab === "contagem") renderContagem();
     else if (S.currentTab === "aplicacoes") renderAplicacoes();
     else if (S.currentTab === "indicadores") renderIndicadores();
+    else if (S.currentTab === "configuracoes") renderConfiguracoes();
     else if (S.currentTab === "programacao") renderProgramacao();
     else if (S.currentTab === "rendimento") renderRendimento();
     else if (S.currentTab === "setores") renderSetores();
@@ -3064,12 +3066,63 @@ function renderDashboard() {
     </div>
   </div>`;
 
+  document.getElementById("tabContent").innerHTML = html;
+}
+
+/* =========================================================================
+   CONFIGURAÇÕES — reúne num lugar só o que já é "dado" (você mesmo muda, sem
+   precisar de mim): senha, valor da descasca manual, e atalhos pros cadastros
+   que já existem espalhados pelo app (atividades, colaboradores, setores).
+   Funcionalidade NOVA (uma aba nova, um cálculo diferente) sempre precisa de
+   código — isso aqui não substitui, é só organizar o que já é autosserviço.
+   ========================================================================= */
+function renderConfiguracoes() {
+  let html = `<div class="card" style="background:#f0fdf4;">
+    <div class="muted" style="font-size:11.5px;">⚙️ Aqui fica o que você pode mudar sozinho, sem precisar pedir pra mim: senha, valor de pagamento, e atalhos pros cadastros. Uma funcionalidade nova (tela, cálculo, jeito diferente de mostrar algo) sempre precisa de código — isso continua precisando falar comigo.</div>
+  </div>`;
+
   html += `<div class="card">
     <h3 style="margin-bottom:8px; font-size:13px;">🔒 Senha do supervisor</h3>
-    <div class="muted" style="font-size:11.5px; margin-bottom:8px;">Protege o Painel, Manejo, Estoque, Fazenda, Relatórios e todas as ações de excluir. Produção e Planejamento continuam livres pro encarregado preencher.</div>
+    <div class="muted" style="font-size:11.5px; margin-bottom:8px;">Protege o Painel, Manejo, Estoque, Fazenda, Relatórios, essa tela de Configurações, e todas as ações de excluir. Produção e Planejamento continuam livres pro encarregado preencher.</div>
     <div style="display:flex; gap:8px; flex-wrap:wrap;">
       <input type="password" id="novaSenhaInput" placeholder="Nova senha" style="padding:7px 9px; border:1px solid #d6d3d1; border-radius:8px; font-size:13px; width:140px;"/>
       <button class="btn ghost" style="width:auto;" onclick="trocarSenhaSupervisor()">Salvar nova senha</button>
+    </div>
+  </div>`;
+
+  html += `<div class="card">
+    <h3 style="margin-bottom:8px; font-size:13px;">💰 Valor da descasca manual</h3>
+    <div class="muted" style="font-size:11.5px; margin-bottom:8px;">Valor pago por unidade descascada na mão pelos descascadores (aba Romaneio).</div>
+    <div class="row-flex">
+      <span style="font-size:14px; font-weight:800; color:#166534;">R$ ${valorDescascaAtual().toFixed(2)} / unidade</span>
+      <button class="btn ghost" style="width:auto;" onclick="trocarValorDescasca()">✏️ Alterar</button>
+    </div>
+  </div>`;
+
+  html += `<div class="card">
+    <h3 style="margin-bottom:8px; font-size:13px;">📋 Cadastros (atalhos)</h3>
+    <div class="muted" style="font-size:11.5px; margin-bottom:10px;">Esses você mesmo cadastra e edita direto na tela — sem precisar de senha nem de mim.</div>
+    <div style="display:flex; flex-direction:column; gap:6px;">
+      <button class="list-row" style="cursor:pointer; background:none; border:none; text-align:left; width:100%;" onclick="mudarAba('rendimento')">
+        <span class="stat-ic" style="width:28px; height:28px; font-size:13px;">🌾</span>
+        <span style="font-size:12.5px; font-weight:700;">Atividades e rendimentos padrão</span>
+        <span class="chev">›</span>
+      </button>
+      <button class="list-row" style="cursor:pointer; background:none; border:none; text-align:left; width:100%;" onclick="mudarAba('programacao')">
+        <span class="stat-ic" style="width:28px; height:28px; font-size:13px;">👤</span>
+        <span style="font-size:12.5px; font-weight:700;">Colaboradores</span>
+        <span class="chev">›</span>
+      </button>
+      <button class="list-row" style="cursor:pointer; background:none; border:none; text-align:left; width:100%;" onclick="mudarAba('setores')">
+        <span class="stat-ic" style="width:28px; height:28px; font-size:13px;">🗺️</span>
+        <span style="font-size:12.5px; font-weight:700;">Setores / talhões</span>
+        <span class="chev">›</span>
+      </button>
+      <button class="list-row" style="cursor:pointer; background:none; border:none; text-align:left; width:100%;" onclick="mudarAba('estoque')">
+        <span class="stat-ic" style="width:28px; height:28px; font-size:13px;">📦</span>
+        <span style="font-size:12.5px; font-weight:700;">Insumos (estoque mínimo, unidade)</span>
+        <span class="chev">›</span>
+      </button>
     </div>
   </div>`;
 

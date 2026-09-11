@@ -265,7 +265,7 @@
       <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
     </div>
     <div class="header-linha2">
-      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v77</span>
+      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v78</span>
       <div class="spacer"></div>
       <span id="backupPill" class="backup-pill"></span>
       <button class="btn-export" onclick="exportarExcel()">⬇️ Excel</button>
@@ -1009,7 +1009,17 @@ function renderCargaCard(carga, linhasCalc, totalEstocado, totalCarregado, total
     }
 
     if (editando) {
-      html += `<div style="font-size:11px; font-weight:700; text-transform:uppercase; color:#92400e; margin-bottom:6px;">🚛 Carregamento — completando o BAG ${esc(el.idBagLabel||"")}</div>
+      html += `<div style="font-size:11px; font-weight:700; text-transform:uppercase; color:#92400e; margin-bottom:6px;">✏️ Editando BAG ${esc(el.idBagLabel||"")}</div>
+        <div class="grid grid-4" style="background:#fffbeb; border:1px solid #fde68a; border-radius:9px; padding:10px; margin-bottom:8px;">
+          <label class="field"><span>Data descasca</span><input type="date" value="${esc(el.dataDescasca)}" oninput="S._editLinha.dataDescasca=this.value"/></label>
+          <label class="field"><span>Talhão</span>
+            <select onchange="S._editLinha.talhao=this.value">
+              ${TALHOES.map(t=>`<option value="${t}" ${el.talhao===t?"selected":""}>${t}</option>`).join("")}
+            </select>
+          </label>
+          <label class="field"><span>Coco 1ª (frutos)</span><input type="number" value="${esc(el.coco1)}" oninput="S._editLinha.coco1=this.value"/></label>
+          <label class="field"><span>Estocado 1ª (kg)</span><input class="amarelo" type="number" value="${esc(el.estocado1)}" oninput="S._editLinha.estocado1=this.value"/></label>
+        </div>
         <div class="grid grid-4" style="background:#fffbeb; border:1px solid #fde68a; border-radius:9px; padding:10px; margin-bottom:14px;">
           <label class="field"><span>Data do carregamento</span><input type="date" value="${esc(el.dataCarregamento)}" oninput="S._editLinha.dataCarregamento=this.value"/></label>
           <label class="field"><span>Carregado 1ª (kg)</span><input class="amarelo" type="number" value="${esc(el.carregado1)}" oninput="S._editLinha.carregado1=this.value; if(this.value && !S._editLinha.dataCarregamento){ S._editLinha.dataCarregamento=todayISO(); renderRomaneio(); }"/></label>
@@ -1697,6 +1707,10 @@ window.abrirEdicaoLinha = function (cargaId, linhaId) {
   S._editandoLinha = { cargaId, linhaId };
   S._editLinha = {
     idBagLabel: linha.idBag ?? "",
+    dataDescasca: linha.dataDescasca || "",
+    talhao: linha.talhao || TALHOES[0],
+    coco1: linha.coco1 ?? "",
+    estocado1: linha.estocado1 ?? "",
     carregado1: linha.carregado1 ?? "",
     cincoCocosG: linha.cincoCocosG ?? "",
     dataCarregamento: linha.dataCarregamento || todayISO(),
@@ -1712,6 +1726,8 @@ window.salvarEdicaoLinha = function () {
   const { linhaId } = S._editandoLinha;
   const { idBagLabel, ...patch } = S._editLinha;
   S._editandoLinha = null;
+  const idx = S.bags.findIndex((b) => b.id === linhaId);
+  if (idx >= 0) S.bags[idx] = { ...S.bags[idx], ...patch }; // atualiza a tela na hora, sem esperar o servidor
   marcarSalvando("romaneio");
   updateDoc(doc(db, "bags", linhaId), patch).then(() => { if (navigator.onLine) setSaveStatus("romaneio", "saved"); }).catch((e) => tratarErroSalvamento("romaneio", e));
   renderRomaneio();

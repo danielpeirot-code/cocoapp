@@ -265,7 +265,7 @@
       <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
     </div>
     <div class="header-linha2">
-      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v74</span>
+      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v75</span>
       <div class="spacer"></div>
       <span id="backupPill" class="backup-pill"></span>
       <button class="btn-export" onclick="exportarExcel()">⬇️ Excel</button>
@@ -1106,8 +1106,8 @@ function renderCargaCard(carga, linhasCalc, totalEstocado, totalCarregado, total
     html += `<div style="display:flex; justify-content:flex-end; gap:8px; margin-top:10px; flex-wrap:wrap;">`;
     html += `<button class="btn ghost" style="width:auto; color:#128C7E; border:1px solid #128C7E;" onclick="compartilharCargaWhatsapp('${carga.id}')">📲 Compartilhar (texto)</button>`;
     html += `<button class="btn ghost" style="width:auto; color:#128C7E; border:1px solid #128C7E;" onclick="gerarImagemPesoUnidades('${carga.id}')">🖼️ Gerar imagem (com fotos)</button>`;
+    html += `<button class="btn danger" onclick="removeCarga('${carga.id}')">🗑️ Excluir carga</button>`;
     if (!arquivada) {
-      html += `<button class="btn danger" onclick="removeCarga('${carga.id}')">🗑️ Excluir carga</button>`;
       html += `<button class="btn" style="width:auto; background:#0f766e;" onclick="arquivarCarga('${carga.id}')">📦 Finalizar e arquivar carga</button>`;
     } else {
       html += `<button class="btn ghost" style="width:auto;" onclick="reabrirCarga('${carga.id}')">↩️ Reabrir carga</button>`;
@@ -1647,6 +1647,8 @@ function renderRomaneio() {
 
 window.criarCarga = function () {
   if (!S._novaCarga.numero) return;
+  const jaExiste = S.cargas.some((c) => String(c.numero).trim() === String(S._novaCarga.numero).trim());
+  if (jaExiste && !confirm(`Já existe uma carga com o número ${S._novaCarga.numero}. Quer criar mesmo assim?`)) return;
   const payload = { ...S._novaCarga, status: "aberta" };
   const ref = doc(collection(db, "cargas")); // gera um ID novo na hora, sem precisar de internet
   S._openCarga = ref.id;
@@ -1763,6 +1765,8 @@ window.toggleVerArquivadasVerde = function () {
 
 window.criarCargaVerde = function () {
   if (!S._novaCargaVerde.numero) return;
+  const jaExiste = S.cargasVerde.some((c) => String(c.numero).trim() === String(S._novaCargaVerde.numero).trim());
+  if (jaExiste && !confirm(`Já existe uma carga verde com o número ${S._novaCargaVerde.numero}. Quer criar mesmo assim?`)) return;
   const payload = { ...S._novaCargaVerde, status: "aberta" };
   const ref = doc(collection(db, "cargasVerde"));
   marcarSalvando("romaneioVerde");
@@ -1964,8 +1968,8 @@ function renderCargaVerdeCard(carga) {
 
     html += `<div style="display:flex; justify-content:flex-end; gap:8px; margin-top:10px; flex-wrap:wrap;">`;
     html += `<button class="btn ghost" style="width:auto; color:#128C7E; border:1px solid #128C7E;" onclick="compartilharCargaVerdeWhatsapp('${carga.id}')">📲 Compartilhar</button>`;
+    html += `<button class="btn danger" onclick="removeCargaVerde('${carga.id}')">🗑️ Excluir carga</button>`;
     if (!arquivada) {
-      html += `<button class="btn danger" onclick="removeCargaVerde('${carga.id}')">🗑️ Excluir carga</button>`;
       html += `<button class="btn" style="width:auto; background:#0f766e;" onclick="arquivarCargaVerde('${carga.id}')">📦 Finalizar e arquivar carga</button>`;
     } else {
       html += `<button class="btn ghost" style="width:auto;" onclick="reabrirCargaVerde('${carga.id}')">↩️ Reabrir carga</button>`;

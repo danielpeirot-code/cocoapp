@@ -265,7 +265,7 @@
       <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
     </div>
     <div class="header-linha2">
-      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v78</span>
+      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v79</span>
       <div class="spacer"></div>
       <span id="backupPill" class="backup-pill"></span>
       <button class="btn-export" onclick="exportarExcel()">⬇️ Excel</button>
@@ -958,10 +958,32 @@ function renderCargaCard(carga, linhasCalc, totalEstocado, totalCarregado, total
       </div>`;
 
     // Descasca manual — quando não usa a máquina, chama descascadores pra descascar na mão,
-    // pago por produção (quantidade × valor por unidade). O valor só muda com senha.
+    // pago por produção (quantidade × valor por unidade). Como eles trabalham em vários dias até
+    // a carga fechar, organiza por data (somando se o mesmo colaborador for lançado mais de uma
+    // vez no mesmo dia) e mostra o total geral por colaborador — já pronto pro pagamento quando
+    // a carga for arquivada.
     const listaDescasca = carga.descascaManual || [];
     const totalUnidDescasca = listaDescasca.reduce((s, d) => s + (Number(d.quantidade) || 0), 0);
     const totalPagoDescasca = listaDescasca.reduce((s, d) => s + (Number(d.quantidade) || 0) * (Number(d.valorUnidade) || 0), 0);
+
+    const porData = {};
+    listaDescasca.forEach((d) => {
+      const data = d.data || carga.data;
+      if (!porData[data]) porData[data] = {};
+      if (!porData[data][d.colaborador]) porData[data][d.colaborador] = { quantidade: 0, valorTotal: 0 };
+      porData[data][d.colaborador].quantidade += Number(d.quantidade) || 0;
+      porData[data][d.colaborador].valorTotal += (Number(d.quantidade) || 0) * (Number(d.valorUnidade) || 0);
+    });
+    const datasOrdenadas = Object.keys(porData).sort().reverse();
+
+    const totalPorColaborador = {};
+    listaDescasca.forEach((d) => {
+      if (!totalPorColaborador[d.colaborador]) totalPorColaborador[d.colaborador] = { quantidade: 0, valorTotal: 0 };
+      totalPorColaborador[d.colaborador].quantidade += Number(d.quantidade) || 0;
+      totalPorColaborador[d.colaborador].valorTotal += (Number(d.quantidade) || 0) * (Number(d.valorUnidade) || 0);
+    });
+    const colaboradoresOrdenados = Object.keys(totalPorColaborador).sort((a, b) => a.localeCompare(b, "pt-BR"));
+
     html += `<div style="font-size:11px; font-weight:700; text-transform:uppercase; color:#78716c; margin-bottom:6px;">🙌 Descasca manual (descascadores)</div>
       <div class="card" style="padding:10px; margin-bottom:14px;">
         <div class="row-flex" style="margin-bottom:8px;">
@@ -969,18 +991,37 @@ function renderCargaCard(carga, linhasCalc, totalEstocado, totalCarregado, total
           <button class="btn ghost" style="width:auto; padding:4px 9px; font-size:10.5px;" onclick="trocarValorDescasca()">✏️ Alterar (senha)</button>
         </div>
         <div class="grid grid-2" style="margin-bottom:8px;">
-          <input type="text" id="descascaNomeInput-${carga.id}" placeholder="Nome do colaborador" style="padding:7px 9px; border:1px solid #d6d3d1; border-radius:8px; font-size:13px;"/>
+          <input type="text" id="descascaNomeInput-${carga.id}" placeholder="Nome do colaborador" list="listaColaboradores" style="padding:7px 9px; border:1px solid #d6d3d1; border-radius:8px; font-size:13px;"/>
           <input type="number" id="descascaQtdInput-${carga.id}" placeholder="Qtd. descascada" style="padding:7px 9px; border:1px solid #d6d3d1; border-radius:8px; font-size:13px;"/>
         </div>
-        <button class="btn ghost" style="width:auto;" onclick="adicionarDescascaManual('${carga.id}')">➕ Adicionar</button>
-        ${listaDescasca.length > 0 ? `<div style="margin-top:10px;">` +
-          listaDescasca.map((d, i) => `<div class="list-row" style="padding:6px 0;">
-            <span style="font-size:12.5px;"><b>${esc(d.colaborador)}</b> — ${fmt(d.quantidade,0)} un. × R$ ${Number(d.valorUnidade||0).toFixed(2)} = <b>R$ ${(Number(d.quantidade)*Number(d.valorUnidade||0)).toFixed(2)}</b></span>
-            <button class="x-btn" onclick="removerDescascaManual('${carga.id}',${i})">✕</button>
-          </div>`).join("") +
-          `<div style="margin-top:6px; font-weight:800; font-size:13px; color:#166534;">Total: ${fmt(totalUnidDescasca,0)} unidades — R$ ${totalPagoDescasca.toFixed(2)}</div>
-        </div>` : `<div class="muted" style="font-size:11px; margin-top:8px;">Nenhum lançamento ainda.</div>`}
+        <button class="btn ghost" style="width:auto;" onclick="adicionarDescascaManual('${carga.id}')">➕ Adicionar</button>`;
+
+    if (datasOrdenadas.length > 0) {
+      datasOrdenadas.forEach((data) => {
+        html += `<div style="margin-top:12px;">
+          <div style="font-size:11px; font-weight:700; color:#78716c; margin-bottom:2px;">📅 ${brDate(data)}</div>`;
+        Object.keys(porData[data]).sort((a, b) => a.localeCompare(b, "pt-BR")).forEach((colab) => {
+          const g = porData[data][colab];
+          html += `<div class="list-row" style="padding:5px 0;">
+            <span style="font-size:12.5px;"><b>${esc(colab)}</b> — ${fmt(g.quantidade,0)} un. = <b>R$ ${g.valorTotal.toFixed(2)}</b></span>
+            <button class="x-btn" onclick="removerDescascaManualDoDia('${carga.id}','${esc(colab)}','${data}')">✕</button>
+          </div>`;
+        });
+        html += `</div>`;
+      });
+
+      html += `<div style="margin-top:12px; padding-top:10px; border-top:1px dashed #e7e5e4;">
+        <div style="font-size:11px; font-weight:700; color:#166534; margin-bottom:4px;">💰 Total pra pagamento (carga toda)</div>`;
+      colaboradoresOrdenados.forEach((colab) => {
+        const t = totalPorColaborador[colab];
+        html += `<div style="font-size:12.5px; padding:3px 0;"><b>${esc(colab)}</b>: ${fmt(t.quantidade,0)} un. — R$ ${t.valorTotal.toFixed(2)}</div>`;
+      });
+      html += `<div style="margin-top:6px; font-weight:800; font-size:13px; color:#166534;">Total geral: ${fmt(totalUnidDescasca,0)} unidades — R$ ${totalPagoDescasca.toFixed(2)}</div>
       </div>`;
+    } else {
+      html += `<div class="muted" style="font-size:11px; margin-top:8px;">Nenhum lançamento ainda.</div>`;
+    }
+    html += `</div>`;
 
     if (!arquivada) {
       const bagsUsados = new Set(bagsDaCarga(carga.id).map((l) => String(l.idBag)));
@@ -1608,7 +1649,7 @@ function renderRomaneioSeAtivo() {
 
 function renderRomaneio() {
   const c = S._novaCarga;
-  let html = `
+  let html = `<datalist id="listaColaboradores">${S.colaboradores.map(col=>`<option value="${esc(col.nome)}">`).join("")}</datalist>
   <div class="card">
     <div class="row-flex" style="margin-bottom:10px;">
       <h3>➕ Nova carga — Coco Seco</h3>
@@ -2975,6 +3016,25 @@ window.removerDescascaManual = function (cargaId, index) {
     const carga = S.cargas.find((c) => c.id === cargaId);
     if (!carga) return;
     const novaLista = (carga.descascaManual || []).filter((_, i) => i !== index);
+    const idx = S.cargas.findIndex((c) => c.id === cargaId);
+    S.cargas[idx] = { ...carga, descascaManual: novaLista };
+    renderRomaneio();
+
+    marcarSalvando("romaneio");
+    updateDoc(doc(db, "cargas", cargaId), { descascaManual: novaLista })
+      .then(() => { if (navigator.onLine) setSaveStatus("romaneio", "saved"); })
+      .catch((e) => tratarErroSalvamento("romaneio", e));
+  });
+};
+
+// Remove todos os lançamentos daquele colaborador NAQUELE dia de uma vez — como a tela agora
+// mostra somado por dia (não um por um), excluir precisa apagar o grupo inteiro que gerou aquele
+// total, não só um lançamento avulso.
+window.removerDescascaManualDoDia = function (cargaId, colaborador, data) {
+  pedirSenha(() => {
+    const carga = S.cargas.find((c) => c.id === cargaId);
+    if (!carga) return;
+    const novaLista = (carga.descascaManual || []).filter((d) => !(d.colaborador === colaborador && (d.data || carga.data) === data));
     const idx = S.cargas.findIndex((c) => c.id === cargaId);
     S.cargas[idx] = { ...carga, descascaManual: novaLista };
     renderRomaneio();

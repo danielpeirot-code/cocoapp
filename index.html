@@ -265,7 +265,7 @@
       <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
     </div>
     <div class="header-linha2">
-      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v76</span>
+      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v77</span>
       <div class="spacer"></div>
       <span id="backupPill" class="backup-pill"></span>
       <button class="btn-export" onclick="exportarExcel()">⬇️ Excel</button>
@@ -774,8 +774,8 @@ const CATEGORIAS_NAV = [
     { id: "setores", label: "Setores", icon: "🗺️" },
   ] },
   { id: "producao", label: "Produção", icon: "📊", tabs: [
-    { id: "romaneio", label: "Romaneio", icon: "🚛" },
-    { id: "romaneioVerde", label: "Rom. Verde", icon: "🥥" },
+    { id: "romaneio", label: "Rom. Seco", icon: "🥥" },
+    { id: "romaneioVerde", label: "Rom. Verde", icon: "🌴" },
   ] },
   { id: "gestao", label: "Gestão", icon: "📋", tabs: [
     { id: "estoque", label: "Estoque", icon: "📦" },
@@ -1601,7 +1601,7 @@ function renderRomaneio() {
   let html = `
   <div class="card">
     <div class="row-flex" style="margin-bottom:10px;">
-      <h3>➕ Nova carga</h3>
+      <h3>➕ Nova carga — Coco Seco</h3>
       <span id="savingPill-romaneio" class="saving-pill"></span>
     </div>
     <div class="grid grid-4">
@@ -1675,7 +1675,12 @@ window.addLinha = function (cargaId) {
   const payload = { cargaId, ...S._novaLinha };
   S._novaLinha = novaLinhaVazia();
   marcarSalvando("romaneio");
-  addDoc(collection(db, "bags"), payload).then(() => { if (navigator.onLine) setSaveStatus("romaneio", "saved"); }).catch((e) => tratarErroSalvamento("romaneio", e));
+  const ref = doc(collection(db, "bags")); // gera o ID já na hora, sem precisar esperar o servidor
+  // Atualiza a lista local na hora — sem isso, o bag recém-lançado continuava aparecendo como
+  // "disponível" pra escolher de novo até a confirmação do servidor voltar (o que podia demorar
+  // uns segundos), mesmo já tendo sido usado.
+  S.bags = [...S.bags, { id: ref.id, ...payload }];
+  setDoc(ref, payload).then(() => { if (navigator.onLine) setSaveStatus("romaneio", "saved"); }).catch((e) => tratarErroSalvamento("romaneio", e));
   renderRomaneio();
 };
 window.removeLinha = function (cargaId, linhaId) {

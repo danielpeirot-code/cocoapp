@@ -255,7 +255,7 @@
       <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
     </div>
     <div class="header-linha2">
-      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v66</span>
+      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v67</span>
       <div class="spacer"></div>
       <span id="backupPill" class="backup-pill"></span>
       <button class="btn-export" onclick="exportarExcel()">⬇️ Excel</button>
@@ -3047,9 +3047,88 @@ function renderDashboard() {
   const resumo = montarResumoSupervisor(alertas);
   const alertasOrdenados = alertas.filter((a) => a.cor === "vermelho").concat(alertas.filter((a) => a.cor === "amarelo"));
 
+  // ---- Painel do Dia — foco em HOJE, não no mês inteiro ----
+  const hoje = todayISO();
+  const diaSemanaKey = ["dom","seg","ter","qua","qui","sex","sab"][new Date(hoje + "T00:00:00").getDay()];
+
+  // Colheita hoje — só entram os tipos que têm meta definida pra hoje
+  const colheitaHoje = Object.keys(TIPOS_CONTAGEM).map((tipo) => {
+    const chave = chaveMetaColheita(hoje, tipo);
+    const meta = Number((S.metasColheita[chave] || {}).meta) || 0;
+    if (!meta) return null;
+    const contadoRaw = S.contagemLinhas.filter((l) => l.tipo === tipo && l.data === hoje).reduce((s, l) => s + (Number(l.total) || 0), 0);
+    const baseline = baselineHoje(tipo);
+    const contado = Math.max(0, contadoRaw - baseline);
+    return { tipo, meta, contado, falta: Math.max(0, meta - contado), progresso: meta ? Math.min(100, Math.round((contado / meta) * 100)) : 0 };
+  }).filter(Boolean);
+
+  // Equipe escalada pra hoje — pega da Programação da semana atual, olhando o dia de hoje
+  const semanaAtualISO = segundaDaSemana(hoje);
+  const itensSemanaHoje = S.programacao.filter((p) => p.semana === semanaAtualISO);
+  const colaboradoresHojeSet = new Set();
+  itensSemanaHoje.forEach((item) => {
+    const temHoje = item.prog && item.prog[diaSemanaKey] !== undefined && item.prog[diaSemanaKey] !== "" && Number(item.prog[diaSemanaKey]) !== 0;
+    if (temHoje) pessoasDoItem(item).forEach((n) => colaboradoresHojeSet.add(n));
+  });
+
+  // Romaneio hoje
+  const cargasHojeCount = S.cargas.filter((c) => c.data === hoje).length;
+  const kgCarregadoHoje = S.bags.filter((b) => b.dataCarregamento === hoje).reduce((s, b) => s + (Number(b.carregado1) || 0), 0);
+  const cargasAbertas = S.cargas.filter((c) => c.status !== "arquivada").length;
+
+  // Aplicações — atrasadas ou previstas pra hoje (olhando os registros já cadastrados no Manejo)
+  let aplicacoesHojeCount = 0, aplicacoesAtrasadasCount = 0;
+  S.aplicacoes.forEach((reg) => {
+    const c = calcAplicacao(reg, reg.tipo);
+    if (c.status === "Atrasado") aplicacoesAtrasadasCount++;
+    else if (c.diasProxima === 0) aplicacoesHojeCount++;
+  });
+
+  const ocorrenciasHojeCount = S.ocorrencias.filter((o) => o.data === hoje).length;
+
+  let html = `<div class="card" style="background:linear-gradient(135deg, #065f46, #047857); color:#fff;">
+    <div style="font-size:11px; font-weight:700; text-transform:uppercase; opacity:.85; margin-bottom:6px;">📅 Painel do Dia — ${brDate(hoje)}</div>`;
+
+  if (colheitaHoje.length > 0) {
+    colheitaHoje.forEach((c) => {
+      html += `<div style="margin-bottom:8px;">
+        <div style="display:flex; justify-content:space-between; font-size:12px; margin-bottom:3px;">
+          <span>🌾 Colheita — ${esc(c.tipo)}</span>
+          <span><b>${fmt(c.contado,0)}</b> / ${fmt(c.meta,0)} (${c.progresso}%)</span>
+        </div>
+        <div style="background:rgba(255,255,255,.25); border-radius:99px; height:7px; overflow:hidden;">
+          <div style="background:#fff; height:100%; width:${c.progresso}%;"></div>
+        </div>
+      </div>`;
+    });
+  } else {
+    html += `<div style="font-size:12px; opacity:.85; margin-bottom:8px;">🌾 Nenhuma meta de colheita definida pra hoje (defina na aba Colheita).</div>`;
+  }
+
+  html += `<div class="grid grid-2" style="margin-top:6px;">
+      <div style="background:rgba(255,255,255,.14); border-radius:10px; padding:8px 10px;">
+        <div style="font-size:10px; opacity:.8;">👥 Equipe escalada hoje</div>
+        <div style="font-size:16px; font-weight:800;">${colaboradoresHojeSet.size} <span style="font-size:11px; font-weight:400; opacity:.8;">de ${S.colaboradores.length} cadastrados</span></div>
+      </div>
+      <div style="background:rgba(255,255,255,.14); border-radius:10px; padding:8px 10px;">
+        <div style="font-size:10px; opacity:.8;">🚛 Romaneio hoje</div>
+        <div style="font-size:16px; font-weight:800;">${cargasHojeCount} carga${cargasHojeCount===1?"":"s"} <span style="font-size:11px; font-weight:400; opacity:.8;">— ${fmt(kgCarregadoHoje,0)}kg carregado</span></div>
+      </div>
+      <div style="background:rgba(255,255,255,.14); border-radius:10px; padding:8px 10px;">
+        <div style="font-size:10px; opacity:.8;">📦 Estoque</div>
+        <div style="font-size:16px; font-weight:800;">${baixos} <span style="font-size:11px; font-weight:400; opacity:.8;">item${baixos===1?"":"s"} baixo${baixos===1?"":"s"}</span></div>
+      </div>
+      <div style="background:rgba(255,255,255,.14); border-radius:10px; padding:8px 10px;">
+        <div style="font-size:10px; opacity:.8;">🧴 Aplicações</div>
+        <div style="font-size:16px; font-weight:800;">${aplicacoesHojeCount} hoje <span style="font-size:11px; font-weight:400; opacity:.8;">${aplicacoesAtrasadasCount>0?`— ${aplicacoesAtrasadasCount} atrasada${aplicacoesAtrasadasCount===1?"":"s"}`:""}</span></div>
+      </div>
+    </div>
+    <div style="margin-top:8px; font-size:11px; opacity:.8;">📋 ${cargasAbertas} carga${cargasAbertas===1?"":"s"} em andamento no Romaneio · ⚠️ ${ocorrenciasHojeCount} ocorrência${ocorrenciasHojeCount===1?"":"s"} registrada${ocorrenciasHojeCount===1?"":"s"} hoje</div>
+  </div>`;
+
   const emojiSituacao = { vermelho: "🔴", amarelo: "🟠", verde: "🟢" }[resumo.situacao.cor];
   const corSituacao = resumo.situacao.cor === "vermelho" ? "#dc2626" : resumo.situacao.cor === "amarelo" ? "#f97316" : "#16a34a";
-  let html = `<div class="card acento ${resumo.situacao.cor === "vermelho" ? "vermelho" : resumo.situacao.cor === "amarelo" ? "laranja" : "verde"}">
+  html += `<div class="card acento ${resumo.situacao.cor === "vermelho" ? "vermelho" : resumo.situacao.cor === "amarelo" ? "laranja" : "verde"}">
     <div style="font-size:11px; font-weight:700; text-transform:uppercase; color:#78716c; margin-bottom:6px; display:flex; align-items:center; gap:5px;">📋 Resumo do Supervisor</div>
     <div style="font-weight:800; font-size:16px; margin-bottom:8px; color:${corSituacao};">${emojiSituacao} Situação geral: ${resumo.situacao.label}</div>`;
   resumo.linhas.forEach((l) => {

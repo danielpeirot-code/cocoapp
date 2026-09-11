@@ -175,11 +175,11 @@
 
   /* Botão de Ação Rápida — flutua acima da barra de navegação, atalho direto pros lançamentos
      mais comuns sem precisar navegar pelos menus. */
-  .fab-btn { position:fixed; right:16px; bottom:136px; width:56px; height:56px; border-radius:50%; background:#065f46; color:#fff; border:none; font-size:26px; box-shadow:0 4px 12px rgba(0,0,0,.25); cursor:pointer; z-index:41; display:flex; align-items:center; justify-content:center; transition:transform .15s; }
-  .fab-btn:active { transform:scale(.92); }
-  .fab-btn.aberto { transform:rotate(45deg); background:#374151; }
+  .fab-btn { position:fixed; left:14px; bottom:136px; width:48px; height:48px; border-radius:50%; background:#065f46; color:#fff; border:none; font-size:22px; box-shadow:0 4px 12px rgba(0,0,0,.25); cursor:pointer; z-index:41; display:flex; align-items:center; justify-content:center; transition:transform .15s; opacity:.82; }
+  .fab-btn:active { transform:scale(.92); opacity:1; }
+  .fab-btn.aberto { transform:rotate(45deg); background:#374151; opacity:1; }
   .fab-overlay { position:fixed; inset:0; background:rgba(0,0,0,.35); z-index:39; }
-  .fab-menu { position:fixed; right:16px; bottom:200px; z-index:40; display:flex; flex-direction:column; align-items:flex-end; gap:8px; }
+  .fab-menu { position:fixed; left:14px; bottom:192px; z-index:40; display:flex; flex-direction:column; align-items:flex-start; gap:8px; }
   .fab-item { display:flex; align-items:center; gap:8px; background:#fff; color:#292524; border:1px solid #e7e5e4; border-radius:99px; padding:10px 16px 10px 14px; font-size:12.5px; font-weight:700; box-shadow:0 3px 10px rgba(0,0,0,.15); cursor:pointer; white-space:nowrap; }
   .fab-item .ic { font-size:16px; }
   .fab-item:active { background:#f0fdf4; }
@@ -267,7 +267,7 @@
       <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
     </div>
     <div class="header-linha2">
-      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v70</span>
+      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v71</span>
       <div class="spacer"></div>
       <span id="backupPill" class="backup-pill"></span>
       <button class="btn-export" onclick="exportarExcel()">⬇️ Excel</button>

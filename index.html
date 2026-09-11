@@ -255,7 +255,7 @@
       <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
     </div>
     <div class="header-linha2">
-      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v64</span>
+      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v66</span>
       <div class="spacer"></div>
       <span id="backupPill" class="backup-pill"></span>
       <button class="btn-export" onclick="exportarExcel()">⬇️ Excel</button>
@@ -726,35 +726,64 @@ window.trocarSenhaSupervisor = function () {
   const input = document.getElementById("novaSenhaInput");
   const nova = input ? input.value.trim() : "";
   if (!nova) { alert("Digita a nova senha primeiro."); return; }
-  setDoc(doc(db, "configuracoes", "seguranca"), { senha: nova })
+  setDoc(doc(db, "configuracoes", "seguranca"), { ...S.configSeguranca, senha: nova })
     .then(() => { alert("Senha atualizada!"); if (input) input.value = ""; })
     .catch((e) => { console.error(e); alert("Não consegui salvar a senha nova. Tenta de novo."); });
 };
 
+// Liga/desliga a senha numa aba específica — escolhido na tela de Configurações. Guardado no
+// mesmo documento da senha (com merge dos campos existentes, pra não apagar a senha ao salvar).
+window.toggleAbaProtegida = function (tab, marcado) {
+  pedirSenha(() => {
+    const atuais = S.configSeguranca.abasProtegidas || [];
+    const novaLista = marcado ? [...new Set([...atuais, tab])] : atuais.filter((t) => t !== tab);
+    setDoc(doc(db, "configuracoes", "seguranca"), { ...S.configSeguranca, abasProtegidas: novaLista })
+      .then(() => renderConfiguracoes())
+      .catch((e) => { console.error(e); alert("Não consegui salvar. Tenta de novo."); });
+  });
+};
+
 const CATEGORIAS_NAV = [
-  { id: "dashboard", label: "Painel", icon: "🏠", senha: true, tabs: [{ id: "dashboard", label: "Painel", icon: "🏠" }] },
-  { id: "producao", label: "Produção", icon: "🌴", tabs: [
+  { id: "inicio", label: "Início", icon: "🏠", tabs: [
+    { id: "dashboard", label: "Painel", icon: "🏠" },
+  ] },
+  { id: "campo", label: "Campo", icon: "🌴", tabs: [
     { id: "colheita", label: "Colheita", icon: "🌾" },
     { id: "contagem", label: "Contagem", icon: "🌱" },
+    { id: "ocorrencias", label: "Ocorrências", icon: "⚠️" },
+    { id: "setores", label: "Setores", icon: "🗺️" },
+  ] },
+  { id: "producao", label: "Produção", icon: "📊", tabs: [
     { id: "romaneio", label: "Romaneio", icon: "🚛" },
     { id: "romaneioVerde", label: "Rom. Verde", icon: "🥥" },
   ] },
-  { id: "manejo", label: "Manejo", icon: "🌱", senha: true, tabs: [
+  { id: "gestao", label: "Gestão", icon: "📋", tabs: [
+    { id: "estoque", label: "Estoque", icon: "📦" },
     { id: "aplicacoes", label: "Aplic./Adub.", icon: "🧴" },
-    { id: "ocorrencias", label: "Ocorrências", icon: "⚠️" },
-  ] },
-  { id: "estoque", label: "Estoque", icon: "📦", senha: true, tabs: [{ id: "estoque", label: "Estoque", icon: "📦" }] },
-  { id: "planejamento", label: "Planejamento", icon: "📅", tabs: [
     { id: "programacao", label: "Programação", icon: "🗓️" },
     { id: "rendimento", label: "Rendimento", icon: "📐" },
   ] },
-  { id: "fazenda", label: "Fazenda", icon: "🗺️", senha: true, tabs: [{ id: "setores", label: "Setores", icon: "🗺️" }] },
-  { id: "relatorios", label: "Relatórios", icon: "📊", senha: true, tabs: [{ id: "indicadores", label: "Indicadores", icon: "📈" }] },
-  { id: "configuracoes", label: "Config.", icon: "⚙️", senha: true, tabs: [{ id: "configuracoes", label: "Configurações", icon: "⚙️" }] },
+  { id: "mais", label: "Mais", icon: "☰", tabs: [
+    { id: "indicadores", label: "Indicadores", icon: "📈" },
+    { id: "configuracoes", label: "Configurações", icon: "⚙️" },
+  ] },
 ];
 
 function categoriaDaAba(tab) {
   return CATEGORIAS_NAV.find((c) => c.tabs.some((t) => t.id === tab)) || CATEGORIAS_NAV[0];
+}
+function infoDaAba(tab) {
+  for (const c of CATEGORIAS_NAV) {
+    const t = c.tabs.find((t) => t.id === tab);
+    if (t) return t;
+  }
+  return null;
+}
+// Quais abas pedem senha é configurável (tela Configurações) — guardado no mesmo documento da
+// senha. Por padrão, nenhuma aba pede senha até você escolher alguma.
+function abaProtegida(tab) {
+  const lista = S.configSeguranca.abasProtegidas || [];
+  return lista.includes(tab);
 }
 
 window.mudarCategoria = function (categoriaId) {
@@ -763,16 +792,15 @@ window.mudarCategoria = function (categoriaId) {
   mudarAba(cat.tabs[0].id); // entra direto na primeira aba daquela categoria
 };
 
-// Categorias que já pediram senha uma vez nessa sessão não pedem de novo — fica desbloqueada
-// até a página ser fechada/recarregada. Isso evita ficar digitando senha toda vez que troca de
-// sub-aba dentro da mesma categoria protegida (ex: Aplic./Adub. <-> Ocorrências, dentro de Manejo).
-S._categoriasDesbloqueadas = new Set();
+// Depois que a senha é digitada certa uma vez nessa sessão, TODAS as abas protegidas ficam
+// liberadas (não só as da mesma categoria) — até a página ser fechada/recarregada. Antes disso
+// pedia senha nova toda vez que trocava de categoria protegida, o que era chato sem necessidade.
+S._sessaoDesbloqueada = false;
 
 window.mudarAba = function (tab) {
-  const cat = categoriaDaAba(tab);
-  if (cat.senha && !S._categoriasDesbloqueadas.has(cat.id)) {
+  if (abaProtegida(tab) && !S._sessaoDesbloqueada) {
     pedirSenha(() => {
-      S._categoriasDesbloqueadas.add(cat.id);
+      S._sessaoDesbloqueada = true;
       S.currentTab = tab;
       renderNav();
       renderTab();
@@ -3083,11 +3111,28 @@ function renderConfiguracoes() {
 
   html += `<div class="card">
     <h3 style="margin-bottom:8px; font-size:13px;">🔒 Senha do supervisor</h3>
-    <div class="muted" style="font-size:11.5px; margin-bottom:8px;">Protege o Painel, Manejo, Estoque, Fazenda, Relatórios, essa tela de Configurações, e todas as ações de excluir. Produção e Planejamento continuam livres pro encarregado preencher.</div>
+    <div class="muted" style="font-size:11.5px; margin-bottom:8px;">Essa senha vale pra todas as ações de excluir do app, e pras abas que você marcar como protegidas logo abaixo.</div>
     <div style="display:flex; gap:8px; flex-wrap:wrap;">
       <input type="password" id="novaSenhaInput" placeholder="Nova senha" style="padding:7px 9px; border:1px solid #d6d3d1; border-radius:8px; font-size:13px; width:140px;"/>
       <button class="btn ghost" style="width:auto;" onclick="trocarSenhaSupervisor()">Salvar nova senha</button>
     </div>
+  </div>`;
+
+  html += `<div class="card">
+    <h3 style="margin-bottom:8px; font-size:13px;">🔒 Abas protegidas por senha</h3>
+    <div class="muted" style="font-size:11.5px; margin-bottom:10px;">Por padrão, nenhuma aba pede senha pra entrar (só excluir continua pedindo, em qualquer aba). Marca aqui se quiser proteger alguma.</div>
+    <div style="display:flex; flex-direction:column; gap:4px;">`;
+  CATEGORIAS_NAV.forEach((cat) => {
+    cat.tabs.forEach((t) => {
+      const marcado = abaProtegida(t.id);
+      html += `<label style="display:flex; align-items:center; gap:8px; padding:5px 2px; font-size:12.5px; cursor:pointer;">
+        <input type="checkbox" ${marcado?"checked":""} onchange="toggleAbaProtegida('${t.id}', this.checked)"/>
+        <span>${t.icon} ${esc(t.label)}</span>
+        <span class="muted" style="font-size:10.5px;">(${esc(cat.label)})</span>
+      </label>`;
+    });
+  });
+  html += `</div>
   </div>`;
 
   html += `<div class="card">

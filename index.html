@@ -265,7 +265,7 @@
       <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
     </div>
     <div class="header-linha2">
-      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v73</span>
+      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v74</span>
       <div class="spacer"></div>
       <span id="backupPill" class="backup-pill"></span>
       <button class="btn-export" onclick="exportarExcel()">⬇️ Excel</button>
@@ -4536,6 +4536,7 @@ window.atualizarProgDia = function (id, tipo, diaKey, valor) {
 S._novoInsumo = { nome: "", categoria: "Defensivo", unidade: "", estoqueMinimo: "" };
 S._novaSolicitacao = { insumoNome: "", quantidade: "", dataPedido: todayISO(), dataPrevista: "" };
 S._novaSaida = { insumoNome: "", quantidade: "", data: todayISO(), setor: "" };
+S._novaEntrada = { insumoNome: "", quantidade: "", data: todayISO() };
 S._recebendoId = null;
 S._recebendoForm = { quantidade: "", data: todayISO() };
 
@@ -4597,11 +4598,21 @@ function previsaoConsumo(nome) {
 }
 
 function renderEstoque() {
-  const ni = S._novoInsumo, ns = S._novaSolicitacao, nsa = S._novaSaida;
+  const ni = S._novoInsumo, ns = S._novaSolicitacao, nsa = S._novaSaida, nea = S._novaEntrada;
   const insumosOrdenados = [...S.insumos].sort((a, b) => (a.nome || "").localeCompare(b.nome || "", "pt-BR"));
   const solicitacoesAbertas = S.solicitacoes.filter((s) => s.status !== "recebido")
     .sort((a, b) => (a.dataPrevista || "").localeCompare(b.dataPrevista || ""));
   const solicitacoesRecebidas = S.solicitacoes.filter((s) => s.status === "recebido");
+
+  // Detecta produtos cadastrados mais de uma vez (mesmo nome) — pra achar os que ficaram
+  // duplicados antes dessa trava existir, e você poder limpar manualmente.
+  const contagemNomes = {};
+  S.insumos.forEach((i) => {
+    const chave = (i.nome || "").trim().toLowerCase();
+    if (!chave) return;
+    contagemNomes[chave] = (contagemNomes[chave] || 0) + 1;
+  });
+  const nomesDuplicados = Object.keys(contagemNomes).filter((k) => contagemNomes[k] > 1);
 
   let html = `
   <div class="card">
@@ -4611,6 +4622,10 @@ function renderEstoque() {
     </div>
     <div class="muted" style="font-size:11.5px;">Defensivos, adubos e outros produtos — pedido, chegada e baixa automática no estoque.</div>
   </div>
+  ${nomesDuplicados.length > 0 ? `<div class="card acento laranja">
+    <div style="font-size:12.5px; font-weight:700; color:#9a3412; margin-bottom:4px;">⚠️ Produto${nomesDuplicados.length>1?"s":""} cadastrado${nomesDuplicados.length>1?"s":""} mais de uma vez: ${nomesDuplicados.map(k => esc(S.insumos.find(i=>(i.nome||"").trim().toLowerCase()===k).nome)).join(", ")}</div>
+    <div class="muted" style="font-size:11px;">Cada cadastro conta separado (estoque, mínimo, etc.). Pra juntar, exclui o cadastro mais antigo — mas antes confere se ele tem alguma movimentação registrada, pra não perder histórico.</div>
+  </div>` : ""}
 
   <div class="card">
     <h3 style="margin-bottom:8px;">📋 Insumos cadastrados</h3>`;
@@ -4710,6 +4725,22 @@ function renderEstoque() {
 
   html += `
   <div class="card">
+    <h3 style="margin-bottom:8px;">➕ Registrar entrada manual</h3>
+    <div class="muted" style="font-size:11.5px; margin-bottom:8px;">Usa isto pra atualizar o estoque quando você já tem uma quantidade guardada que não veio de uma solicitação de compra pelo app — estoque inicial, sobra que apareceu, correção de contagem, etc.</div>
+    <div class="grid grid-2" style="margin-bottom:8px;">
+      <label class="field" style="grid-column:span 2;"><span>Produto</span>
+        <select onchange="S._novaEntrada.insumoNome=this.value">
+          <option value="" ${!nea.insumoNome?"selected":""}>Selecione…</option>
+          ${insumosOrdenados.map(i=>`<option value="${esc(i.nome)}" ${nea.insumoNome===i.nome?"selected":""}>${esc(i.nome)}</option>`).join("")}
+        </select>
+      </label>
+      <label class="field"><span>Quantidade</span><input type="number" value="${esc(nea.quantidade)}" oninput="S._novaEntrada.quantidade=this.value"/></label>
+      <label class="field"><span>Data</span><input type="date" value="${esc(nea.data)}" oninput="S._novaEntrada.data=this.value"/></label>
+    </div>
+    <button class="btn" style="background:#166534;" onclick="registrarEntradaEstoque()">➕ Registrar entrada</button>
+  </div>
+
+  <div class="card">
     <h3 style="margin-bottom:8px;">➖ Ajuste manual de estoque</h3>
     <div class="muted" style="font-size:11.5px; margin-bottom:8px;">As baixas por aplicação e adubação já saem sozinhas — são lançadas direto na aba Aplic./Adub. Use isto só para perdas, quebras ou correções que não vieram de lá.</div>
     <div class="grid grid-2" style="margin-bottom:8px;">
@@ -4737,6 +4768,8 @@ function renderEstoque() {
 
 window.criarInsumo = function () {
   if (!S._novoInsumo.nome) { alert("Preenche o nome do produto."); return; }
+  const jaExiste = S.insumos.some((i) => i.nome.trim().toLowerCase() === S._novoInsumo.nome.trim().toLowerCase());
+  if (jaExiste) { alert(`"${S._novoInsumo.nome}" já está cadastrado. Se quiser atualizar o estoque dele, usa "Registrar entrada" ou "Registrar saída" em vez de cadastrar de novo.`); return; }
   setSaveStatus("estoque", "saving");
   addDoc(collection(db, "insumos"), { ...S._novoInsumo })
     .then(() => { if (navigator.onLine) setSaveStatus("estoque", "saved"); })
@@ -4790,6 +4823,18 @@ window.registrarSaidaEstoque = function () {
     .then(() => { if (navigator.onLine) setSaveStatus("estoque", "saved"); })
     .catch((e) => tratarErroSalvamento("estoque", e));
   S._novaSaida = { insumoNome: "", quantidade: "", data: todayISO(), setor: "" };
+  renderEstoque();
+};
+
+// Entrada manual — pra quando você já tem uma quantidade em estoque que não veio de uma
+// solicitação de compra registrada no app (estoque inicial, sobra que apareceu, correção, etc.)
+window.registrarEntradaEstoque = function () {
+  if (!S._novaEntrada.insumoNome || !S._novaEntrada.quantidade) { alert("Escolhe o produto e a quantidade."); return; }
+  setSaveStatus("estoque", "saving");
+  addDoc(collection(db, "estoqueMovs"), { ...S._novaEntrada, tipo: "entrada", origem: "ajuste" })
+    .then(() => { if (navigator.onLine) setSaveStatus("estoque", "saved"); })
+    .catch((e) => tratarErroSalvamento("estoque", e));
+  S._novaEntrada = { insumoNome: "", quantidade: "", data: todayISO() };
   renderEstoque();
 };
 

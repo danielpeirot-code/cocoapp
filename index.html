@@ -265,7 +265,7 @@
       <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
     </div>
     <div class="header-linha2">
-      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v72</span>
+      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v73</span>
       <div class="spacer"></div>
       <span id="backupPill" class="backup-pill"></span>
       <button class="btn-export" onclick="exportarExcel()">⬇️ Excel</button>
@@ -2093,6 +2093,24 @@ function linhasContagem(tipo, setor) {
   return S.contagemLinhas.filter((l) => l.tipo === tipo && l.setor === setor);
 }
 
+// Compara a contagem mais recente desse setor com a vez anterior (duas datas diferentes de
+// contagem) — não tem "cachos" separado no app, então compara pelo que já é registrado: total
+// de frutos, linhas contadas, e média de frutos por linha.
+function compararComUltimaContagem(tipo, setor) {
+  const registros = linhasContagem(tipo, setor);
+  const datas = [...new Set(registros.map((l) => l.data).filter(Boolean))].sort().reverse();
+  if (datas.length < 2) return null;
+
+  const grupoAtual = registros.filter((l) => l.data === datas[0]);
+  const grupoAnterior = registros.filter((l) => l.data === datas[1]);
+  const resumir = (grupo) => {
+    const soma = grupo.reduce((s, l) => s + (Number(l.total) || 0), 0);
+    const linhas = grupo.length;
+    return { soma, linhas, media: linhas ? soma / linhas : 0 };
+  };
+  return { dataAtual: datas[0], dataAnterior: datas[1], atual: resumir(grupoAtual), anterior: resumir(grupoAnterior) };
+}
+
 function renderContagem() {
   try { renderContagemInner(); }
   catch (e) {
@@ -2225,6 +2243,29 @@ function renderContagemInner() {
       <div class="stat-box ico"><div class="stat-ic">🥥</div><div><div class="lbl">Soma total</div><div class="val">${fmt(somaTotal,0)}</div></div></div>
       <div class="stat-box ico"><div class="stat-ic azul">📊</div><div><div class="lbl">Média/linha</div><div class="val">${fmt(media,1)}</div></div></div>
       <div class="stat-box ico green"><div class="stat-ic">🎯</div><div><div class="lbl">Estim. setor (${config.linhasPorSetor} linhas)</div><div class="val">${fmt(estimativa,0)}</div></div></div>
+    </div>`;
+  }
+
+  const comp = compararComUltimaContagem(ctg.tipo, ctg.setor);
+  if (comp) {
+    const linhaComp = (label, atual, anterior, casas) => {
+      const dif = anterior ? (atual - anterior) / anterior : null;
+      const setaTxt = dif === null || Math.abs(dif) < 0.001 ? `<span class="muted">= 0%</span>`
+        : dif > 0 ? `<span class="pos">▲ ${fmtPct(Math.abs(dif))}</span>`
+        : `<span class="neg">▼ ${fmtPct(Math.abs(dif))}</span>`;
+      return `<tr><td style="text-align:left; font-weight:600;">${label}</td><td>${fmt(atual,casas)}</td><td>${fmt(anterior,casas)}</td><td>${setaTxt}</td></tr>`;
+    };
+    html += `<div class="card" style="margin-bottom:14px;">
+      <h3 style="margin-bottom:4px; font-size:13px;">📊 Comparar com a última contagem</h3>
+      <div class="muted" style="font-size:10.5px; margin-bottom:8px;">${brDate(comp.dataAtual)} (atual) vs. ${brDate(comp.dataAnterior)} (anterior)</div>
+      <table class="tbl">
+        <thead><tr><th style="text-align:left;">Indicador</th><th>Atual</th><th>Anterior</th><th>Variação</th></tr></thead>
+        <tbody>
+          ${linhaComp("Frutos (total)", comp.atual.soma, comp.anterior.soma, 0)}
+          ${linhaComp("Linhas contadas", comp.atual.linhas, comp.anterior.linhas, 0)}
+          ${linhaComp("Frutos/linha (média)", comp.atual.media, comp.anterior.media, 2)}
+        </tbody>
+      </table>
     </div>`;
   }
 

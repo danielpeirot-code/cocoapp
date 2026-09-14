@@ -265,7 +265,7 @@
       <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
     </div>
     <div class="header-linha2">
-      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v89</span>
+      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v90</span>
       <div class="spacer"></div>
       <span id="backupPill" class="backup-pill"></span>
       <button class="btn-export" onclick="exportarExcel()">⬇️ Excel</button>
@@ -1179,7 +1179,7 @@ function renderCargaCard(carga, linhasCalc, totalEstocado, totalCarregado, total
     html += `<div style="display:flex; justify-content:flex-end; gap:8px; margin-top:10px; flex-wrap:wrap;">`;
     html += `<button class="btn ghost" style="width:auto; color:#128C7E; border:1px solid #128C7E;" onclick="compartilharCargaWhatsapp('${carga.id}')">📲 Compartilhar (texto)</button>`;
     html += `<button class="btn ghost" style="width:auto; color:#128C7E; border:1px solid #128C7E;" onclick="gerarImagemPesoUnidades('${carga.id}')">🖼️ Gerar imagem (com fotos)</button>`;
-    html += `<button class="btn ghost" style="width:auto; color:#b91c1c; border:1px solid #b91c1c;" onclick="gerarPdfCarga('${carga.id}','seco')">📄 Gerar PDF</button>`;
+    html += `<button class="btn ghost" style="width:auto; color:#b91c1c; border:1px solid #b91c1c;" onclick="gerarPdfCarga('${carga.id}','seco')">📄 Gerar PDF (com fotos)</button>`;
     html += `<button class="btn danger" onclick="removeCarga('${carga.id}')">🗑️ Excluir carga</button>`;
     if (!arquivada) {
       html += `<button class="btn" style="width:auto; background:#0f766e;" onclick="arquivarCarga('${carga.id}')">📦 Finalizar e arquivar carga</button>`;
@@ -1255,6 +1255,17 @@ function blobParaBase64(blob) {
       const base64 = String(reader.result).split(",")[1] || "";
       resolve(base64);
     };
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
+// Igual a de cima, mas mantém o "data:image/...;base64," na frente — o jsPDF (addImage) precisa
+// da data URL completa, diferente do Apps Script que só queria o base64 puro.
+function blobParaDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(String(reader.result));
     reader.onerror = reject;
     reader.readAsDataURL(blob);
   });
@@ -1538,7 +1549,8 @@ function montarLinhasResumoCarga(carga) {
   if (carga.motorista) linhas.push(["Motorista", carga.motorista + (carga.telefoneMotorista ? ` (${carga.telefoneMotorista})` : "")]);
   if (carga.placa) linhas.push(["Placa", carga.placa]);
   if (carga.cliente) linhas.push(["Cliente", carga.cliente]);
-  if (carga.municipio || carga.estado) linhas.push(["Local", `${carga.municipio || ""}${carga.municipio && carga.estado ? "/" : ""}${carga.estado || ""}`]);
+  if (carga.municipio) linhas.push(["Município", carga.municipio]);
+  if (carga.estado) linhas.push(["Estado", carga.estado]);
   if (carga.horarioSaida) linhas.push(["Horário de saída", carga.horarioSaida]);
   if (carga.nfCte) linhas.push(["NF/CT-e", carga.nfCte]);
   linhas.push(["Bags", String(linhasCalc.length)]);
@@ -1647,7 +1659,7 @@ window.gerarImagemPesoUnidades = async function (cargaId) {
 };
 
 // Mesmas informações da imagem, só que em PDF — mais fácil de imprimir ou anexar em e-mail.
-window.gerarPdfCarga = function (cargaId, colecao) {
+window.gerarPdfCarga = async function (cargaId, colecao) {
   if (typeof window.jspdf === "undefined") { alert("Não consegui carregar a biblioteca de PDF agora — abre o app com internet uma vez que resolve."); return; }
   const carga = (colecao === "verde" ? S.cargasVerde : S.cargas).find((c) => c.id === cargaId);
   if (!carga) return;
@@ -1659,6 +1671,7 @@ window.gerarPdfCarga = function (cargaId, colecao) {
     const { jsPDF } = window.jspdf;
     const pdf = new jsPDF({ unit: "mm", format: "a5" });
     const largura = pdf.internal.pageSize.getWidth();
+    const altura = pdf.internal.pageSize.getHeight();
     pdf.setFont("helvetica", "normal");
 
     pdf.setFillColor(6, 95, 70); // verde escuro, igual o cabeçalho do app
@@ -1685,6 +1698,37 @@ window.gerarPdfCarga = function (cargaId, colecao) {
       y += 7;
     });
 
+    // Fotos da carga — uma por página, mantendo a proporção original da imagem.
+    const fotos = fotosDaCarga(cargaId);
+    for (const foto of fotos) {
+      try {
+        const blob = await fetch(foto.url).then((r) => r.blob());
+        const dataUrl = await blobParaDataUrl(blob);
+        const dim = await new Promise((resolve, reject) => {
+          const img = new Image();
+          img.onload = () => resolve({ w: img.naturalWidth, h: img.naturalHeight });
+          img.onerror = () => reject(new Error("não consegui ler essa foto"));
+          img.src = dataUrl;
+        });
+
+        pdf.addPage();
+        const margem = 8;
+        const areaW = largura - margem * 2;
+        const areaH = altura - margem * 2 - 10;
+        let w = areaW, h = (dim.h / dim.w) * w;
+        if (h > areaH) { h = areaH; w = (dim.w / dim.h) * h; }
+        const x = (largura - w) / 2;
+        const yImg = 10 + (areaH - h) / 2;
+
+        pdf.setFontSize(9);
+        pdf.setTextColor(80, 80, 80);
+        pdf.text(foto.tipo || "Foto", largura / 2, 7, { align: "center" });
+        pdf.addImage(dataUrl, "JPEG", x, yImg, w, h);
+      } catch (eFoto) {
+        console.warn("Não consegui incluir uma foto no PDF, pulando ela:", eFoto);
+      }
+    }
+
     pdf.save(`${colecao === "verde" ? "carga-verde" : "carga"}-${carga.numero}-resumo.pdf`);
   } catch (e) {
     console.error("Erro ao gerar PDF:", e);
@@ -1703,7 +1747,8 @@ function montarLinhasResumoCargaVerde(carga) {
   if (carga.motorista) linhas.push(["Motorista", carga.motorista + (carga.telefoneMotorista ? ` (${carga.telefoneMotorista})` : "")]);
   if (carga.placa) linhas.push(["Placa", carga.placa]);
   if (carga.cliente) linhas.push(["Cliente", carga.cliente]);
-  if (carga.municipio || carga.estado) linhas.push(["Local", `${carga.municipio || ""}${carga.municipio && carga.estado ? "/" : ""}${carga.estado || ""}`]);
+  if (carga.municipio) linhas.push(["Município", carga.municipio]);
+  if (carga.estado) linhas.push(["Estado", carga.estado]);
   if (carga.setor) linhas.push(["Setor de origem", carga.setor]);
   if (carga.horarioSaida) linhas.push(["Horário de saída", carga.horarioSaida]);
   if (carga.nfCte) linhas.push(["NF/CT-e", carga.nfCte]);
@@ -2155,7 +2200,7 @@ function renderCargaVerdeCard(carga) {
 
     html += `<div style="display:flex; justify-content:flex-end; gap:8px; margin-top:10px; flex-wrap:wrap;">`;
     html += `<button class="btn ghost" style="width:auto; color:#128C7E; border:1px solid #128C7E;" onclick="compartilharCargaVerdeWhatsapp('${carga.id}')">📲 Compartilhar</button>`;
-    html += `<button class="btn ghost" style="width:auto; color:#b91c1c; border:1px solid #b91c1c;" onclick="gerarPdfCarga('${carga.id}','verde')">📄 Gerar PDF</button>`;
+    html += `<button class="btn ghost" style="width:auto; color:#b91c1c; border:1px solid #b91c1c;" onclick="gerarPdfCarga('${carga.id}','verde')">📄 Gerar PDF (com fotos)</button>`;
     html += `<button class="btn danger" onclick="removeCargaVerde('${carga.id}')">🗑️ Excluir carga</button>`;
     if (!arquivada) {
       html += `<button class="btn" style="width:auto; background:#0f766e;" onclick="arquivarCargaVerde('${carga.id}')">📦 Finalizar e arquivar carga</button>`;

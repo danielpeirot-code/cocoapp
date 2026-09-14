@@ -265,7 +265,7 @@
       <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
     </div>
     <div class="header-linha2">
-      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v80</span>
+      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v82</span>
       <div class="spacer"></div>
       <span id="backupPill" class="backup-pill"></span>
       <button class="btn-export" onclick="exportarExcel()">⬇️ Excel</button>
@@ -348,6 +348,7 @@ window.__state = {
   ocorrencias: [],
   atividadesPadrao: {},
   colaboradores: [],
+  receitas: [],
   metasColheita: {},
   cargasVerde: [],
   configSeguranca: {},
@@ -364,7 +365,7 @@ window.__state = {
   _uploadTipoFoto: "Carga geral",
   _fotosEnviando: 0,
   _fotosPendentes: [],
-  saveStatus: { romaneio: "idle", descartes: "idle", contagem: "idle", aplicacoes: "idle", programacao: "idle", estoque: "idle", setores: "idle", ocorrencias: "idle", rendimento: "idle", colheita: "idle", romaneioVerde: "idle" },
+  saveStatus: { romaneio: "idle", descartes: "idle", contagem: "idle", aplicacoes: "idle", programacao: "idle", estoque: "idle", setores: "idle", ocorrencias: "idle", rendimento: "idle", colheita: "idle", romaneioVerde: "idle", receitas: "idle" },
 };
 const S = window.__state;
 window.S = S; // necessário para os campos de formulário (oninput="S...") funcionarem
@@ -575,6 +576,12 @@ onAuthStateChanged(auth, (user) => {
     if (S.currentTab === "programacao") renderTab();
   }, (err) => console.error(err));
 
+  onSnapshot(collection(db, "receitas"), (snap) => {
+    S.receitas = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    if (snap.metadata.hasPendingWrites) return;
+    if (S.currentTab === "receitas") renderTab();
+  }, (err) => console.error(err));
+
   onSnapshot(collection(db, "metasColheita"), (snap) => {
     const obj = {};
     snap.docs.forEach((d) => { obj[d.id] = d.data(); });
@@ -780,6 +787,7 @@ const CATEGORIAS_NAV = [
   { id: "gestao", label: "Gestão", icon: "📋", tabs: [
     { id: "estoque", label: "Estoque", icon: "📦" },
     { id: "aplicacoes", label: "Aplic./Adub.", icon: "🧴" },
+    { id: "receitas", label: "Receitas", icon: "🧪" },
     { id: "programacao", label: "Programação", icon: "🗓️" },
     { id: "rendimento", label: "Rendimento", icon: "📐" },
   ] },
@@ -877,6 +885,7 @@ function renderTab() {
     else if (S.currentTab === "romaneioVerde") renderRomaneioVerde();
     else if (S.currentTab === "contagem") renderContagem();
     else if (S.currentTab === "aplicacoes") renderAplicacoes();
+    else if (S.currentTab === "receitas") renderReceitas();
     else if (S.currentTab === "indicadores") renderIndicadores();
     else if (S.currentTab === "configuracoes") renderConfiguracoes();
     else if (S.currentTab === "programacao") renderProgramacao();
@@ -2839,9 +2848,9 @@ function chaveAplic(setor, tipo) { return setor + "__" + tipo; }
 function getRegistroAplic(setor, tipo) {
   const k = chaveAplic(setor, tipo);
   const existente = S.aplicacoesDados[k];
-  if (existente) return existente;
+  if (existente) return existente.produtos ? existente : { ...existente, produtos: [{ produtoInsumo: existente.produtoInsumo || "", quantidade: existente.quantidade || "" }] };
   const padrao = [...TIPOS_APLICACAO, ...TIPOS_ADUBACAO].find((t) => t.tipo === tipo);
-  return { produtoInsumo: "", quantidade: "", intervalo: padrao && padrao.intervaloPadrao !== null ? padrao.intervaloPadrao : "", dataProgramada: "", dataAplicada: "" };
+  return { produtos: [{ produtoInsumo: "", quantidade: "" }], intervalo: padrao && padrao.intervaloPadrao !== null ? padrao.intervaloPadrao : "", dataProgramada: "", dataAplicada: "" };
 }
 
 // Categoria de estoque esperada para cada tipo de lançamento — só pra filtrar o dropdown
@@ -2875,6 +2884,139 @@ window.toggleAplicSecao = function (tipo) {
   renderAplicacoes();
 };
 
+/* =========================================================================
+   RECEITAS TÉCNICAS — catálogo de recomendações (calda, produtos, dose,
+   intervalo) que o usuário já usa no campo, pra consultar rápido e (num
+   próximo passo) puxar direto pra Programação/Estoque.
+   ========================================================================= */
+function receitaVazia() {
+  return { nome: "", tipo: "", volumeCaldaL: "", doseReferencia: "", intervaloDias: "", produtos: [{ nome: "", quantidade: "", unidade: "L" }], observacoes: "" };
+}
+S._novaReceita = receitaVazia();
+S._editandoReceitaId = null;
+
+window.adicionarProdutoReceitaForm = function () {
+  S._novaReceita.produtos.push({ nome: "", quantidade: "", unidade: "L" });
+  renderReceitas();
+};
+window.removerProdutoReceitaForm = function (i) {
+  S._novaReceita.produtos.splice(i, 1);
+  if (S._novaReceita.produtos.length === 0) S._novaReceita.produtos.push({ nome: "", quantidade: "", unidade: "L" });
+  renderReceitas();
+};
+
+window.salvarReceita = function () {
+  if (!S._novaReceita.nome) { alert("Dá um nome pra essa receita (ex: \"Herbicida — Calda 260L/ha\")."); return; }
+  const produtosValidos = S._novaReceita.produtos.filter((p) => p.nome && p.quantidade !== "");
+  if (produtosValidos.length === 0) { alert("Adiciona pelo menos um produto com nome e quantidade."); return; }
+  const payload = { ...S._novaReceita, produtos: produtosValidos };
+  marcarSalvando("receitas");
+  if (S._editandoReceitaId) {
+    updateDoc(doc(db, "receitas", S._editandoReceitaId), payload)
+      .then(() => { if (navigator.onLine) setSaveStatus("receitas", "saved"); })
+      .catch((e) => tratarErroSalvamento("receitas", e));
+  } else {
+    addDoc(collection(db, "receitas"), payload)
+      .then(() => { if (navigator.onLine) setSaveStatus("receitas", "saved"); })
+      .catch((e) => tratarErroSalvamento("receitas", e));
+  }
+  S._novaReceita = receitaVazia();
+  S._editandoReceitaId = null;
+  renderReceitas();
+};
+
+window.editarReceita = function (id) {
+  const r = S.receitas.find((x) => x.id === id);
+  if (!r) return;
+  S._editandoReceitaId = id;
+  S._novaReceita = { nome: r.nome || "", tipo: r.tipo || "", volumeCaldaL: r.volumeCaldaL || "", doseReferencia: r.doseReferencia || "", intervaloDias: r.intervaloDias || "", produtos: (r.produtos && r.produtos.length ? r.produtos.map((p) => ({ ...p })) : [{ nome: "", quantidade: "", unidade: "L" }]), observacoes: r.observacoes || "" };
+  if (typeof window.scrollTo === "function") window.scrollTo(0, 0);
+  renderReceitas();
+};
+window.cancelarEdicaoReceita = function () {
+  S._novaReceita = receitaVazia();
+  S._editandoReceitaId = null;
+  renderReceitas();
+};
+window.removerReceita = function (id) {
+  pedirSenha(() => {
+    deleteDoc(doc(db, "receitas", id)).catch((e) => tratarErroSalvamento("receitas", e));
+  });
+};
+
+function renderReceitas() {
+  const nr = S._novaReceita;
+  let html = `<div class="card">
+    <div class="row-flex" style="margin-bottom:8px;">
+      <h3>🧪 ${S._editandoReceitaId ? "Editar receita" : "Nova receita técnica"}</h3>
+      <span id="savingPill-receitas" class="saving-pill"></span>
+    </div>
+    <div class="muted" style="font-size:11px; margin-bottom:10px;">Guarda aqui as receitas que você já usa no campo — produtos, dose, intervalo — pra consultar rápido na hora de programar, sem precisar lembrar de cabeça.</div>
+    <div class="grid grid-2" style="margin-bottom:8px;">
+      <label class="field" style="grid-column:span 2;"><span>Nome da receita</span><input type="text" value="${esc(nr.nome)}" placeholder="Ex: Herbicida — Calda 260L/ha" oninput="S._novaReceita.nome=this.value"/></label>
+      <label class="field"><span>Tipo (opcional)</span><input type="text" value="${esc(nr.tipo)}" placeholder="Ex: Herbicida, Foliar, Drench..." oninput="S._novaReceita.tipo=this.value"/></label>
+      <label class="field"><span>Volume da calda (L, opcional)</span><input type="number" value="${esc(nr.volumeCaldaL)}" oninput="S._novaReceita.volumeCaldaL=this.value"/></label>
+      <label class="field"><span>Dose de referência</span><input type="text" value="${esc(nr.doseReferencia)}" placeholder="Ex: 260 L/ha, 2,5 L/planta..." oninput="S._novaReceita.doseReferencia=this.value"/></label>
+      <label class="field"><span>Intervalo entre aplicações (dias)</span><input type="number" value="${esc(nr.intervaloDias)}" oninput="S._novaReceita.intervaloDias=this.value"/></label>
+    </div>
+
+    <div style="font-size:10px; font-weight:700; text-transform:uppercase; color:#78716c; margin-bottom:6px;">Produtos da calda</div>`;
+
+  nr.produtos.forEach((p, i) => {
+    html += `<div class="grid grid-4" style="margin-bottom:6px; align-items:end;">
+      <label class="field" style="grid-column:span 2;"><span>Produto</span><input type="text" value="${esc(p.nome)}" oninput="S._novaReceita.produtos[${i}].nome=this.value"/></label>
+      <label class="field"><span>Quantidade</span><input type="number" step="any" value="${esc(p.quantidade)}" oninput="S._novaReceita.produtos[${i}].quantidade=this.value"/></label>
+      <div style="display:flex; gap:4px; align-items:center;">
+        <select style="flex:1;" onchange="S._novaReceita.produtos[${i}].unidade=this.value">
+          ${["L","mL","kg","g"].map(u=>`<option value="${u}" ${p.unidade===u?"selected":""}>${u}</option>`).join("")}
+        </select>
+        <button class="x-btn" onclick="removerProdutoReceitaForm(${i})">✕</button>
+      </div>
+    </div>`;
+  });
+  html += `<button class="btn ghost" style="width:auto; margin-bottom:10px;" onclick="adicionarProdutoReceitaForm()">➕ Adicionar produto</button>
+
+    <label class="field" style="margin-bottom:10px;"><span>Observações</span>
+      <textarea rows="3" style="width:100%; padding:8px 10px; border:1px solid #d6d3d1; border-radius:8px; font-size:13px; font-family:inherit; resize:vertical;" oninput="S._novaReceita.observacoes=this.value">${esc(nr.observacoes)}</textarea>
+    </label>
+
+    <div style="display:flex; gap:8px;">
+      <button class="btn" onclick="salvarReceita()">${S._editandoReceitaId ? "💾 Salvar alteração" : "➕ Cadastrar receita"}</button>
+      ${S._editandoReceitaId ? `<button class="btn ghost" style="width:auto;" onclick="cancelarEdicaoReceita()">Cancelar</button>` : ""}
+    </div>
+  </div>`;
+
+  const receitasOrdenadas = [...S.receitas].sort((a, b) => (a.nome || "").localeCompare(b.nome || "", "pt-BR"));
+  if (receitasOrdenadas.length === 0) {
+    html += `<div class="empty">Nenhuma receita cadastrada ainda.</div>`;
+  } else {
+    receitasOrdenadas.forEach((r) => {
+      html += `<div class="card">
+        <div class="row-flex" style="margin-bottom:4px;">
+          <h3 style="font-size:14px;">🧪 ${esc(r.nome)}</h3>
+          <div style="display:flex; gap:4px;">
+            <button class="x-btn" onclick="editarReceita('${r.id}')">✏️</button>
+            <button class="x-btn" onclick="removerReceita('${r.id}')">✕</button>
+          </div>
+        </div>
+        <div style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:8px;">
+          ${r.tipo ? `<span class="status-pill azul">${esc(r.tipo)}</span>` : ""}
+          ${r.doseReferencia ? `<span class="muted" style="font-size:11.5px;">📏 ${esc(r.doseReferencia)}</span>` : ""}
+          ${r.intervaloDias ? `<span class="muted" style="font-size:11.5px;">🗓️ a cada ${esc(r.intervaloDias)} dias</span>` : ""}
+          ${r.volumeCaldaL ? `<span class="muted" style="font-size:11.5px;">🪣 tanque de ${fmt(Number(r.volumeCaldaL),0)} L</span>` : ""}
+        </div>
+        <table class="tbl"><thead><tr><th style="text-align:left;">Produto</th><th>Quantidade</th></tr></thead><tbody>
+          ${(r.produtos || []).map((p) => `<tr><td style="text-align:left;">${esc(p.nome)}</td><td>${fmt(Number(p.quantidade),3).replace(/\.?0+$/,"") || p.quantidade} ${esc(p.unidade)}</td></tr>`).join("")}
+        </tbody></table>
+        ${r.observacoes ? `<div class="muted" style="font-size:11.5px; margin-top:8px; white-space:pre-wrap;">📝 ${esc(r.observacoes)}</div>` : ""}
+      </div>`;
+    });
+  }
+
+  document.getElementById("tabContent").innerHTML = html;
+  setSaveStatus("receitas", S.saveStatus.receitas);
+}
+
 function renderAplicacoes() {
   const tiposList = [...TIPOS_APLICACAO, ...TIPOS_ADUBACAO];
   let html = `<div class="card" style="padding:10px 12px;">
@@ -2904,19 +3046,39 @@ function renderAplicacoes() {
         const reg = getRegistroAplic(setor, tipo);
         const calc = calcAplicacao(reg, tipo);
         const rowId = `aplic-${esc(setor)}-${esc(tipo).replace(/[^a-zA-Z0-9]/g, "")}`;
-        const insumoSel = S.insumos.find((i) => i.nome === reg.produtoInsumo);
-        const unidade = insumoSel ? insumoSel.unidade : "";
+        const receitasDoTipo = S.receitas.filter((r) => (r.tipo || "").trim().toLowerCase() === tipo.trim().toLowerCase());
+        const receitasPraMostrar = receitasDoTipo.length > 0 ? receitasDoTipo : S.receitas;
         html += `<div class="aplic-row" id="${rowId}">
           <div class="aplic-setor">${setor}</div>
-          <div>
+          <div>`;
+
+        if (receitasPraMostrar.length > 0) {
+          html += `<div style="margin-bottom:6px;">
+            <select style="font-size:11.5px; padding:5px 8px;" onchange="if(this.value) usarReceitaNaAplicacao('${setor}','${tipo}',this.value); this.value='';">
+              <option value="">🧪 Usar receita cadastrada…</option>
+              ${receitasPraMostrar.map((r) => `<option value="${r.id}">${esc(r.nome)}</option>`).join("")}
+            </select>
+          </div>`;
+        }
+
+        html += `<div style="font-size:10px; font-weight:700; text-transform:uppercase; color:#78716c; margin-bottom:4px;">Produtos da calda</div>`;
+        reg.produtos.forEach((p, i) => {
+          const insumoSel = S.insumos.find((ins) => ins.nome === p.produtoInsumo);
+          const unidade = insumoSel ? insumoSel.unidade : "";
+          html += `<div class="grid grid-4" style="margin-bottom:5px; align-items:end;">
+            <label class="field" style="grid-column:span 2;"><span>Produto (estoque)</span>
+              <select onchange="atualizarAplicProduto('${setor}','${tipo}',${i},'produtoInsumo',this.value)">
+                <option value="" ${!p.produtoInsumo ? "selected" : ""}>Selecione…</option>
+                ${insumosTipo.map((ins) => `<option value="${esc(ins.nome)}" ${p.produtoInsumo === ins.nome ? "selected" : ""}>${esc(ins.nome)}</option>`).join("")}
+              </select>
+            </label>
+            <label class="field"><span>Qtd.${unidade ? ` (${esc(unidade)})` : ""}</span><input type="number" value="${esc(p.quantidade)}" oninput="atualizarAplicProduto('${setor}','${tipo}',${i},'quantidade',this.value)"/></label>
+            <button class="x-btn" onclick="removerProdutoAplic('${setor}','${tipo}',${i})">✕</button>
+          </div>`;
+        });
+        html += `<button class="btn ghost" style="width:auto; font-size:10.5px; padding:4px 10px; margin-bottom:8px;" onclick="adicionarProdutoAplic('${setor}','${tipo}')">➕ Produto</button>
+
             <div class="aplic-fields">
-              <label class="field" style="grid-column:span 2;"><span>Produto (estoque)</span>
-                <select onchange="atualizarAplic('${setor}','${tipo}','produtoInsumo',this.value,'${rowId}')">
-                  <option value="" ${!reg.produtoInsumo ? "selected" : ""}>Selecione…</option>
-                  ${insumosTipo.map((i) => `<option value="${esc(i.nome)}" ${reg.produtoInsumo === i.nome ? "selected" : ""}>${esc(i.nome)}</option>`).join("")}
-                </select>
-              </label>
-              <label class="field"><span>Qtd. aplicada${unidade ? ` (${esc(unidade)})` : ""}</span><input type="number" value="${esc(reg.quantidade)}" oninput="atualizarAplic('${setor}','${tipo}','quantidade',this.value,'${rowId}')"/></label>
               ${tipo !== "Foliar" ? `<label class="field"><span>Intervalo (dias)</span><input type="number" value="${esc(reg.intervalo)}" oninput="atualizarAplic('${setor}','${tipo}','intervalo',this.value,'${rowId}')"/></label>` : `<div></div>`}
               <label class="field"><span>Data Programada</span><input type="date" value="${esc(reg.dataProgramada)}" oninput="atualizarAplic('${setor}','${tipo}','dataProgramada',this.value,'${rowId}')"/></label>
               <label class="field"><span>Data Aplicada</span><input type="date" value="${esc(reg.dataAplicada)}" oninput="atualizarAplic('${setor}','${tipo}','dataAplicada',this.value,'${rowId}')"/></label>
@@ -3073,6 +3235,51 @@ window.atualizarAplic = function (setor, tipo, campo, valor, rowId) {
       .catch((e) => tratarErroSalvamento("aplicacoes", e));
   }, 500);
 };
+
+function salvarRegistroAplic(setor, tipo, novoRegistro) {
+  const k = chaveAplic(setor, tipo);
+  S.aplicacoesDados = { ...S.aplicacoesDados, [k]: novoRegistro };
+  marcarSalvando("aplicacoes");
+  setDoc(doc(db, "aplicacoes", k), novoRegistro)
+    .then(() => { if (navigator.onLine) setSaveStatus("aplicacoes", "saved"); })
+    .catch((e) => tratarErroSalvamento("aplicacoes", e));
+}
+
+// Cada aplicação pode ter vários produtos na calda (igual as receitas) — essas três funções
+// cuidam de editar/adicionar/remover produtos dentro do mesmo lançamento Setor+Tipo.
+window.atualizarAplicProduto = function (setor, tipo, index, campo, valor) {
+  const atual = getRegistroAplic(setor, tipo);
+  const novosProdutos = atual.produtos.map((p, i) => (i === index ? { ...p, [campo]: valor } : p));
+  salvarRegistroAplic(setor, tipo, { ...atual, produtos: novosProdutos });
+};
+window.adicionarProdutoAplic = function (setor, tipo) {
+  const atual = getRegistroAplic(setor, tipo);
+  salvarRegistroAplic(setor, tipo, { ...atual, produtos: [...atual.produtos, { produtoInsumo: "", quantidade: "" }] });
+  renderAplicacoes();
+};
+window.removerProdutoAplic = function (setor, tipo, index) {
+  const atual = getRegistroAplic(setor, tipo);
+  let novosProdutos = atual.produtos.filter((_, i) => i !== index);
+  if (novosProdutos.length === 0) novosProdutos = [{ produtoInsumo: "", quantidade: "" }];
+  salvarRegistroAplic(setor, tipo, { ...atual, produtos: novosProdutos });
+  renderAplicacoes();
+};
+
+// Puxa os produtos de uma receita cadastrada de uma vez, tentando já casar cada um com um
+// insumo do estoque pelo nome — o que não achar igual fica em branco pra escolher na mão.
+window.usarReceitaNaAplicacao = function (setor, tipo, receitaId) {
+  if (!receitaId) return;
+  const receita = S.receitas.find((r) => r.id === receitaId);
+  if (!receita || !(receita.produtos || []).length) return;
+  const atual = getRegistroAplic(setor, tipo);
+  const novosProdutos = receita.produtos.map((p) => {
+    const insumo = S.insumos.find((i) => i.nome.trim().toLowerCase() === (p.nome || "").trim().toLowerCase());
+    return { produtoInsumo: insumo ? insumo.nome : "", quantidade: p.quantidade || "" };
+  });
+  salvarRegistroAplic(setor, tipo, { ...atual, produtos: novosProdutos });
+  renderAplicacoes();
+};
+
 
 /* =========================================================================
    ABA INDICADORES
@@ -3664,7 +3871,7 @@ function progVazia() {
   return {
     semana: S._progSemana, atividade: "", area: "", setor: TALHOES[0],
     planejadoQtd: "", planejadoUni: "", diasNec: "", quemVaiFazer: "",
-    veiculo: "", implemento: "", produtoTipo: "", produtoQtd: "", produtoUni: "",
+    veiculo: "", implemento: "", produtos: [],
     prog, exec,
   };
 }
@@ -3857,16 +4064,27 @@ function renderProgramacao() {
 
   html += `
     <details style="margin-bottom:10px;">
-      <summary style="font-size:12px; color:#78716c; cursor:pointer;">+ Veículo, implemento e produto (opcional)</summary>
-      <div class="grid grid-2" style="margin-top:8px;">
+      <summary style="font-size:12px; color:#78716c; cursor:pointer;">+ Veículo, implemento e produtos (opcional)</summary>
+      <div class="grid grid-2" style="margin-top:8px; margin-bottom:8px;">
         <label class="field"><span>Veículo</span><input type="text" value="${esc(nv.veiculo)}" oninput="S._novaProg.veiculo=this.value"/></label>
         <label class="field"><span>Implemento</span><input type="text" value="${esc(nv.implemento)}" oninput="S._novaProg.implemento=this.value"/></label>
-        <label class="field"><span>Produto</span><input type="text" value="${esc(nv.produtoTipo)}" oninput="S._novaProg.produtoTipo=this.value"/></label>
-        <div class="grid grid-2">
-          <label class="field"><span>Qtd. produto</span><input type="number" value="${esc(nv.produtoQtd)}" oninput="S._novaProg.produtoQtd=this.value"/></label>
-          <label class="field"><span>Uni.</span><input type="text" value="${esc(nv.produtoUni)}" oninput="S._novaProg.produtoUni=this.value"/></label>
-        </div>
       </div>
+      ${S.receitas.length > 0 ? `<select style="font-size:11.5px; padding:5px 8px; margin-bottom:8px;" onchange="if(this.value) usarReceitaNaProgramacao(this.value); this.value='';">
+        <option value="">🧪 Usar receita cadastrada…</option>
+        ${S.receitas.map((r) => `<option value="${r.id}">${esc(r.nome)}</option>`).join("")}
+      </select>` : ""}
+      <div style="font-size:10px; font-weight:700; text-transform:uppercase; color:#78716c; margin-bottom:4px;">Produtos</div>
+      ${nv.produtos.map((p, i) => `<div class="grid grid-4" style="margin-bottom:5px; align-items:end;">
+        <label class="field" style="grid-column:span 2;"><span>Produto</span><input type="text" value="${esc(p.nome)}" oninput="S._novaProg.produtos[${i}].nome=this.value"/></label>
+        <label class="field"><span>Qtd.</span><input type="number" step="any" value="${esc(p.quantidade)}" oninput="S._novaProg.produtos[${i}].quantidade=this.value"/></label>
+        <div style="display:flex; gap:4px; align-items:center;">
+          <select style="flex:1;" onchange="S._novaProg.produtos[${i}].unidade=this.value">
+            ${["L","mL","kg","g"].map(u=>`<option value="${u}" ${p.unidade===u?"selected":""}>${u}</option>`).join("")}
+          </select>
+          <button class="x-btn" onclick="S._novaProg.produtos.splice(${i},1); renderProgramacao();">✕</button>
+        </div>
+      </div>`).join("")}
+      <button class="btn ghost" style="width:auto; font-size:10.5px; padding:4px 10px;" onclick="S._novaProg.produtos.push({nome:'',quantidade:'',unidade:'L'}); renderProgramacao();">➕ Produto</button>
     </details>
     <button class="btn" onclick="criarProgramacao()">➕ Adicionar à semana</button>
   </div>`;
@@ -3902,7 +4120,7 @@ function renderProgramacao() {
             <div><b>Dias necessários:</b> ${esc(item.diasNec)||"—"}</div>
             ${item.veiculo ? `<div><b>Veículo:</b> ${esc(item.veiculo)}</div>` : ""}
             ${item.implemento ? `<div><b>Implemento:</b> ${esc(item.implemento)}</div>` : ""}
-            ${item.produtoTipo ? `<div style="grid-column:span 2;"><b>Produto:</b> ${esc(item.produtoTipo)} — ${esc(item.produtoQtd)} ${esc(item.produtoUni)}</div>` : ""}
+            ${(item.produtos && item.produtos.length) ? `<div style="grid-column:span 2;"><b>Produtos:</b> ${item.produtos.map(p=>`${esc(p.nome)} — ${esc(p.quantidade)} ${esc(p.unidade)}`).join("; ")}</div>` : ""}
           </div>
           <div class="tbl-wrap">
             <table class="tbl" style="min-width:520px;">
@@ -4008,6 +4226,13 @@ function conflitosDeAgenda(pessoas, diaKey, itensDaSemana, ignorarId) {
   });
   return conflitos;
 }
+
+window.usarReceitaNaProgramacao = function (receitaId) {
+  const receita = S.receitas.find((r) => r.id === receitaId);
+  if (!receita || !(receita.produtos || []).length) return;
+  S._novaProg.produtos = receita.produtos.map((p) => ({ nome: p.nome, quantidade: p.quantidade, unidade: p.unidade || "L" }));
+  renderProgramacao();
+};
 
 window.criarProgramacao = function () {
   if (!S._novaProg.atividade) { alert("Preenche o nome da atividade."); return; }
@@ -4323,9 +4548,12 @@ window.gerarImagemProgramacaoAtividades = function () {
       ctx.fillStyle = "#111827";
       ctx.font = "9.5px Arial";
       ctx.textAlign = "center";
-      ctx.fillText(item.produtoTipo || "-", cx + L.tipo / 2, yLinha + alturaLinha / 2);
-      ctx.fillText(item.produtoQtd || "-", cx + L.tipo + L.quant / 2, yLinha + alturaLinha / 2);
-      ctx.fillText(item.produtoUni || "-", cx + L.tipo + L.quant + L.uni / 2, yLinha + alturaLinha / 2);
+      const produtosLinha = item.produtos || [];
+      const primeiro = produtosLinha[0] || {};
+      const sufixo = produtosLinha.length > 1 ? ` +${produtosLinha.length - 1}` : "";
+      ctx.fillText((primeiro.nome || "-") + sufixo, cx + L.tipo / 2, yLinha + alturaLinha / 2);
+      ctx.fillText(primeiro.quantidade || "-", cx + L.tipo + L.quant / 2, yLinha + alturaLinha / 2);
+      ctx.fillText(primeiro.unidade || "-", cx + L.tipo + L.quant + L.uni / 2, yLinha + alturaLinha / 2);
 
       yLinha += alturaLinha;
     });
@@ -4671,12 +4899,14 @@ function consumoAplicacoesDoInsumo(nome) {
   const lista = [];
   [...TIPOS_APLICACAO, ...TIPOS_ADUBACAO].forEach(({ tipo }) => {
     TALHOES.forEach((setor) => {
-      const reg = S.aplicacoesDados[chaveAplic(setor, tipo)];
-      if (!reg) return;
-      const qtd = Number(reg.quantidade) || 0;
-      if (reg.produtoInsumo === nome && reg.dataAplicada && qtd > 0) {
-        lista.push({ data: reg.dataAplicada, quantidade: qtd, setor, tipo });
-      }
+      const reg = getRegistroAplic(setor, tipo);
+      if (!reg.dataAplicada) return;
+      (reg.produtos || []).forEach((p) => {
+        const qtd = Number(p.quantidade) || 0;
+        if (p.produtoInsumo === nome && qtd > 0) {
+          lista.push({ data: reg.dataAplicada, quantidade: qtd, setor, tipo });
+        }
+      });
     });
   });
   return lista;
@@ -5010,17 +5240,21 @@ function historicoDoSetor(talhao) {
 
   const aplicacoesSetor = [];
   [...TIPOS_APLICACAO, ...TIPOS_ADUBACAO].forEach(({ tipo }) => {
-    const reg = S.aplicacoesDados[chaveAplic(talhao, tipo)];
-    if (reg && (reg.dataAplicada || reg.produtoInsumo)) aplicacoesSetor.push({ tipo, ...reg });
+    const reg = getRegistroAplic(talhao, tipo);
+    const temProduto = (reg.produtos || []).some((p) => p.produtoInsumo);
+    if (reg.dataAplicada || temProduto) aplicacoesSetor.push({ tipo, ...reg });
   });
   aplicacoesSetor.sort((a, b) => (b.dataAplicada || "").localeCompare(a.dataAplicada || ""));
 
   const consumoPorProduto = {};
   aplicacoesSetor.forEach((a) => {
-    const qtd = Number(a.quantidade) || 0;
-    if (a.produtoInsumo && a.dataAplicada && qtd > 0) {
-      consumoPorProduto[a.produtoInsumo] = (consumoPorProduto[a.produtoInsumo] || 0) + qtd;
-    }
+    if (!a.dataAplicada) return;
+    (a.produtos || []).forEach((p) => {
+      const qtd = Number(p.quantidade) || 0;
+      if (p.produtoInsumo && qtd > 0) {
+        consumoPorProduto[p.produtoInsumo] = (consumoPorProduto[p.produtoInsumo] || 0) + qtd;
+      }
+    });
   });
 
   return { contagens, ocorrenciasSetor, aplicacoesSetor, consumoPorProduto };
@@ -5069,7 +5303,7 @@ function renderSetores() {
             const calc = calcAplicacao(a, a.tipo);
             return `<div style="font-size:12px; padding:2px 0;">
               <span class="status-pill ${calc.cor}" style="font-size:9.5px;">${calc.status}</span>
-              <b>${esc(a.tipo)}</b>${a.produtoInsumo ? ` — ${esc(a.produtoInsumo)}` : ""}
+              <b>${esc(a.tipo)}</b>${(a.produtos||[]).some(p=>p.produtoInsumo) ? ` — ${(a.produtos||[]).filter(p=>p.produtoInsumo).map(p=>esc(p.produtoInsumo)).join(", ")}` : ""}
               ${a.dataAplicada ? `<span class="muted">(${brDate(a.dataAplicada)})</span>` : ""}
             </div>`;
           }).join("") + `</div>`;
@@ -5341,7 +5575,7 @@ function montarLinhasProgramacao() {
       "Semana (segunda)": item.semana, "Atividade": item.atividade, "Área": item.area, "Setor": item.setor,
       "Planejado": item.planejadoQtd, "Unidade": item.planejadoUni, "Dias Necessários": item.diasNec,
       "Quem vai fazer": item.quemVaiFazer, "Veículo": item.veiculo, "Implemento": item.implemento,
-      "Produto": item.produtoTipo, "Qtd. Produto": item.produtoQtd, "Uni. Produto": item.produtoUni,
+      "Produtos": (item.produtos || []).map(p => `${p.nome} ${p.quantidade}${p.unidade}`).join("; "),
     };
     DIAS_SEMANA.forEach((d) => { row["Prog. " + d.label] = item.prog[d.key]; });
     DIAS_SEMANA.forEach((d) => { row["Feito " + d.label] = item.exec[d.key]; });
@@ -5462,11 +5696,24 @@ function montarLinhasAplic(tiposList) {
     TALHOES.forEach((setor) => {
       const reg = getRegistroAplic(setor, tipo);
       const calc = calcAplicacao(reg, tipo);
-      rows.push({
-        "Setor": setor, "Tipo": tipo, "Produto": reg.produtoInsumo, "Quantidade Aplicada": reg.quantidade, "Intervalo (dias)": reg.intervalo,
-        "Data Programada": reg.dataProgramada, "Data Aplicada": reg.dataAplicada,
-        "Status": calc.status, "Próxima Aplicação": calc.proximaFmt,
-      });
+      const produtos = (reg.produtos || []).filter((p) => p.produtoInsumo || p.quantidade);
+      if (produtos.length === 0) {
+        rows.push({
+          "Setor": setor, "Tipo": tipo, "Produto": "", "Quantidade Aplicada": "", "Intervalo (dias)": reg.intervalo,
+          "Data Programada": reg.dataProgramada, "Data Aplicada": reg.dataAplicada,
+          "Status": calc.status, "Próxima Aplicação": calc.proximaFmt,
+        });
+      } else {
+        // Um lançamento pode ter vários produtos na calda agora — sai uma linha por produto,
+        // repetindo os dados da aplicação (setor/tipo/datas/status) que são os mesmos pros dois.
+        produtos.forEach((p) => {
+          rows.push({
+            "Setor": setor, "Tipo": tipo, "Produto": p.produtoInsumo, "Quantidade Aplicada": p.quantidade, "Intervalo (dias)": reg.intervalo,
+            "Data Programada": reg.dataProgramada, "Data Aplicada": reg.dataAplicada,
+            "Status": calc.status, "Próxima Aplicação": calc.proximaFmt,
+          });
+        });
+      }
     });
   });
   return rows;

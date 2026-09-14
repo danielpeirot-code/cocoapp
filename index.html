@@ -265,7 +265,7 @@
       <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
     </div>
     <div class="header-linha2">
-      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v84</span>
+      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v87</span>
       <div class="spacer"></div>
       <span id="backupPill" class="backup-pill"></span>
       <button class="btn-export" onclick="exportarExcel()">⬇️ Excel</button>
@@ -279,8 +279,8 @@
       <button onclick="instalarApp()">Instalar</button>
     </div>
     <div id="tabContent"></div>
-    <input type="file" id="inputFotoCarga" accept="image/*" capture="environment" multiple style="display:none" onchange="onFotosCargaSelecionadas(this)"/>
-    <input type="file" id="inputFotoOcorrencia" accept="image/*" capture="environment" style="display:none" onchange="onFotoOcorrenciaSelecionada(this)"/>
+    <input type="file" id="inputFotoCarga" accept="image/*" multiple style="display:none" onchange="onFotosCargaSelecionadas(this)"/>
+    <input type="file" id="inputFotoOcorrencia" accept="image/*" style="display:none" onchange="onFotoOcorrenciaSelecionada(this)"/>
   </div>
 
   <div id="fabOverlay" class="fab-overlay" style="display:none;" onclick="fecharAcaoRapida()"></div>
@@ -301,6 +301,7 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.2/jspdf.umd.min.js"></script>
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {
@@ -959,10 +960,13 @@ function renderCargaCard(carga, linhasCalc, totalEstocado, totalCarregado, total
 
     html += `<div style="font-size:11px; font-weight:700; text-transform:uppercase; color:#78716c; margin-bottom:6px;">🚛 Transporte</div>
       <div class="grid grid-4" style="margin-bottom:14px;">
+        <label class="field"><span>Data da carga</span><input type="date" value="${esc(carga.data)}" oninput="atualizarCarga('${carga.id}','data',this.value)"/></label>
         <label class="field"><span>Motorista</span><input type="text" value="${esc(carga.motorista)}" oninput="atualizarCarga('${carga.id}','motorista',this.value)"/></label>
         <label class="field"><span>Telefone do motorista</span><input type="tel" value="${esc(carga.telefoneMotorista)}" oninput="atualizarCarga('${carga.id}','telefoneMotorista',this.value)"/></label>
         <label class="field"><span>Placa do caminhão</span><input type="text" style="text-transform:uppercase;" value="${esc(carga.placa)}" oninput="atualizarCarga('${carga.id}','placa',this.value.toUpperCase())"/></label>
-        <label class="field"><span>Destino da carga</span><input type="text" value="${esc(carga.destino)}" oninput="atualizarCarga('${carga.id}','destino',this.value)"/></label>
+        <label class="field"><span>Nome do cliente</span><input type="text" value="${esc(carga.cliente)}" oninput="atualizarCarga('${carga.id}','cliente',this.value)"/></label>
+        <label class="field"><span>Município</span><input type="text" value="${esc(carga.municipio)}" oninput="atualizarCarga('${carga.id}','municipio',this.value)"/></label>
+        <label class="field"><span>Estado</span><input type="text" maxlength="2" style="text-transform:uppercase;" value="${esc(carga.estado)}" oninput="atualizarCarga('${carga.id}','estado',this.value.toUpperCase())"/></label>
         <label class="field"><span>Horário de saída</span><input type="time" value="${esc(carga.horarioSaida)}" oninput="atualizarCarga('${carga.id}','horarioSaida',this.value)"/></label>
         <label class="field"><span>NF / CT-e (opcional)</span><input type="text" value="${esc(carga.nfCte)}" oninput="atualizarCarga('${carga.id}','nfCte',this.value)"/></label>
       </div>`;
@@ -1167,6 +1171,7 @@ function renderCargaCard(carga, linhasCalc, totalEstocado, totalCarregado, total
     html += `<div style="display:flex; justify-content:flex-end; gap:8px; margin-top:10px; flex-wrap:wrap;">`;
     html += `<button class="btn ghost" style="width:auto; color:#128C7E; border:1px solid #128C7E;" onclick="compartilharCargaWhatsapp('${carga.id}')">📲 Compartilhar (texto)</button>`;
     html += `<button class="btn ghost" style="width:auto; color:#128C7E; border:1px solid #128C7E;" onclick="gerarImagemPesoUnidades('${carga.id}')">🖼️ Gerar imagem (com fotos)</button>`;
+    html += `<button class="btn ghost" style="width:auto; color:#b91c1c; border:1px solid #b91c1c;" onclick="gerarPdfCarga('${carga.id}','seco')">📄 Gerar PDF</button>`;
     html += `<button class="btn danger" onclick="removeCarga('${carga.id}')">🗑️ Excluir carga</button>`;
     if (!arquivada) {
       html += `<button class="btn" style="width:auto; background:#0f766e;" onclick="arquivarCarga('${carga.id}')">📦 Finalizar e arquivar carga</button>`;
@@ -1446,7 +1451,8 @@ window.compartilharCargaWhatsapp = async function (cargaId) {
     (carga.encarregado ? `Encarregado: ${carga.encarregado}\n` : "") +
     (carga.motorista ? `Motorista: ${carga.motorista}${carga.telefoneMotorista ? " (" + carga.telefoneMotorista + ")" : ""}\n` : "") +
     (carga.placa ? `Placa: ${carga.placa}\n` : "") +
-    (carga.destino ? `Destino: ${carga.destino}\n` : "") +
+    (carga.cliente ? `Cliente: ${carga.cliente}\n` : "") +
+    (carga.municipio || carga.estado ? `Local: ${carga.municipio || ""}${carga.municipio && carga.estado ? "/" : ""}${carga.estado || ""}\n` : "") +
     (carga.horarioSaida ? `Saída: ${carga.horarioSaida}\n` : "") +
     (carga.nfCte ? `NF/CT-e: ${carga.nfCte}\n` : "") +
     `Bags: ${linhasCalc.length}\n` +
@@ -1491,10 +1497,10 @@ window.compartilharCargaWhatsapp = async function (cargaId) {
 // Imagem-resumo da carga — mesmas informações que já vão no "Compartilhar (texto)", só que em
 // forma de tabela desenhada (mais fácil de bater o olho), com o Peso Médio (carregado ÷
 // quantidade em unidades) e, junto no mesmo compartilhamento, as fotos da carga já lançadas.
-window.gerarImagemPesoUnidades = async function (cargaId) {
-  const carga = S.cargas.find((c) => c.id === cargaId);
-  if (!carga) return;
-  const bags = bagsDaCarga(cargaId);
+// Lista label/valor usada tanto na imagem quanto no PDF da carga — um lugar só pra montar isso,
+// pra imagem e PDF nunca saírem com informação diferente uma da outra.
+function montarLinhasResumoCarga(carga) {
+  const bags = bagsDaCarga(carga.id);
   const linhasCalc = bags.map((l) => ({ ...l, ...calcLinhaRomaneio(l) }));
   const totalCoco = linhasCalc.reduce((s, l) => s + (Number(l.coco1) || 0), 0);
   const totalEstocado = linhasCalc.reduce((s, l) => s + l.estocado1, 0);
@@ -1506,7 +1512,8 @@ window.gerarImagemPesoUnidades = async function (cargaId) {
   if (carga.encarregado) linhas.push(["Encarregado", carga.encarregado]);
   if (carga.motorista) linhas.push(["Motorista", carga.motorista + (carga.telefoneMotorista ? ` (${carga.telefoneMotorista})` : "")]);
   if (carga.placa) linhas.push(["Placa", carga.placa]);
-  if (carga.destino) linhas.push(["Destino", carga.destino]);
+  if (carga.cliente) linhas.push(["Cliente", carga.cliente]);
+  if (carga.municipio || carga.estado) linhas.push(["Local", `${carga.municipio || ""}${carga.municipio && carga.estado ? "/" : ""}${carga.estado || ""}`]);
   if (carga.horarioSaida) linhas.push(["Horário de saída", carga.horarioSaida]);
   if (carga.nfCte) linhas.push(["NF/CT-e", carga.nfCte]);
   linhas.push(["Bags", String(linhasCalc.length)]);
@@ -1515,6 +1522,13 @@ window.gerarImagemPesoUnidades = async function (cargaId) {
   linhas.push(["Carregado", `${fmt(totalCarregado, 0)} kg`]);
   linhas.push(["Diferença", `${fmt(totalDiferenca, 0)} kg`]);
   linhas.push(["Peso Médio", `${pesoMedio.toFixed(3)} kg/unid`]);
+  return linhas;
+}
+
+window.gerarImagemPesoUnidades = async function (cargaId) {
+  const carga = S.cargas.find((c) => c.id === cargaId);
+  if (!carga) return;
+  const linhas = montarLinhasResumoCarga(carga);
 
   const escala = 3; // resolução mais alta — sem isso a imagem sai borrada ao ampliar/dar zoom
   const larguraBase = 320, alturaLinhaBase = 28, alturaTituloBase = 40;
@@ -1607,6 +1621,65 @@ window.gerarImagemPesoUnidades = async function (cargaId) {
   URL.revokeObjectURL(url);
 };
 
+// Mesmas informações da imagem, só que em PDF — mais fácil de imprimir ou anexar em e-mail.
+window.gerarPdfCarga = function (cargaId, colecao) {
+  if (typeof window.jspdf === "undefined") { alert("Não consegui carregar a biblioteca de PDF agora — abre o app com internet uma vez que resolve."); return; }
+  const carga = (colecao === "verde" ? S.cargasVerde : S.cargas).find((c) => c.id === cargaId);
+  if (!carga) return;
+  const linhas = colecao === "verde" ? montarLinhasResumoCargaVerde(carga) : montarLinhasResumoCarga(carga);
+  const tituloCarga = colecao === "verde" ? `Carga Verde Nº ${carga.numero}` : `Carga Nº ${carga.numero}`;
+
+  const { jsPDF } = window.jspdf;
+  const pdf = new jsPDF({ unit: "mm", format: "a5" });
+  const largura = pdf.internal.pageSize.getWidth();
+
+  pdf.setFillColor(6, 95, 70); // verde escuro, igual o cabeçalho do app
+  pdf.rect(0, 0, largura, 18, "F");
+  pdf.setTextColor(255, 255, 255);
+  pdf.setFontSize(14);
+  pdf.text(tituloCarga, largura / 2, 9, { align: "center" });
+  pdf.setFontSize(9);
+  pdf.text(brDate(carga.data), largura / 2, 15, { align: "center" });
+
+  let y = 26;
+  pdf.setFontSize(10.5);
+  linhas.forEach(([label, valor], i) => {
+    if (i % 2 === 0) {
+      pdf.setFillColor(243, 244, 246);
+      pdf.rect(8, y - 5, largura - 16, 7, "F");
+    }
+    const destaque = label === "Peso Médio";
+    pdf.setTextColor(destaque ? 22 : 17, destaque ? 101 : 24, destaque ? 52 : 39);
+    pdf.setFont(undefined, "bold");
+    pdf.text(String(label), 10, y);
+    pdf.setFont(undefined, destaque ? "bold" : "normal");
+    pdf.text(String(valor), largura - 10, y, { align: "right" });
+    y += 7;
+  });
+
+  pdf.save(`${colecao === "verde" ? "carga-verde" : "carga"}-${carga.numero}-resumo.pdf`);
+};
+
+// Mesma ideia da versão do coco seco, só que com os campos do Verde (quantidade em frutos,
+// amostra de água em vez de peso/estocado).
+function montarLinhasResumoCargaVerde(carga) {
+  const amostras = carga.amostrasAgua || [];
+  const mediaAgua = amostras.length ? amostras.reduce((s, v) => s + v, 0) / amostras.length : null;
+
+  const linhas = [];
+  if (carga.encarregado) linhas.push(["Encarregado", carga.encarregado]);
+  if (carga.motorista) linhas.push(["Motorista", carga.motorista + (carga.telefoneMotorista ? ` (${carga.telefoneMotorista})` : "")]);
+  if (carga.placa) linhas.push(["Placa", carga.placa]);
+  if (carga.cliente) linhas.push(["Cliente", carga.cliente]);
+  if (carga.municipio || carga.estado) linhas.push(["Local", `${carga.municipio || ""}${carga.municipio && carga.estado ? "/" : ""}${carga.estado || ""}`]);
+  if (carga.setor) linhas.push(["Setor de origem", carga.setor]);
+  if (carga.horarioSaida) linhas.push(["Horário de saída", carga.horarioSaida]);
+  if (carga.nfCte) linhas.push(["NF/CT-e", carga.nfCte]);
+  if (mediaAgua !== null) linhas.push(["Amostra de água", `${fmt(mediaAgua,1)} ml`]);
+  linhas.push(["Quantidade", `${fmt(Number(carga.quantidadeTotal) || 0, 0)} frutos`]);
+  return linhas;
+}
+
 window.compartilharCargaVerdeWhatsapp = async function (cargaId) {
   const carga = S.cargasVerde.find((c) => c.id === cargaId);
   if (!carga) return;
@@ -1618,7 +1691,8 @@ window.compartilharCargaVerdeWhatsapp = async function (cargaId) {
     (carga.encarregado ? `Encarregado: ${carga.encarregado}\n` : "") +
     (carga.motorista ? `Motorista: ${carga.motorista}${carga.telefoneMotorista ? " (" + carga.telefoneMotorista + ")" : ""}\n` : "") +
     (carga.placa ? `Placa: ${carga.placa}\n` : "") +
-    (carga.destino ? `Destino: ${carga.destino}\n` : "") +
+    (carga.cliente ? `Cliente: ${carga.cliente}\n` : "") +
+    (carga.municipio || carga.estado ? `Local: ${carga.municipio || ""}${carga.municipio && carga.estado ? "/" : ""}${carga.estado || ""}\n` : "") +
     (carga.horarioSaida ? `Saída: ${carga.horarioSaida}\n` : "") +
     (carga.nfCte ? `NF/CT-e: ${carga.nfCte}\n` : "") +
     (mediaAgua !== null ? `Água (amostra): ${fmt(mediaAgua,1)} ml\n` : "") +
@@ -1985,10 +2059,13 @@ function renderCargaVerdeCard(carga) {
 
     html += `<div style="font-size:11px; font-weight:700; text-transform:uppercase; color:#78716c; margin-bottom:6px;">🚛 Transporte</div>
       <div class="grid grid-4" style="margin-bottom:14px;">
+        <label class="field"><span>Data da carga</span><input type="date" value="${esc(carga.data)}" oninput="atualizarCargaVerde('${carga.id}','data',this.value)"/></label>
         <label class="field"><span>Motorista</span><input type="text" value="${esc(carga.motorista)}" oninput="atualizarCargaVerde('${carga.id}','motorista',this.value)"/></label>
         <label class="field"><span>Telefone do motorista</span><input type="tel" value="${esc(carga.telefoneMotorista)}" oninput="atualizarCargaVerde('${carga.id}','telefoneMotorista',this.value)"/></label>
         <label class="field"><span>Placa do caminhão</span><input type="text" style="text-transform:uppercase;" value="${esc(carga.placa)}" oninput="atualizarCargaVerde('${carga.id}','placa',this.value.toUpperCase())"/></label>
-        <label class="field"><span>Destino da carga</span><input type="text" value="${esc(carga.destino)}" oninput="atualizarCargaVerde('${carga.id}','destino',this.value)"/></label>
+        <label class="field"><span>Nome do cliente</span><input type="text" value="${esc(carga.cliente)}" oninput="atualizarCargaVerde('${carga.id}','cliente',this.value)"/></label>
+        <label class="field"><span>Município</span><input type="text" value="${esc(carga.municipio)}" oninput="atualizarCargaVerde('${carga.id}','municipio',this.value)"/></label>
+        <label class="field"><span>Estado</span><input type="text" maxlength="2" style="text-transform:uppercase;" value="${esc(carga.estado)}" oninput="atualizarCargaVerde('${carga.id}','estado',this.value.toUpperCase())"/></label>
         <label class="field"><span>Horário de saída</span><input type="time" value="${esc(carga.horarioSaida)}" oninput="atualizarCargaVerde('${carga.id}','horarioSaida',this.value)"/></label>
         <label class="field"><span>NF / CT-e (opcional)</span><input type="text" value="${esc(carga.nfCte)}" oninput="atualizarCargaVerde('${carga.id}','nfCte',this.value)"/></label>
       </div>`;
@@ -2046,6 +2123,7 @@ function renderCargaVerdeCard(carga) {
 
     html += `<div style="display:flex; justify-content:flex-end; gap:8px; margin-top:10px; flex-wrap:wrap;">`;
     html += `<button class="btn ghost" style="width:auto; color:#128C7E; border:1px solid #128C7E;" onclick="compartilharCargaVerdeWhatsapp('${carga.id}')">📲 Compartilhar</button>`;
+    html += `<button class="btn ghost" style="width:auto; color:#b91c1c; border:1px solid #b91c1c;" onclick="gerarPdfCarga('${carga.id}','verde')">📄 Gerar PDF</button>`;
     html += `<button class="btn danger" onclick="removeCargaVerde('${carga.id}')">🗑️ Excluir carga</button>`;
     if (!arquivada) {
       html += `<button class="btn" style="width:auto; background:#0f766e;" onclick="arquivarCargaVerde('${carga.id}')">📦 Finalizar e arquivar carga</button>`;
@@ -2300,7 +2378,10 @@ function renderContagemInner() {
         <td style="text-align:left;">Total</td><td>${totalLinha}</td><td>${totalLinhaB}</td>
       </tr>
     </tbody></table></div>
-    <div style="margin-top:10px;"><button class="btn" onclick="salvarDuasLinhasContagem()">💾 Salvar as duas linhas e ir pras próximas</button></div>`;
+    <div style="margin-top:10px;">
+      <div class="muted" style="font-size:10.5px; margin-bottom:6px;">Se sobrar só uma linha ímpar no fim do setor, pode deixar a outra em branco e salvar só essa.</div>
+      <button class="btn" onclick="salvarDuasLinhasContagem()">💾 Salvar e ir pra próxima(s)</button>
+    </div>`;
   } else {
     let gridHtml = "";
     ctg.valores.forEach((v, i) => {
@@ -2604,47 +2685,72 @@ window.salvarLinhaContagem = function () {
 // a linha B inteira, e salva as duas juntas de uma vez (sem precisar apertar salvar duas vezes).
 window.salvarDuasLinhasContagem = function () {
   const ctg = S.contagem;
-  if (!ctg.numLinha || !ctg.numLinhaB) { alert("Preenche o número das duas linhas."); return; }
+  const temA = ctg.numLinha !== "" && ctg.numLinha !== null && ctg.numLinha !== undefined;
+  const temB = ctg.numLinhaB !== "" && ctg.numLinhaB !== null && ctg.numLinhaB !== undefined;
+  // Quando sobra só uma linha ímpar no fim do setor (ex: 52 linhas, já contou até a 51), não tem
+  // par pra formar — deixa salvar só a que foi preenchida, em vez de obrigar as duas sempre.
+  if (!temA && !temB) { alert("Preenche o número de pelo menos uma das linhas."); return; }
 
   const maxLinhas = TIPOS_CONTAGEM[ctg.tipo].linhasPorSetor;
-  const foraA = Number(ctg.numLinha) > maxLinhas || Number(ctg.numLinha) < 1;
-  const foraB = Number(ctg.numLinhaB) > maxLinhas || Number(ctg.numLinhaB) < 1;
-  if (foraA || foraB) {
-    alert(`O setor ${ctg.setor} (${ctg.tipo}) só tem ${maxLinhas} linhas — ${foraA ? `a linha ${ctg.numLinha}` : `a linha ${ctg.numLinhaB}`} está fora desse limite.`);
+  if (temA && (Number(ctg.numLinha) > maxLinhas || Number(ctg.numLinha) < 1)) {
+    alert(`O setor ${ctg.setor} (${ctg.tipo}) só tem ${maxLinhas} linhas — a linha ${ctg.numLinha} está fora desse limite.`);
+    return;
+  }
+  if (temB && (Number(ctg.numLinhaB) > maxLinhas || Number(ctg.numLinhaB) < 1)) {
+    alert(`O setor ${ctg.setor} (${ctg.tipo}) só tem ${maxLinhas} linhas — a linha ${ctg.numLinhaB} está fora desse limite.`);
     return;
   }
 
-  const statusA = linhaDisponivelParaContar(ctg.tipo, ctg.setor, ctg.numLinha);
-  const statusB = linhaDisponivelParaContar(ctg.tipo, ctg.setor, ctg.numLinhaB);
-  if (!statusA.disponivel || !statusB.disponivel) {
+  const statusA = temA ? linhaDisponivelParaContar(ctg.tipo, ctg.setor, ctg.numLinha) : null;
+  const statusB = temB ? linhaDisponivelParaContar(ctg.tipo, ctg.setor, ctg.numLinhaB) : null;
+  if ((statusA && !statusA.disponivel) || (statusB && !statusB.disponivel)) {
     const avisos = [];
-    if (!statusA.disponivel) avisos.push(`Linha ${ctg.numLinha}: faltam ${statusA.diasFaltam} dia${statusA.diasFaltam>1?"s":""}`);
-    if (!statusB.disponivel) avisos.push(`Linha ${ctg.numLinhaB}: faltam ${statusB.diasFaltam} dia${statusB.diasFaltam>1?"s":""}`);
-    alert("Essas linhas ainda estão descansando — não dá pra contar antes de completar os 21 dias:\n\n" + avisos.join("\n"));
+    if (statusA && !statusA.disponivel) avisos.push(`Linha ${ctg.numLinha}: faltam ${statusA.diasFaltam} dia${statusA.diasFaltam>1?"s":""}`);
+    if (statusB && !statusB.disponivel) avisos.push(`Linha ${ctg.numLinhaB}: faltam ${statusB.diasFaltam} dia${statusB.diasFaltam>1?"s":""}`);
+    alert("Essa linha ainda está descansando — não dá pra contar antes de completar os 21 dias:\n\n" + avisos.join("\n"));
     return;
   }
 
-  const totalA = ctg.valores.reduce((s, v) => s + (Number(v) || 0), 0);
-  const totalB = ctg.valoresB.reduce((s, v) => s + (Number(v) || 0), 0);
   const dataEscolhida = ctg.dataContagem || todayISO();
-  const payloadA = { tipo: ctg.tipo, setor: ctg.setor, numero: ctg.numLinha, valores: [...ctg.valores], total: totalA, data: dataEscolhida };
-  const payloadB = { tipo: ctg.tipo, setor: ctg.setor, numero: ctg.numLinhaB, valores: [...ctg.valoresB], total: totalB, data: dataEscolhida };
-
-  const proxA = Number(ctg.numLinha), proxB = Number(ctg.numLinhaB);
-  ctg.numLinha = Number.isFinite(proxA) ? String(proxA + 2) : "";
-  ctg.numLinhaB = Number.isFinite(proxB) ? String(proxB + 2) : "";
-  ctg.valores = Array.from({ length: Number(ctg.qtdPlantas) || 0 }, () => "");
-  ctg.valoresB = Array.from({ length: Number(ctg.qtdPlantas) || 0 }, () => "");
-
   marcarSalvando("contagem");
-  const refA = doc(collection(db, "contagemLinhas"));
-  const refB = doc(collection(db, "contagemLinhas"));
-  // Mesma correção da linha única: atualiza a tela na hora, sem esperar o servidor confirmar.
-  S.contagemLinhas = [...S.contagemLinhas, { id: refA.id, ...payloadA }, { id: refB.id, ...payloadB }];
-  Promise.all([
-    setDoc(refA, payloadA),
-    setDoc(refB, payloadB),
-  ]).then(() => { if (navigator.onLine) setSaveStatus("contagem", "saved"); }).catch((e) => tratarErroSalvamento("contagem", e));
+  const novosRegistros = [];
+
+  if (temA) {
+    const totalA = ctg.valores.reduce((s, v) => s + (Number(v) || 0), 0);
+    const payloadA = { tipo: ctg.tipo, setor: ctg.setor, numero: ctg.numLinha, valores: [...ctg.valores], total: totalA, data: dataEscolhida };
+    const refA = doc(collection(db, "contagemLinhas"));
+    novosRegistros.push([refA, payloadA]);
+  }
+  if (temB) {
+    const totalB = ctg.valoresB.reduce((s, v) => s + (Number(v) || 0), 0);
+    const payloadB = { tipo: ctg.tipo, setor: ctg.setor, numero: ctg.numLinhaB, valores: [...ctg.valoresB], total: totalB, data: dataEscolhida };
+    const refB = doc(collection(db, "contagemLinhas"));
+    novosRegistros.push([refB, payloadB]);
+  }
+
+  // Atualiza a tela na hora, sem esperar o servidor confirmar.
+  S.contagemLinhas = [...S.contagemLinhas, ...novosRegistros.map(([ref, payload]) => ({ id: ref.id, ...payload }))];
+  Promise.all(novosRegistros.map(([ref, payload]) => setDoc(ref, payload)))
+    .then(() => { if (navigator.onLine) setSaveStatus("contagem", "saved"); })
+    .catch((e) => tratarErroSalvamento("contagem", e));
+
+  // Avança pra próxima: se preencheu as duas, pula de 2 em 2 (próximo par); se preencheu só
+  // uma, avança só ela de 1 em 1 (próxima linha avulsa).
+  if (temA && temB) {
+    const proxA = Number(ctg.numLinha), proxB = Number(ctg.numLinhaB);
+    ctg.numLinha = Number.isFinite(proxA) ? String(proxA + 2) : "";
+    ctg.numLinhaB = Number.isFinite(proxB) ? String(proxB + 2) : "";
+    ctg.valores = Array.from({ length: Number(ctg.qtdPlantas) || 0 }, () => "");
+    ctg.valoresB = Array.from({ length: Number(ctg.qtdPlantas) || 0 }, () => "");
+  } else if (temA) {
+    const proxA = Number(ctg.numLinha);
+    ctg.numLinha = Number.isFinite(proxA) ? String(proxA + 1) : "";
+    ctg.valores = Array.from({ length: Number(ctg.qtdPlantas) || 0 }, () => "");
+  } else if (temB) {
+    const proxB = Number(ctg.numLinhaB);
+    ctg.numLinhaB = Number.isFinite(proxB) ? String(proxB + 1) : "";
+    ctg.valoresB = Array.from({ length: Number(ctg.qtdPlantas) || 0 }, () => "");
+  }
   renderContagem();
 };
 
@@ -5526,7 +5632,7 @@ function montarLinhasRomaneio() {
         "Nº Carga": carga.numero, "Status": carga.status === "arquivada" ? "Arquivada" : "Em andamento",
         "Data da Carga": carga.data, "Encarregado": carga.encarregado,
         "Motorista": carga.motorista, "Telefone Motorista": carga.telefoneMotorista, "Placa": carga.placa,
-        "Destino": carga.destino, "Horário Saída": carga.horarioSaida, "NF/CT-e": carga.nfCte,
+        "Cliente": carga.cliente, "Município": carga.municipio, "Estado": carga.estado, "Horário Saída": carga.horarioSaida, "NF/CT-e": carga.nfCte,
         "Nº Bag": l.idBag, "Data Descasca": l.dataDescasca, "Talhão": l.talhao, "Coco 1ª (frutos)": l.coco1,
         "Estocado 1ª (kg)": l.estocado1, "Data Carregamento": l.dataCarregamento, "Carregado 1ª (kg)": l.carregado1,
         "Diferença (kg)": calc.diferenca, "5 cocos carregado (g)": l.cincoCocosG,
@@ -5558,7 +5664,7 @@ function montarLinhasRomaneioVerde() {
       "Nº Carga": carga.numero, "Status": carga.status === "arquivada" ? "Arquivada" : "Em andamento",
       "Data da Carga": carga.data, "Encarregado": carga.encarregado,
       "Motorista": carga.motorista, "Telefone Motorista": carga.telefoneMotorista, "Placa": carga.placa,
-      "Destino": carga.destino, "Horário Saída": carga.horarioSaida, "NF/CT-e": carga.nfCte,
+      "Cliente": carga.cliente, "Município": carga.municipio, "Estado": carga.estado, "Horário Saída": carga.horarioSaida, "NF/CT-e": carga.nfCte,
       "Setor de Origem": carga.setor || "", "Quantidade Total (frutos)": carga.quantidadeTotal,
       "Média Água (ml)": mediaAgua !== "" ? Number(mediaAgua.toFixed(1)) : "",
     };

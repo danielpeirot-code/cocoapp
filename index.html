@@ -265,7 +265,7 @@
       <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
     </div>
     <div class="header-linha2">
-      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v79</span>
+      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v80</span>
       <div class="spacer"></div>
       <span id="backupPill" class="backup-pill"></span>
       <button class="btn-export" onclick="exportarExcel()">⬇️ Excel</button>
@@ -2162,7 +2162,9 @@ window.removeDescarte = function (id) {
    ABA CONTAGEM
    ========================================================================= */
 function linhasContagem(tipo, setor) {
-  return S.contagemLinhas.filter((l) => l.tipo === tipo && l.setor === setor);
+  return S.contagemLinhas
+    .filter((l) => l.tipo === tipo && l.setor === setor)
+    .sort((a, b) => (Number(a.numero) || 0) - (Number(b.numero) || 0));
 }
 
 // Compara a contagem mais recente desse setor com a vez anterior (duas datas diferentes de
@@ -2671,7 +2673,9 @@ function statusCicloLinhaComMapa(mapa, tipo, setor, numero) {
 
 // Toda linha contada na aba Contagem, pra esse tipo+setor+data de hoje, conta como "colhida hoje".
 function contagensDoDia(tipo, setor, data) {
-  return S.contagemLinhas.filter((l) => l.tipo === tipo && l.setor === setor && l.data === data);
+  return S.contagemLinhas
+    .filter((l) => l.tipo === tipo && l.setor === setor && l.data === data)
+    .sort((a, b) => (Number(a.numero) || 0) - (Number(b.numero) || 0));
 }
 
 // "Contado hoje" soma toda contagem do dia — mas às vezes tem mais de uma "rodada" de colheita

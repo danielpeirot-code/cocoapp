@@ -265,7 +265,7 @@
       <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
     </div>
     <div class="header-linha2">
-      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v87</span>
+      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v88</span>
       <div class="spacer"></div>
       <span id="backupPill" class="backup-pill"></span>
       <button class="btn-export" onclick="exportarExcel()">⬇️ Excel</button>
@@ -279,7 +279,9 @@
       <button onclick="instalarApp()">Instalar</button>
     </div>
     <div id="tabContent"></div>
+    <input type="file" id="inputFotoCargaCamera" accept="image/*" capture="environment" multiple style="display:none" onchange="onFotosCargaSelecionadas(this)"/>
     <input type="file" id="inputFotoCarga" accept="image/*" multiple style="display:none" onchange="onFotosCargaSelecionadas(this)"/>
+    <input type="file" id="inputFotoOcorrenciaCamera" accept="image/*" capture="environment" style="display:none" onchange="onFotoOcorrenciaSelecionada(this)"/>
     <input type="file" id="inputFotoOcorrencia" accept="image/*" style="display:none" onchange="onFotoOcorrenciaSelecionada(this)"/>
   </div>
 
@@ -291,6 +293,12 @@
     <button class="fab-item" onclick="mudarAba('aplicacoes'); fecharAcaoRapida();"><span class="ic">🧴</span>Aplicação / Adubação</button>
     <button class="fab-item" onclick="mudarAba('ocorrencias'); fecharAcaoRapida();"><span class="ic">⚠️</span>Nova Ocorrência</button>
     <button class="fab-item" onclick="mudarAba('programacao'); fecharAcaoRapida();"><span class="ic">🗓️</span>Nova Atividade (Programação)</button>
+  </div>
+
+  <div id="fotoEscolhaOverlay" class="fab-overlay" style="display:none;" onclick="fecharEscolhaFoto()"></div>
+  <div id="fotoEscolhaMenu" class="fab-menu" style="display:none;">
+    <button class="fab-item" onclick="escolherFotoCamera()"><span class="ic">📷</span>Tirar foto agora</button>
+    <button class="fab-item" onclick="escolherFotoGaleria()"><span class="ic">🖼️</span>Escolher da galeria</button>
   </div>
 
   <div class="bottom-nav">
@@ -1359,7 +1367,24 @@ atualizarListaPendentesEmMemoria().then(sincronizarFotosPendentes); // carrega o
 window.selecionarFotosCarga = function (cargaId, tipo) {
   S._uploadCargaId = cargaId;
   S._uploadTipoFoto = tipo;
-  const input = document.getElementById("inputFotoCarga");
+  S._fotoEscolhaAlvo = "carga";
+  document.getElementById("fotoEscolhaOverlay").style.display = "block";
+  document.getElementById("fotoEscolhaMenu").style.display = "flex";
+};
+window.fecharEscolhaFoto = function () {
+  document.getElementById("fotoEscolhaOverlay").style.display = "none";
+  document.getElementById("fotoEscolhaMenu").style.display = "none";
+};
+window.escolherFotoCamera = function () {
+  window.fecharEscolhaFoto();
+  const id = S._fotoEscolhaAlvo === "carga" ? "inputFotoCargaCamera" : "inputFotoOcorrenciaCamera";
+  const input = document.getElementById(id);
+  if (input) input.click();
+};
+window.escolherFotoGaleria = function () {
+  window.fecharEscolhaFoto();
+  const id = S._fotoEscolhaAlvo === "carga" ? "inputFotoCarga" : "inputFotoOcorrencia";
+  const input = document.getElementById(id);
   if (input) input.click();
 };
 
@@ -1626,38 +1651,45 @@ window.gerarPdfCarga = function (cargaId, colecao) {
   if (typeof window.jspdf === "undefined") { alert("Não consegui carregar a biblioteca de PDF agora — abre o app com internet uma vez que resolve."); return; }
   const carga = (colecao === "verde" ? S.cargasVerde : S.cargas).find((c) => c.id === cargaId);
   if (!carga) return;
-  const linhas = colecao === "verde" ? montarLinhasResumoCargaVerde(carga) : montarLinhasResumoCarga(carga);
-  const tituloCarga = colecao === "verde" ? `Carga Verde Nº ${carga.numero}` : `Carga Nº ${carga.numero}`;
 
-  const { jsPDF } = window.jspdf;
-  const pdf = new jsPDF({ unit: "mm", format: "a5" });
-  const largura = pdf.internal.pageSize.getWidth();
+  try {
+    const linhas = colecao === "verde" ? montarLinhasResumoCargaVerde(carga) : montarLinhasResumoCarga(carga);
+    const tituloCarga = colecao === "verde" ? `Carga Verde Nº ${carga.numero}` : `Carga Nº ${carga.numero}`;
 
-  pdf.setFillColor(6, 95, 70); // verde escuro, igual o cabeçalho do app
-  pdf.rect(0, 0, largura, 18, "F");
-  pdf.setTextColor(255, 255, 255);
-  pdf.setFontSize(14);
-  pdf.text(tituloCarga, largura / 2, 9, { align: "center" });
-  pdf.setFontSize(9);
-  pdf.text(brDate(carga.data), largura / 2, 15, { align: "center" });
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF({ unit: "mm", format: "a5" });
+    const largura = pdf.internal.pageSize.getWidth();
+    pdf.setFont("helvetica", "normal");
 
-  let y = 26;
-  pdf.setFontSize(10.5);
-  linhas.forEach(([label, valor], i) => {
-    if (i % 2 === 0) {
-      pdf.setFillColor(243, 244, 246);
-      pdf.rect(8, y - 5, largura - 16, 7, "F");
-    }
-    const destaque = label === "Peso Médio";
-    pdf.setTextColor(destaque ? 22 : 17, destaque ? 101 : 24, destaque ? 52 : 39);
-    pdf.setFont(undefined, "bold");
-    pdf.text(String(label), 10, y);
-    pdf.setFont(undefined, destaque ? "bold" : "normal");
-    pdf.text(String(valor), largura - 10, y, { align: "right" });
-    y += 7;
-  });
+    pdf.setFillColor(6, 95, 70); // verde escuro, igual o cabeçalho do app
+    pdf.rect(0, 0, largura, 18, "F");
+    pdf.setTextColor(255, 255, 255);
+    pdf.setFontSize(14);
+    pdf.text(tituloCarga, largura / 2, 9, { align: "center" });
+    pdf.setFontSize(9);
+    pdf.text(brDate(carga.data), largura / 2, 15, { align: "center" });
 
-  pdf.save(`${colecao === "verde" ? "carga-verde" : "carga"}-${carga.numero}-resumo.pdf`);
+    let y = 26;
+    pdf.setFontSize(10.5);
+    linhas.forEach(([label, valor], i) => {
+      if (i % 2 === 0) {
+        pdf.setFillColor(243, 244, 246);
+        pdf.rect(8, y - 5, largura - 16, 7, "F");
+      }
+      const destaque = label === "Peso Médio";
+      pdf.setTextColor(destaque ? 22 : 17, destaque ? 101 : 24, destaque ? 52 : 39);
+      pdf.setFont("helvetica", "bold");
+      pdf.text(String(label), 10, y);
+      pdf.setFont("helvetica", destaque ? "bold" : "normal");
+      pdf.text(String(valor), largura - 10, y, { align: "right" });
+      y += 7;
+    });
+
+    pdf.save(`${colecao === "verde" ? "carga-verde" : "carga"}-${carga.numero}-resumo.pdf`);
+  } catch (e) {
+    console.error("Erro ao gerar PDF:", e);
+    alert("Não consegui gerar o PDF: " + (e && e.message ? e.message : e));
+  }
 };
 
 // Mesma ideia da versão do coco seco, só que com os campos do Verde (quantidade em frutos,
@@ -5516,8 +5548,9 @@ window.removerOcorrencia = function (id, fileId) {
 // só avisa e a pessoa tenta de novo — o registro em si (texto) já está salvo de qualquer jeito.
 window.selecionarFotoOcorrencia = function (ocorrenciaId) {
   S._ocorrenciaFotoEnviando = ocorrenciaId;
-  const input = document.getElementById("inputFotoOcorrencia");
-  if (input) input.click();
+  S._fotoEscolhaAlvo = "ocorrencia";
+  document.getElementById("fotoEscolhaOverlay").style.display = "block";
+  document.getElementById("fotoEscolhaMenu").style.display = "flex";
 };
 
 window.onFotoOcorrenciaSelecionada = async function (input) {

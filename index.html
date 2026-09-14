@@ -265,7 +265,7 @@
       <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
     </div>
     <div class="header-linha2">
-      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v83</span>
+      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v84</span>
       <div class="spacer"></div>
       <span id="backupPill" class="backup-pill"></span>
       <button class="btn-export" onclick="exportarExcel()">⬇️ Excel</button>
@@ -2248,9 +2248,9 @@ function renderContagemInner() {
           ${TIPOS_CONTAGEM[ctg.tipo].setores.map(s=>`<option value="${s}" ${ctg.setor===s?"selected":""}>${s}</option>`).join("")}
         </select>
       </label>
-      <label class="field"><span>Nº da linha${modoDuasLinhas ? " A" : ""}</span><input type="number" value="${esc(ctg.numLinha)}" oninput="ctgSet('numLinha', this.value)" onblur="renderContagem()"/></label>
+      <label class="field"><span>Nº da linha${modoDuasLinhas ? " A" : ""} (máx. ${config.linhasPorSetor})</span><input type="number" min="1" max="${config.linhasPorSetor}" value="${esc(ctg.numLinha)}" oninput="ctgSet('numLinha', this.value)" onblur="renderContagem()"/></label>
       ${modoDuasLinhas
-        ? `<label class="field"><span>Nº da linha B</span><input type="number" value="${esc(ctg.numLinhaB)}" oninput="ctgSet('numLinhaB', this.value)" onblur="renderContagem()"/></label>`
+        ? `<label class="field"><span>Nº da linha B (máx. ${config.linhasPorSetor})</span><input type="number" min="1" max="${config.linhasPorSetor}" value="${esc(ctg.numLinhaB)}" oninput="ctgSet('numLinhaB', this.value)" onblur="renderContagem()"/></label>`
         : `<label class="field"><span>Plantas nessa linha</span><input type="number" value="${esc(ctg.qtdPlantas)}" oninput="mudarQtdPlantas(this.value)"/></label>`}
     </div>
     <div class="grid grid-2" style="margin-bottom:8px;">
@@ -2571,6 +2571,12 @@ window.salvarLinhaContagem = function () {
   const ctg = S.contagem;
   if (!ctg.numLinha) return;
 
+  const maxLinhas = TIPOS_CONTAGEM[ctg.tipo].linhasPorSetor;
+  if (Number(ctg.numLinha) > maxLinhas || Number(ctg.numLinha) < 1) {
+    alert(`O setor ${ctg.setor} (${ctg.tipo}) só tem ${maxLinhas} linhas — não dá pra contar a linha ${ctg.numLinha}.`);
+    return;
+  }
+
   const status = linhaDisponivelParaContar(ctg.tipo, ctg.setor, ctg.numLinha);
   if (!status.disponivel) {
     alert(`Essa linha (${ctg.numLinha}) ainda está descansando — faltam ${status.diasFaltam} dia${status.diasFaltam>1?"s":""} pra completar o ciclo de ${CICLO_COLHEITA_DIAS} dias. Não dá pra contar de novo antes disso.`);
@@ -2599,6 +2605,14 @@ window.salvarLinhaContagem = function () {
 window.salvarDuasLinhasContagem = function () {
   const ctg = S.contagem;
   if (!ctg.numLinha || !ctg.numLinhaB) { alert("Preenche o número das duas linhas."); return; }
+
+  const maxLinhas = TIPOS_CONTAGEM[ctg.tipo].linhasPorSetor;
+  const foraA = Number(ctg.numLinha) > maxLinhas || Number(ctg.numLinha) < 1;
+  const foraB = Number(ctg.numLinhaB) > maxLinhas || Number(ctg.numLinhaB) < 1;
+  if (foraA || foraB) {
+    alert(`O setor ${ctg.setor} (${ctg.tipo}) só tem ${maxLinhas} linhas — ${foraA ? `a linha ${ctg.numLinha}` : `a linha ${ctg.numLinhaB}`} está fora desse limite.`);
+    return;
+  }
 
   const statusA = linhaDisponivelParaContar(ctg.tipo, ctg.setor, ctg.numLinha);
   const statusB = linhaDisponivelParaContar(ctg.tipo, ctg.setor, ctg.numLinhaB);

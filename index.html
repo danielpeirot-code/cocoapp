@@ -265,7 +265,7 @@
       <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
     </div>
     <div class="header-linha2">
-      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v82</span>
+      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v83</span>
       <div class="spacer"></div>
       <span id="backupPill" class="backup-pill"></span>
       <button class="btn-export" onclick="exportarExcel()">⬇️ Excel</button>
@@ -354,7 +354,7 @@ window.__state = {
   configSeguranca: {},
   configPagamento: {},
   currentTab: "romaneio",
-  contagem: { tipo: "Híbrido", setor: "A3A4", numLinha: "", qtdPlantas: 78, valores: [], numLinhaB: "", valoresB: [] },
+  contagem: { tipo: "Híbrido", setor: "A3A4", numLinha: "", qtdPlantas: 78, valores: [], numLinhaB: "", valoresB: [], dataContagem: "" },
   _vozAtivo: false,
   _vozIndiceAtual: 0,
   _aplicColapsado: {},
@@ -412,6 +412,7 @@ S._mesIndicadores = new Date().toISOString().slice(0, 7); // "YYYY-MM" do mês a
    ========================================================================= */
 const uid = () => Math.random().toString(36).slice(2, 10);
 const todayISO = () => new Date().toISOString().slice(0, 10);
+S.contagem.dataContagem = todayISO();
 const fmt = (n, casas = 1) => (n === null || n === undefined || Number.isNaN(n)) ? "—" :
   n.toLocaleString("pt-BR", { minimumFractionDigits: casas, maximumFractionDigits: casas });
 const fmtPct = (n) => (n === null || n === undefined || Number.isNaN(n)) ? "—" : (n * 100).toFixed(1) + "%";
@@ -2252,6 +2253,9 @@ function renderContagemInner() {
         ? `<label class="field"><span>Nº da linha B</span><input type="number" value="${esc(ctg.numLinhaB)}" oninput="ctgSet('numLinhaB', this.value)" onblur="renderContagem()"/></label>`
         : `<label class="field"><span>Plantas nessa linha</span><input type="number" value="${esc(ctg.qtdPlantas)}" oninput="mudarQtdPlantas(this.value)"/></label>`}
     </div>
+    <div class="grid grid-2" style="margin-bottom:8px;">
+      <label class="field"><span>Data da contagem</span><input type="date" value="${esc(ctg.dataContagem)}" oninput="ctgSet('dataContagem', this.value)"/></label>
+    </div>
     <button class="btn ghost" style="width:auto; margin-bottom:6px;" onclick="verSetorContagem()">🔍 Ver setor</button>`;
 
   // Avisa antes de tentar salvar se a linha (ou as duas, no modo dupla) ainda está descansando —
@@ -2574,14 +2578,19 @@ window.salvarLinhaContagem = function () {
   }
 
   const total = ctg.valores.reduce((s, v) => s + (Number(v) || 0), 0);
-  const payload = { tipo: ctg.tipo, setor: ctg.setor, numero: ctg.numLinha, valores: [...ctg.valores], total, data: todayISO() };
+  const payload = { tipo: ctg.tipo, setor: ctg.setor, numero: ctg.numLinha, valores: [...ctg.valores], total, data: ctg.dataContagem || todayISO() };
   // Avança pra próxima linha sozinho (se o número for numérico) — quem conta linha atrás de
   // linha (como no Anão Verde, onde precisa contar todas) não perde tempo digitando de novo.
   const proximoNumero = Number(ctg.numLinha);
   ctg.numLinha = Number.isFinite(proximoNumero) && ctg.numLinha !== "" ? String(proximoNumero + 1) : "";
   ctg.valores = Array.from({ length: Number(ctg.qtdPlantas) || 0 }, () => "");
   marcarSalvando("contagem");
-  addDoc(collection(db, "contagemLinhas"), payload).then(() => { if (navigator.onLine) setSaveStatus("contagem", "saved"); }).catch((e) => tratarErroSalvamento("contagem", e));
+  const ref = doc(collection(db, "contagemLinhas")); // gera o ID já na hora
+  // Atualiza a lista na tela IMEDIATAMENTE — sem isso, a linha recém-salva não aparecia até o
+  // servidor confirmar, e clicar "Salvar" de novo rápido demais salvava a linha seguinte (já
+  // zerada) sem querer, achando que a primeira não tinha ido.
+  S.contagemLinhas = [...S.contagemLinhas, { id: ref.id, ...payload }];
+  setDoc(ref, payload).then(() => { if (navigator.onLine) setSaveStatus("contagem", "saved"); }).catch((e) => tratarErroSalvamento("contagem", e));
   renderContagem();
 };
 
@@ -2603,9 +2612,9 @@ window.salvarDuasLinhasContagem = function () {
 
   const totalA = ctg.valores.reduce((s, v) => s + (Number(v) || 0), 0);
   const totalB = ctg.valoresB.reduce((s, v) => s + (Number(v) || 0), 0);
-  const hoje = todayISO();
-  const payloadA = { tipo: ctg.tipo, setor: ctg.setor, numero: ctg.numLinha, valores: [...ctg.valores], total: totalA, data: hoje };
-  const payloadB = { tipo: ctg.tipo, setor: ctg.setor, numero: ctg.numLinhaB, valores: [...ctg.valoresB], total: totalB, data: hoje };
+  const dataEscolhida = ctg.dataContagem || todayISO();
+  const payloadA = { tipo: ctg.tipo, setor: ctg.setor, numero: ctg.numLinha, valores: [...ctg.valores], total: totalA, data: dataEscolhida };
+  const payloadB = { tipo: ctg.tipo, setor: ctg.setor, numero: ctg.numLinhaB, valores: [...ctg.valoresB], total: totalB, data: dataEscolhida };
 
   const proxA = Number(ctg.numLinha), proxB = Number(ctg.numLinhaB);
   ctg.numLinha = Number.isFinite(proxA) ? String(proxA + 2) : "";
@@ -2614,9 +2623,13 @@ window.salvarDuasLinhasContagem = function () {
   ctg.valoresB = Array.from({ length: Number(ctg.qtdPlantas) || 0 }, () => "");
 
   marcarSalvando("contagem");
+  const refA = doc(collection(db, "contagemLinhas"));
+  const refB = doc(collection(db, "contagemLinhas"));
+  // Mesma correção da linha única: atualiza a tela na hora, sem esperar o servidor confirmar.
+  S.contagemLinhas = [...S.contagemLinhas, { id: refA.id, ...payloadA }, { id: refB.id, ...payloadB }];
   Promise.all([
-    addDoc(collection(db, "contagemLinhas"), payloadA),
-    addDoc(collection(db, "contagemLinhas"), payloadB),
+    setDoc(refA, payloadA),
+    setDoc(refB, payloadB),
   ]).then(() => { if (navigator.onLine) setSaveStatus("contagem", "saved"); }).catch((e) => tratarErroSalvamento("contagem", e));
   renderContagem();
 };

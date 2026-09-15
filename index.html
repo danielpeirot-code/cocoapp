@@ -265,7 +265,7 @@
       <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
     </div>
     <div class="header-linha2">
-      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v92</span>
+      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v93</span>
       <div class="spacer"></div>
       <span id="backupPill" class="backup-pill"></span>
       <button class="btn-export" onclick="exportarExcel()">⬇️ Excel</button>
@@ -316,7 +316,7 @@ import {
   getAuth, signInAnonymously, onAuthStateChanged
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
-  getFirestore, collection, doc, addDoc, updateDoc, deleteDoc, setDoc, onSnapshot, enableIndexedDbPersistence
+  getFirestore, collection, doc, addDoc, updateDoc, deleteDoc, setDoc, getDoc, onSnapshot, enableIndexedDbPersistence
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 const firebaseConfig = {
@@ -488,6 +488,7 @@ onAuthStateChanged(auth, (user) => {
   if (!user) return;
 
   renderNav(); // desenha a barra de navegação (categorias + sub-abas) assim que loga
+  semearReceitasIniciais(); // pré-cadastra as receitas da planilha, só na primeira vez
 
   // Em todo listener abaixo: quando O PRÓPRIO app faz uma gravação (ex: digitando num campo que
   // salva sozinho), o Firestore "ecoa" de volta quase na hora, com hasPendingWrites=true — antes
@@ -3107,6 +3108,52 @@ window.toggleAplicSecao = function (tipo) {
 function receitaVazia() {
   return { nome: "", tipo: "", volumeCaldaL: "", doseReferencia: "", intervaloDias: "", produtos: [{ nome: "", quantidade: "", unidade: "L" }], observacoes: "" };
 }
+
+// Pré-cadastra as receitas técnicas que já vieram da sua planilha, uma vez só — assim elas já
+// aparecem prontas no app, sem precisar digitar tudo de novo no formulário. Só roda uma vez:
+// guarda um marcador em "configuracoes/receitasSeed" pra não duplicar se você abrir de novo.
+async function semearReceitasIniciais() {
+  try {
+    const marcador = await getDoc(doc(db, "configuracoes", "receitasSeed"));
+    if (marcador.exists()) return;
+
+    const obsCachos = "pH 5,5. Alterna entre as 3 receitas de cachos. Aplicamos a cada 21 dias — quando o ácaro aumenta, 3 aplicações a cada 10 dias; no período quente, a cada 18 dias (depois volta a 21). Cada setor tem 8,75 ha (~450 L de calda por ha).";
+    const obsHerbicida = "Alternamos entre glifosato e glufosinato — só o setor B3B4 recebe o Sumyzin. Próximas aplicações: toda a área de 105 ha com pré-emergente. Sempre com pulverizador de bicos de pastagem.";
+
+    const receitasIniciais = [
+      { nome: "Herbicida — Calda 1 (Glufosinato)", tipo: "Herbicida", volumeCaldaL: 2200, doseReferencia: "260 L de calda por ha", intervaloDias: "",
+        produtos: [ { nome: "Água", quantidade: 2200, unidade: "L" }, { nome: "Rizospray Extremo", quantidade: 0.55, unidade: "L" }, { nome: "Off Road", quantidade: 25.3, unidade: "L" }, { nome: "Sumyzin", quantidade: 4.4, unidade: "L" } ],
+        observacoes: obsHerbicida },
+      { nome: "Herbicida — Calda 2 (Glifosato)", tipo: "Herbicida", volumeCaldaL: 2200, doseReferencia: "260 L de calda por ha", intervaloDias: "",
+        produtos: [ { nome: "Água", quantidade: 2200, unidade: "L" }, { nome: "Roundup Original Mais", quantidade: 22, unidade: "L" }, { nome: "Rizospray Extremo", quantidade: 0.55, unidade: "L" } ],
+        observacoes: obsHerbicida },
+      { nome: "Cachos — Aplicação 1", tipo: "Cachos", volumeCaldaL: 3300, doseReferencia: "2,5 L de calda por planta", intervaloDias: 21,
+        produtos: [ { nome: "Água", quantidade: 3300, unidade: "L" }, { nome: "Oberon", quantidade: 2.4, unidade: "L" }, { nome: "Alto 100", quantidade: 0.8, unidade: "L" }, { nome: "Silwet", quantidade: 0.6, unidade: "L" }, { nome: "Boro", quantidade: 2.5, unidade: "kg" } ],
+        observacoes: obsCachos },
+      { nome: "Cachos — Aplicação 2", tipo: "Cachos", volumeCaldaL: 3300, doseReferencia: "2,5 L de calda por planta", intervaloDias: 21,
+        produtos: [ { nome: "Água", quantidade: 3300, unidade: "L" }, { nome: "Omite", quantidade: 3.3, unidade: "L" }, { nome: "Score", quantidade: 1, unidade: "L" }, { nome: "Silwet", quantidade: 0.6, unidade: "L" }, { nome: "Boro", quantidade: 2.5, unidade: "kg" } ],
+        observacoes: obsCachos },
+      { nome: "Cachos — Aplicação 3", tipo: "Cachos", volumeCaldaL: 3300, doseReferencia: "2,5 L de calda por planta", intervaloDias: 21,
+        produtos: [ { nome: "Água", quantidade: 3300, unidade: "L" }, { nome: "Seizer", quantidade: 1.65, unidade: "L" }, { nome: "Nativo", quantidade: 1.65, unidade: "L" }, { nome: "Silwet", quantidade: 0.6, unidade: "L" }, { nome: "Boro", quantidade: 2.5, unidade: "kg" } ],
+        observacoes: obsCachos },
+      { nome: "Foliar — Coco Anão", tipo: "Foliar", volumeCaldaL: 2000, doseReferencia: "800 L de calda por ha", intervaloDias: "",
+        produtos: [ { nome: "Água", quantidade: 2000, unidade: "L" }, { nome: "Bitrin", quantidade: 0.6, unidade: "L" }, { nome: "Silwet", quantidade: 0.5, unidade: "L" }, { nome: "Orggam", quantidade: 3, unidade: "L" }, { nome: "Omite", quantidade: 2, unidade: "L" } ],
+        observacoes: "Só entramos depois do monitoramento — normalmente pra pegar ácaro e lagartas. Cada setor tem 8,75 ha. Aplicamos com pulverizador de mão (costal). Variante alternativa pro tanque de 2000 L: Água + Orggam 3 L + Oberon 2 L + Silwet 0,5 L." },
+      { nome: "Endoterapia — Anão", tipo: "Endoterapia", volumeCaldaL: "", doseReferencia: "8 mL por planta", intervaloDias: 90,
+        produtos: [ { nome: "Vertimec", quantidade: 10.4, unidade: "L" }, { nome: "Osmobetan", quantidade: 6.24, unidade: "L" } ],
+        observacoes: "Feita a cada 90 dias, na fase da lua crescente — perfura o caule com alavanca e aplica. Área de 8,75 ha por setor, com bombas costais. Misturar em recipiente de 10 L e aplicar 8 ml/planta. Mistura alternativa pra costal de 20 L (produto puro): Abamex Maxx 3,57 L + Alto-100 14,28 L + Osmobetan 2,14 L (total ≈ 20 L)." },
+      { nome: "Drench — Híbrido", tipo: "Drench", volumeCaldaL: 3300, doseReferencia: "700 mL de calda por planta", intervaloDias: "",
+        produtos: [ { nome: "Dimexion", quantidade: 91.66, unidade: "L" }, { nome: "Água", quantidade: 3208, unidade: "L" } ],
+        observacoes: "Cada tanque de 3.300 L atende 4.583 plantas. Os 3 tanques juntos cobrem a área toda de 75 ha (o tanque 3 é menor: Dimexion 66,28 L + Água 2.319,8 L, atende as 3.314 plantas restantes). Modo de mistura: encher com metade da água, adicionar todo o Dimexion, agitar 2–3 min, completar com o resto da água, manter agitando durante a aplicação. Aplicar só no pé da planta, molhando o solo ao redor do tronco." },
+    ];
+
+    await Promise.all(receitasIniciais.map((r) => addDoc(collection(db, "receitas"), r)));
+    await setDoc(doc(db, "configuracoes", "receitasSeed"), { feito: true, data: todayISO() });
+  } catch (e) {
+    console.warn("Não consegui pré-cadastrar as receitas iniciais (não é grave, só cadastra na mão se precisar):", e);
+  }
+}
+
 S._novaReceita = receitaVazia();
 S._editandoReceitaId = null;
 

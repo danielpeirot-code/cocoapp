@@ -265,7 +265,7 @@
       <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
     </div>
     <div class="header-linha2">
-      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v93</span>
+      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v94</span>
       <div class="spacer"></div>
       <span id="backupPill" class="backup-pill"></span>
       <button class="btn-export" onclick="exportarExcel()">⬇️ Excel</button>
@@ -4685,12 +4685,22 @@ window.gerarImagemProgramacaoAtividades = function () {
     grupos[indicePorAtividade[chave]].itens.push(item);
   });
 
-  const L = { ativ: 200, area: 50, setor: 46, dia: 42, trator: 58, impl: 90, tipo: 44, quant: 52, uni: 34 };
+  const L = { ativ: 200, area: 50, setor: 46, dia: 42, trator: 58, impl: 90, tipo: 90, quant: 52, uni: 34 };
   const numDias = DIAS_SEMANA.length;
   const largura = L.ativ + L.area + L.setor + L.dia * numDias + L.trator + L.impl + L.tipo + L.quant + L.uni;
-  const alturaTitulo = 34, alturaCab1 = 24, alturaCab2 = 24, alturaLinha = 28;
-  const totalLinhas = itens.length;
-  const altura = alturaTitulo + alturaCab1 + alturaCab2 + alturaLinha * totalLinhas;
+  const alturaTitulo = 34, alturaCab1 = 24, alturaCab2 = 24;
+  const alturaLinhaMin = 28, alturaPorProduto = 11;
+
+  // Cada linha agora tem altura própria, dependendo de quantos produtos tem — uma atividade com
+  // 5 produtos precisa de mais espaço que uma com 1 só. Calcula isso ANTES de desenhar, pra saber
+  // o tamanho total do canvas.
+  function alturaDoItem(item) {
+    const n = Math.max(1, (item.produtos || []).length);
+    return Math.max(alturaLinhaMin, n * alturaPorProduto + 10);
+  }
+  let alturaCorpo = 0;
+  grupos.forEach((grupo) => { grupo.itens.forEach((item) => { alturaCorpo += alturaDoItem(item); }); });
+  const altura = alturaTitulo + alturaCab1 + alturaCab2 + alturaCorpo;
 
   const canvas = document.createElement("canvas");
   canvas.width = largura;
@@ -4736,7 +4746,7 @@ window.gerarImagemProgramacaoAtividades = function () {
     { label: "Atividades", w: L.ativ, cor: "#dcecd9" }, { label: "Área", w: L.area, cor: "#dcecd9" }, { label: "Setor", w: L.setor, cor: "#dcecd9" },
     ...DIAS_SEMANA.map((d) => ({ label: d.label, w: L.dia, cor: "#ffef62" })),
     { label: "Trator", w: L.trator, cor: "#f3f4f6" }, { label: "Implem.", w: L.impl, cor: "#f3f4f6" },
-    { label: "Tipo", w: L.tipo, cor: "#f3f4f6" }, { label: "Quant.", w: L.quant, cor: "#f3f4f6" }, { label: "Uni.", w: L.uni, cor: "#f3f4f6" },
+    { label: "Produto", w: L.tipo, cor: "#f3f4f6" }, { label: "Quant.", w: L.quant, cor: "#f3f4f6" }, { label: "Uni.", w: L.uni, cor: "#f3f4f6" },
   ].forEach((c) => {
     ctx.fillStyle = c.cor;
     ctx.fillRect(x, y, c.w, alturaCab2);
@@ -4756,7 +4766,8 @@ window.gerarImagemProgramacaoAtividades = function () {
   grupos.forEach((grupo, gi) => {
     const inicioGrupoY = y;
     const numLinhasGrupo = grupo.itens.length;
-    const alturaGrupo = numLinhasGrupo * alturaLinha;
+    const alturasItens = grupo.itens.map(alturaDoItem);
+    const alturaGrupo = alturasItens.reduce((s, h) => s + h, 0);
     const corFundo = gi % 2 === 0 ? "#ffffff" : "#f7f7f7";
     const centroGrupoY = inicioGrupoY + alturaGrupo / 2;
     const primeiroItem = grupo.itens[0];
@@ -4779,9 +4790,11 @@ window.gerarImagemProgramacaoAtividades = function () {
     desenharTextoComQuebra(ctx, primeiroItem.implemento || "-", xTrator + L.trator + L.impl / 2, centroGrupoY, L.impl - 8, 11, "center");
 
     // 3) Agora desenha o que É por linha (Setor, dias programados, produtos) — sem tocar de
-    // novo nas colunas mescladas de cima
+    // novo nas colunas mescladas de cima. Cada linha usa a PRÓPRIA altura (depende de quantos
+    // produtos ela tem), não uma altura fixa igual pra todas.
     let yLinha = inicioGrupoY;
-    grupo.itens.forEach((item) => {
+    grupo.itens.forEach((item, idx) => {
+      const alturaLinha = alturasItens[idx];
       let cx = L.ativ + L.area;
       ctx.fillStyle = "#ffffff";
       ctx.fillRect(cx, yLinha, L.setor, alturaLinha);
@@ -4807,26 +4820,30 @@ window.gerarImagemProgramacaoAtividades = function () {
 
       ctx.fillStyle = "#ffffff";
       ctx.fillRect(cx, yLinha, L.tipo + L.quant + L.uni, alturaLinha);
-      ctx.fillStyle = "#111827";
-      ctx.font = "9.5px Arial";
-      ctx.textAlign = "center";
-      const produtosLinha = item.produtos || [];
-      const primeiro = produtosLinha[0] || {};
-      const sufixo = produtosLinha.length > 1 ? ` +${produtosLinha.length - 1}` : "";
-      ctx.fillText((primeiro.nome || "-") + sufixo, cx + L.tipo / 2, yLinha + alturaLinha / 2);
-      ctx.fillText(primeiro.quantidade || "-", cx + L.tipo + L.quant / 2, yLinha + alturaLinha / 2);
-      ctx.fillText(primeiro.unidade || "-", cx + L.tipo + L.quant + L.uni / 2, yLinha + alturaLinha / 2);
+      ctx.strokeStyle = "#eee"; ctx.strokeRect(cx, yLinha, L.tipo + L.quant + L.uni, alturaLinha);
+      ctx.font = "9px Arial";
+      const produtosLinha = item.produtos && item.produtos.length ? item.produtos : [{ nome: "-", quantidade: "", unidade: "" }];
+      produtosLinha.forEach((p, pi) => {
+        const yProduto = yLinha + alturaPorProduto * (pi + 0.5) + (alturaLinha - produtosLinha.length * alturaPorProduto) / 2;
+        ctx.fillStyle = "#111827";
+        ctx.textAlign = "left";
+        ctx.fillText(String(p.nome || "-"), cx + 4, yProduto, L.tipo - 6);
+        ctx.textAlign = "center";
+        ctx.fillText(p.quantidade !== undefined && p.quantidade !== "" ? String(p.quantidade) : "-", cx + L.tipo + L.quant / 2, yProduto);
+        ctx.fillText(String(p.unidade || "-"), cx + L.tipo + L.quant + L.uni / 2, yProduto);
+      });
 
       yLinha += alturaLinha;
     });
 
     // 4) Linhas de grade finas separando cada setor dentro do grupo (só nas colunas por linha)
     ctx.strokeStyle = "#eee";
-    for (let k = 1; k < numLinhasGrupo; k++) {
-      const yy = inicioGrupoY + k * alturaLinha;
+    let acumulada = inicioGrupoY;
+    for (let k = 0; k < numLinhasGrupo - 1; k++) {
+      acumulada += alturasItens[k];
       ctx.beginPath();
-      ctx.moveTo(L.ativ + L.area, yy);
-      ctx.lineTo(L.ativ + L.area + L.setor + L.dia * numDias, yy);
+      ctx.moveTo(L.ativ + L.area, acumulada);
+      ctx.lineTo(L.ativ + L.area + L.setor + L.dia * numDias, acumulada);
       ctx.stroke();
     }
 

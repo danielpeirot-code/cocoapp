@@ -265,7 +265,7 @@
       <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
     </div>
     <div class="header-linha2">
-      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v95</span>
+      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v96</span>
       <div class="spacer"></div>
       <span id="backupPill" class="backup-pill"></span>
       <button class="btn-export" onclick="exportarExcel()">⬇️ Excel</button>
@@ -4128,13 +4128,13 @@ function corAtividade(nome) {
 }
 
 function progVazia() {
-  const prog = {}, exec = {};
-  DIAS_SEMANA.forEach((d) => { prog[d.key] = ""; exec[d.key] = ""; });
+  const prog = {}, exec = {}, diasSetor = {};
+  DIAS_SEMANA.forEach((d) => { prog[d.key] = ""; exec[d.key] = ""; diasSetor[d.key] = ""; });
   return {
     semana: S._progSemana, atividade: "", area: "", setor: TALHOES[0],
     planejadoQtd: "", planejadoUni: "", diasNec: "", quemVaiFazer: "",
     veiculo: "", implemento: "", produtos: [],
-    prog, exec,
+    prog, exec, diasSetor,
   };
 }
 
@@ -4281,11 +4281,18 @@ function renderProgramacao() {
   }
 
   html += `<div class="card" style="background:#f0fdf4; margin-bottom:10px; padding:10px;">
-    <div style="font-size:12px; font-weight:700; color:#166534; margin-bottom:2px;">🗓️ Em quais dias? (quantidade programada em cada um)</div>
-    <div class="muted" style="font-size:11px; margin-bottom:8px;">Preenche só os dias que vai fazer — ex: pra programar só pra quarta, preenche apenas o campo "Qua".</div>
-    <div class="grid grid-2" style="gap:8px;">
-      ${DIAS_SEMANA.map(d=>`<label class="field"><span>${d.label}</span><input type="number" value="${esc(nv.prog[d.key])}" oninput="S._novaProg.prog['${d.key}']=this.value" placeholder="0"/></label>`).join("")}
-    </div>
+    <div style="font-size:12px; font-weight:700; color:#166534; margin-bottom:2px;">🗓️ Em quais dias e setores?</div>
+    <div class="muted" style="font-size:11px; margin-bottom:8px;">Preenche só os dias que vai fazer. Cada dia já vem com o setor de cima (${esc(nv.setor)}) — mas pode trocar por outro dia a dia, se for passar por setores diferentes (ex: segunda no A3A4, terça no B3B4...). Ao salvar, se usar mais de um setor, o app já separa automaticamente numa programação pra cada um.</div>
+    ${DIAS_SEMANA.map(d=>`<div class="grid grid-2" style="gap:8px; margin-bottom:6px; align-items:end;">
+      <label class="field"><span>${d.label} — Setor</span>
+        <select onchange="S._novaProg.diasSetor['${d.key}']=this.value">
+          <option value="" ${!nv.diasSetor[d.key]?"selected":""}>(${esc(nv.setor)})</option>
+          <option value="Sede" ${nv.diasSetor[d.key]==="Sede"?"selected":""}>Sede</option>
+          ${TALHOES.map(t=>`<option value="${t}" ${nv.diasSetor[d.key]===t?"selected":""}>${t}</option>`).join("")}
+        </select>
+      </label>
+      <label class="field"><span>Quantidade</span><input type="number" value="${esc(nv.prog[d.key])}" oninput="S._novaProg.prog['${d.key}']=this.value" placeholder="0"/></label>
+    </div>`).join("")}
   </div>`;
 
   html += `<div style="font-size:10px; font-weight:700; text-transform:uppercase; color:#78716c; margin-bottom:6px;">Quem vai fazer</div>
@@ -4498,12 +4505,13 @@ window.usarReceitaNaProgramacao = function (receitaId) {
 
 window.criarProgramacao = function () {
   if (!S._novaProg.atividade) { alert("Preenche o nome da atividade."); return; }
+  const nv = S._novaProg;
 
-  const pessoas = pessoasDoItem(S._novaProg);
-  const itensDaSemana = S.programacao.filter((p) => p.semana === S._novaProg.semana);
+  const pessoas = pessoasDoItem(nv);
+  const itensDaSemana = S.programacao.filter((p) => p.semana === nv.semana);
   let todosConflitos = [];
   DIAS_SEMANA.forEach((d) => {
-    if (S._novaProg.prog[d.key] && Number(S._novaProg.prog[d.key]) !== 0) {
+    if (nv.prog[d.key] && Number(nv.prog[d.key]) !== 0) {
       conflitosDeAgenda(pessoas, d.key, itensDaSemana, null).forEach((c) => todosConflitos.push({ dia: d.label, ...c }));
     }
   });
@@ -4513,11 +4521,39 @@ window.criarProgramacao = function () {
     return;
   }
 
-  const payload = { ...S._novaProg };
+  // Se algum dia tiver um setor diferente do setor principal, separa automaticamente numa
+  // programação por setor (ex: segunda no A3A4, terça no B3B4...) — cada uma só com os dias
+  // daquele setor preenchidos, o resto zerado. Se todos os dias usam o mesmo setor (ou nenhum foi
+  // trocado), continua exatamente como antes: uma programação só.
+  const gruposPorSetor = {};
+  DIAS_SEMANA.forEach((d) => {
+    const temQtd = nv.prog[d.key] && Number(nv.prog[d.key]) !== 0;
+    if (!temQtd) return;
+    const setorDoDia = nv.diasSetor[d.key] || nv.setor;
+    if (!gruposPorSetor[setorDoDia]) gruposPorSetor[setorDoDia] = [];
+    gruposPorSetor[setorDoDia].push(d.key);
+  });
+  const setoresUsados = Object.keys(gruposPorSetor);
+  // Se ninguém preencheu nenhum dia ainda, mantém o comportamento antigo (salva do jeito que
+  // está, com prog tudo zerado) — não trava a pessoa que quer só cadastrar e preencher depois.
+  if (setoresUsados.length === 0) gruposPorSetor[nv.setor] = [];
+
+  const { diasSetor, ...campoBase } = nv;
   setSaveStatus("programacao", "saving");
-  addDoc(collection(db, "programacao"), payload)
-    .then(() => { if (navigator.onLine) setSaveStatus("programacao", "saved"); })
-    .catch((e) => { console.error(e); setSaveStatus("programacao", "offline"); });
+  Object.keys(gruposPorSetor).forEach((setor) => {
+    const diasDesseSetor = gruposPorSetor[setor];
+    const progDoGrupo = {};
+    const execDoGrupo = {};
+    DIAS_SEMANA.forEach((d) => {
+      progDoGrupo[d.key] = diasDesseSetor.includes(d.key) ? nv.prog[d.key] : "";
+      execDoGrupo[d.key] = "";
+    });
+    const payload = { ...campoBase, setor, prog: progDoGrupo, exec: execDoGrupo };
+    addDoc(collection(db, "programacao"), payload)
+      .then(() => { if (navigator.onLine) setSaveStatus("programacao", "saved"); })
+      .catch((e) => { console.error(e); setSaveStatus("programacao", "offline"); });
+  });
+
   S._novaProg = progVazia();
   renderProgramacao();
 };

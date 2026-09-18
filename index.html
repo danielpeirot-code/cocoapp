@@ -265,7 +265,7 @@
       <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
     </div>
     <div class="header-linha2">
-      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v96</span>
+      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v98</span>
       <div class="spacer"></div>
       <span id="backupPill" class="backup-pill"></span>
       <button class="btn-export" onclick="exportarExcel()">⬇️ Excel</button>
@@ -299,6 +299,15 @@
   <div id="fotoEscolhaMenu" class="fab-menu" style="display:none;">
     <button class="fab-item" onclick="escolherFotoCamera()"><span class="ic">📷</span>Tirar foto agora</button>
     <button class="fab-item" onclick="escolherFotoGaleria()"><span class="ic">🖼️</span>Escolher da galeria</button>
+  </div>
+
+  <div id="confirmOverlay" class="fab-overlay" style="display:none; z-index:44;" onclick="fecharConfirmAcao()"></div>
+  <div id="confirmModal" class="card" style="display:none; position:fixed; left:16px; right:16px; top:30%; z-index:45; max-width:380px; margin:0 auto; box-shadow:0 8px 24px rgba(0,0,0,.3);">
+    <div id="confirmMensagem" style="font-size:13px; margin-bottom:14px; line-height:1.4;"></div>
+    <div style="display:flex; gap:8px; justify-content:flex-end;">
+      <button id="confirmCancelarBtn" class="btn ghost" style="width:auto;" onclick="fecharConfirmAcao()">Cancelar</button>
+      <button class="btn" style="width:auto;" onclick="confirmarAcaoOk()">OK</button>
+    </div>
   </div>
 
   <div class="bottom-nav">
@@ -1387,6 +1396,38 @@ window.fecharEscolhaFoto = function () {
   document.getElementById("fotoEscolhaOverlay").style.display = "none";
   document.getElementById("fotoEscolhaMenu").style.display = "none";
 };
+
+// Confirmação própria do app, no lugar do confirm() nativo do navegador — em alguns celulares
+// (principalmente Android) a caixa nativa tem um bug conhecido de não repintar a tela direito
+// depois de fechar, dando a impressão de que a ação não fez efeito mesmo tendo feito por dentro.
+S._confirmCallback = null;
+window.confirmarAcao = function (mensagem, callback) {
+  document.getElementById("confirmMensagem").textContent = mensagem;
+  document.getElementById("confirmCancelarBtn").style.display = "inline-flex";
+  S._confirmCallback = callback;
+  document.getElementById("confirmOverlay").style.display = "block";
+  document.getElementById("confirmModal").style.display = "block";
+};
+// Pra avisos puros (sem decisão pra tomar) — só o botão "OK", sem "Cancelar", já que não tem
+// nada pra cancelar, é só uma informação (ex: "bateu a meta de hoje!").
+window.avisar = function (mensagem) {
+  document.getElementById("confirmMensagem").textContent = mensagem;
+  document.getElementById("confirmCancelarBtn").style.display = "none";
+  S._confirmCallback = null;
+  document.getElementById("confirmOverlay").style.display = "block";
+  document.getElementById("confirmModal").style.display = "block";
+};
+window.fecharConfirmAcao = function () {
+  document.getElementById("confirmOverlay").style.display = "none";
+  document.getElementById("confirmModal").style.display = "none";
+  S._confirmCallback = null;
+};
+window.confirmarAcaoOk = function () {
+  const cb = S._confirmCallback;
+  window.fecharConfirmAcao();
+  if (cb) cb();
+};
+
 window.escolherFotoCamera = function () {
   window.fecharEscolhaFoto();
   const id = S._fotoEscolhaAlvo === "carga" ? "inputFotoCargaCamera" : "inputFotoOcorrenciaCamera";
@@ -2463,6 +2504,9 @@ function renderContagemInner() {
     </tbody></table></div>
     <div style="margin-top:10px;">
       <div class="muted" style="font-size:10.5px; margin-bottom:6px;">Se sobrar só uma linha ímpar no fim do setor, pode deixar a outra em branco e salvar só essa.</div>
+      ${meta > 0 ? `<div style="background:${(faltamFrutos - totalLinha - totalLinhaB) <= 0 ? '#dcfce7' : '#eff6ff'}; border-radius:8px; padding:8px 10px; margin-bottom:8px; font-size:12.5px; font-weight:700; color:${(faltamFrutos - totalLinha - totalLinhaB) <= 0 ? '#166534' : '#1e40af'};">
+        📊 Contado hoje: ${fmt(somaHojeSetor,0)} de ${fmt(meta,0)} — ${(faltamFrutos - totalLinha - totalLinhaB) <= 0 ? "essa linha já fecha a meta! 🎉" : `depois de salvar essa, faltam ~${fmt(Math.max(0, faltamFrutos - totalLinha - totalLinhaB),0)}`}
+      </div>` : ""}
       <button class="btn" onclick="salvarDuasLinhasContagem()">💾 Salvar e ir pra próxima(s)</button>
     </div>`;
   } else {
@@ -2756,11 +2800,26 @@ window.salvarLinhaContagem = function () {
   ctg.valores = Array.from({ length: Number(ctg.qtdPlantas) || 0 }, () => "");
   marcarSalvando("contagem");
   const ref = doc(collection(db, "contagemLinhas")); // gera o ID já na hora
+
+  const dataDaLinha = payload.data;
+  const chaveMeta = chaveMetaColheita(dataDaLinha, ctg.tipo);
+  const metaDefinida = Number((S.metasColheita[chaveMeta] || {}).meta) || 0;
+  const totalHojeRawAntes = S.contagemLinhas.filter((l) => l.tipo === ctg.tipo && l.data === dataDaLinha).reduce((s, l) => s + (Number(l.total) || 0), 0);
+  const totalAntes = Math.max(0, totalHojeRawAntes - baselineHoje(ctg.tipo));
+
   // Atualiza a lista na tela IMEDIATAMENTE — sem isso, a linha recém-salva não aparecia até o
   // servidor confirmar, e clicar "Salvar" de novo rápido demais salvava a linha seguinte (já
   // zerada) sem querer, achando que a primeira não tinha ido.
   S.contagemLinhas = [...S.contagemLinhas, { id: ref.id, ...payload }];
   setDoc(ref, payload).then(() => { if (navigator.onLine) setSaveStatus("contagem", "saved"); }).catch((e) => tratarErroSalvamento("contagem", e));
+
+  if (metaDefinida > 0 && totalAntes < metaDefinida) {
+    const totalDepois = Math.max(0, (totalHojeRawAntes + total) - baselineHoje(ctg.tipo));
+    if (totalDepois >= metaDefinida) {
+      setTimeout(() => avisar(`🎉 Meta batida! Você contou ${fmt(totalDepois,0)} frutos hoje (meta era ${fmt(metaDefinida,0)}).`), 100);
+    }
+  }
+
   renderContagem();
 };
 
@@ -2811,11 +2870,27 @@ window.salvarDuasLinhasContagem = function () {
     novosRegistros.push([refB, payloadB]);
   }
 
+  // Verifica ANTES de salvar se a meta ainda não tinha sido batida, pra depois comparar e saber
+  // se foi ESSA salvada que bateu — e aí avisar com um popup de verdade (não só uma faixinha que
+  // passa despercebida enquanto a pessoa tá com a atenção na tela rolando pra contar).
+  const chaveMeta = chaveMetaColheita(dataEscolhida, ctg.tipo);
+  const metaDefinida = Number((S.metasColheita[chaveMeta] || {}).meta) || 0;
+  const totalHojeRawAntes = S.contagemLinhas.filter((l) => l.tipo === ctg.tipo && l.data === dataEscolhida).reduce((s, l) => s + (Number(l.total) || 0), 0);
+  const totalAntes = Math.max(0, totalHojeRawAntes - baselineHoje(ctg.tipo));
+
   // Atualiza a tela na hora, sem esperar o servidor confirmar.
   S.contagemLinhas = [...S.contagemLinhas, ...novosRegistros.map(([ref, payload]) => ({ id: ref.id, ...payload }))];
   Promise.all(novosRegistros.map(([ref, payload]) => setDoc(ref, payload)))
     .then(() => { if (navigator.onLine) setSaveStatus("contagem", "saved"); })
     .catch((e) => tratarErroSalvamento("contagem", e));
+
+  if (metaDefinida > 0 && totalAntes < metaDefinida) {
+    const totalAdicionado = novosRegistros.reduce((s, [, payload]) => s + (Number(payload.total) || 0), 0);
+    const totalDepois = Math.max(0, (totalHojeRawAntes + totalAdicionado) - baselineHoje(ctg.tipo));
+    if (totalDepois >= metaDefinida) {
+      setTimeout(() => avisar(`🎉 Meta batida! Você contou ${fmt(totalDepois,0)} frutos hoje (meta era ${fmt(metaDefinida,0)}).`), 100);
+    }
+  }
 
   // Avança pra próxima: se preencheu as duas, pula de 2 em 2 (próximo par); se preencheu só
   // uma, avança só ela de 1 em 1 (próxima linha avulsa).
@@ -2928,16 +3003,17 @@ window.definirMetaColheita = function (valor) {
 // o novo "ponto de partida". Usa isso depois de fechar uma carga / bater a meta, pra começar a
 // próxima rodada do zero.
 window.zerarContadorColheita = function (tipo, totalHojeAtual) {
-  if (!confirm("Zerar o contador de \"colhido hoje\"? Nada da Contagem é apagado, só o contador dessa tela volta a zero pra começar uma nova rodada.")) return;
-  const chave = chaveMetaColheita(todayISO(), tipo);
-  const atual = S.metasColheita[chave] || {};
-  const novo = { ...atual, baseline: totalHojeAtual };
-  S.metasColheita = { ...S.metasColheita, [chave]: novo };
-  marcarSalvando("colheita");
-  setDoc(doc(db, "metasColheita", chave), novo)
-    .then(() => { if (navigator.onLine) setSaveStatus("colheita", "saved"); })
-    .catch((e) => tratarErroSalvamento("colheita", e));
-  renderColheita();
+  confirmarAcao("Zerar o contador de \"colhido hoje\"? Nada da Contagem é apagado, só o contador dessa tela volta a zero pra começar uma nova rodada.", () => {
+    const chave = chaveMetaColheita(todayISO(), tipo);
+    const atual = S.metasColheita[chave] || {};
+    const novo = { ...atual, baseline: totalHojeAtual };
+    S.metasColheita = { ...S.metasColheita, [chave]: novo };
+    marcarSalvando("colheita");
+    setDoc(doc(db, "metasColheita", chave), novo)
+      .then(() => { if (navigator.onLine) setSaveStatus("colheita", "saved"); })
+      .catch((e) => tratarErroSalvamento("colheita", e));
+    renderColheita();
+  });
 };
 
 function renderColheita() {
@@ -4606,21 +4682,21 @@ window.duplicarSemanaInteira = function () {
   proximaSemana.setDate(proximaSemana.getDate() + 7);
   const proximaSemanaISO = proximaSemana.toISOString().slice(0, 10);
 
-  if (!confirm(`Copiar ${itens.length} atividade${itens.length>1?"s":""} dessa semana pra semana de ${brDate(proximaSemanaISO)}? O executado começa zerado, é uma semana nova.`)) return;
+  confirmarAcao(`Copiar ${itens.length} atividade${itens.length>1?"s":""} dessa semana pra semana de ${brDate(proximaSemanaISO)}? O executado começa zerado, é uma semana nova.`, () => {
+    const execZerado = {};
+    DIAS_SEMANA.forEach((d) => { execZerado[d.key] = ""; });
 
-  const execZerado = {};
-  DIAS_SEMANA.forEach((d) => { execZerado[d.key] = ""; });
+    marcarSalvando("programacao");
+    itens.forEach((item) => {
+      const { id, ...resto } = item;
+      addDoc(collection(db, "programacao"), { ...resto, prog: { ...item.prog }, exec: execZerado, semana: proximaSemanaISO })
+        .catch((e) => tratarErroSalvamento("programacao", e));
+    });
+    if (navigator.onLine) setSaveStatus("programacao", "saved");
 
-  marcarSalvando("programacao");
-  itens.forEach((item) => {
-    const { id, ...resto } = item;
-    addDoc(collection(db, "programacao"), { ...resto, prog: { ...item.prog }, exec: execZerado, semana: proximaSemanaISO })
-      .catch((e) => tratarErroSalvamento("programacao", e));
+    S._progSemana = proximaSemanaISO;
+    renderProgramacao();
   });
-  if (navigator.onLine) setSaveStatus("programacao", "saved");
-
-  S._progSemana = proximaSemanaISO;
-  renderProgramacao();
 };
 
 // Compartilhamento no WhatsApp — usa compartilhamento nativo do celular quando dá (com o

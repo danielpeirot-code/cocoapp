@@ -265,7 +265,7 @@
       <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
     </div>
     <div class="header-linha2">
-      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v98</span>
+      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v99</span>
       <div class="spacer"></div>
       <span id="backupPill" class="backup-pill"></span>
       <button class="btn-export" onclick="exportarExcel()">⬇️ Excel</button>
@@ -2827,11 +2827,17 @@ window.salvarLinhaContagem = function () {
 // a linha B inteira, e salva as duas juntas de uma vez (sem precisar apertar salvar duas vezes).
 window.salvarDuasLinhasContagem = function () {
   const ctg = S.contagem;
-  const temA = ctg.numLinha !== "" && ctg.numLinha !== null && ctg.numLinha !== undefined;
-  const temB = ctg.numLinhaB !== "" && ctg.numLinhaB !== null && ctg.numLinhaB !== undefined;
+  // Não basta o campo do número ter um valor — depois que o formulário avança sozinho pro
+  // próximo par, o número da linha B fica preenchido mesmo que a pessoa não tenha contado nada
+  // nela ainda. Por isso checa se tem alguma CÉLULA preenchida de verdade (mesmo que seja "0"),
+  // não só se o número da linha está lá.
+  const algumaCelulaA = ctg.valores.some((v) => v !== "" && v !== null && v !== undefined);
+  const algumaCelulaB = (ctg.valoresB || []).some((v) => v !== "" && v !== null && v !== undefined);
+  const temA = ctg.numLinha !== "" && ctg.numLinha !== null && ctg.numLinha !== undefined && algumaCelulaA;
+  const temB = ctg.numLinhaB !== "" && ctg.numLinhaB !== null && ctg.numLinhaB !== undefined && algumaCelulaB;
   // Quando sobra só uma linha ímpar no fim do setor (ex: 52 linhas, já contou até a 51), não tem
   // par pra formar — deixa salvar só a que foi preenchida, em vez de obrigar as duas sempre.
-  if (!temA && !temB) { alert("Preenche o número de pelo menos uma das linhas."); return; }
+  if (!temA && !temB) { alert("Preenche pelo menos uma das duas linhas (número e as quantidades) antes de salvar."); return; }
 
   const maxLinhas = TIPOS_CONTAGEM[ctg.tipo].linhasPorSetor;
   if (temA && (Number(ctg.numLinha) > maxLinhas || Number(ctg.numLinha) < 1)) {

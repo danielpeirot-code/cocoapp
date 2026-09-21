@@ -265,7 +265,7 @@
       <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
     </div>
     <div class="header-linha2">
-      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v104</span>
+      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v105</span>
       <div class="spacer"></div>
       <span id="backupPill" class="backup-pill"></span>
       <button class="btn-export" onclick="exportarExcel()">⬇️ Excel</button>
@@ -289,7 +289,7 @@
   <div id="fabMenu" class="fab-menu" style="display:none;">
     <button class="fab-item" onclick="mudarAba('contagem'); fecharAcaoRapida();"><span class="ic">🌾</span>Colheita / Contagem</button>
     <button class="fab-item" onclick="mudarAba('romaneio'); fecharAcaoRapida();"><span class="ic">🚛</span>Novo Romaneio (Seco)</button>
-    <button class="fab-item" onclick="mudarAba('romaneioVerde'); fecharAcaoRapida();"><span class="ic">🥥</span>Novo Romaneio (Verde)</button>
+    <button class="fab-item" onclick="mudarAba('romaneioVerde'); fecharAcaoRapida();"><span class="ic"><svg width="16" height="16" viewBox="0 0 32 36" style="vertical-align:-3px;"><ellipse cx="16" cy="19" rx="14" ry="16" fill="#7CB342" stroke="#558B2F" stroke-width="1.5"/><ellipse cx="11" cy="13" rx="5" ry="7" fill="#9CCC65" opacity="0.55"/><circle cx="12" cy="5" r="1.6" fill="#4E342E"/><circle cx="16" cy="4.2" r="1.6" fill="#4E342E"/><circle cx="20" cy="5" r="1.6" fill="#4E342E"/></svg></span>Novo Romaneio (Verde)</button>
     <button class="fab-item" onclick="mudarAba('aplicacoes'); fecharAcaoRapida();"><span class="ic">🧴</span>Aplicação / Adubação</button>
     <button class="fab-item" onclick="mudarAba('ocorrencias'); fecharAcaoRapida();"><span class="ic">⚠️</span>Nova Ocorrência</button>
     <button class="fab-item" onclick="mudarAba('programacao'); fecharAcaoRapida();"><span class="ic">🗓️</span>Nova Atividade (Programação)</button>
@@ -428,6 +428,12 @@ S._mesIndicadores = new Date().toISOString().slice(0, 7); // "YYYY-MM" do mês a
 /* =========================================================================
    HELPERS
    ========================================================================= */
+// Ícone de coco VERDE (não existe emoji pronto pra isso — o 🥥 padrão já mostra um coco seco/
+// aberto). Usado só nas telas do Romaneio Verde, pra não confundir com o coco seco.
+function icoCocoVerde(tam) {
+  const t = tam || 18;
+  return `<svg width="${t}" height="${t}" viewBox="0 0 32 36" style="vertical-align:-4px; flex-shrink:0;"><ellipse cx="16" cy="19" rx="14" ry="16" fill="#7CB342" stroke="#558B2F" stroke-width="1.5"/><ellipse cx="11" cy="13" rx="5" ry="7" fill="#9CCC65" opacity="0.55"/><circle cx="12" cy="5" r="1.6" fill="#4E342E"/><circle cx="16" cy="4.2" r="1.6" fill="#4E342E"/><circle cx="20" cy="5" r="1.6" fill="#4E342E"/></svg>`;
+}
 const uid = () => Math.random().toString(36).slice(2, 10);
 const todayISO = () => new Date().toISOString().slice(0, 10);
 S.contagem.dataContagem = todayISO();
@@ -1837,7 +1843,7 @@ window.compartilharCargaVerdeWhatsapp = async function (cargaId) {
   const amostras = carga.amostrasAgua || [];
   const mediaAgua = amostras.length ? amostras.reduce((s, v) => s + v, 0) / amostras.length : null;
 
-  const texto = `🥥 *Carga Verde Nº ${carga.numero}* — ${brDate(carga.data)}\n` +
+  const texto = `🌴 *Carga Verde Nº ${carga.numero}* — ${brDate(carga.data)}\n` +
     (carga.encarregado ? `Encarregado: ${carga.encarregado}\n` : "") +
     (carga.motorista ? `Motorista: ${carga.motorista}${carga.telefoneMotorista ? " (" + carga.telefoneMotorista + ")" : ""}\n` : "") +
     (carga.placa ? `Placa: ${carga.placa}\n` : "") +
@@ -2158,7 +2164,7 @@ function renderRomaneioVerde() {
   let html = `
   <div class="card">
     <div class="row-flex" style="margin-bottom:10px;">
-      <h3>🥥 Nova carga — Coco Verde</h3>
+      <h3>${icoCocoVerde(18)} Nova carga — Coco Verde</h3>
       <span id="savingPill-romaneioVerde" class="saving-pill"></span>
     </div>
     <div class="grid grid-2" style="margin-bottom:10px;">
@@ -2196,7 +2202,7 @@ function renderCargaVerdeCard(carga) {
   let html = `<div class="card">
     <button style="width:100%; background:none; border:none; text-align:left; cursor:pointer; padding:0;" onclick="toggleCargaVerde('${carga.id}')">
       <div class="row-flex">
-        <b>🥥 Carga Verde Nº ${esc(carga.numero)} <span class="muted" style="font-weight:400;">${brDate(carga.data)}</span></b>
+        <b>${icoCocoVerde(18)} Carga Verde Nº ${esc(carga.numero)} <span class="muted" style="font-weight:400;">${brDate(carga.data)}</span></b>
         <div style="display:flex; align-items:center; gap:6px;">
           ${arquivada ? `<span class="status-pill cinza">arquivada</span>` : `<span class="status-pill verde">em andamento</span>`}
           <span class="muted">${aberto ? "▾" : "▸"}</span>
@@ -2221,7 +2227,7 @@ function renderCargaVerdeCard(carga) {
         <label class="field"><span>NF / CT-e (opcional)</span><input type="text" value="${esc(carga.nfCte)}" oninput="atualizarCargaVerde('${carga.id}','nfCte',this.value)"/></label>
       </div>`;
 
-    html += `<div style="font-size:11px; font-weight:700; text-transform:uppercase; color:#78716c; margin-bottom:6px;">🥥 Quantidade total</div>
+    html += `<div style="font-size:11px; font-weight:700; text-transform:uppercase; color:#78716c; margin-bottom:6px;">${icoCocoVerde(14)} Quantidade total</div>
       <div class="grid grid-2" style="margin-bottom:14px;">
         <label class="field"><span>Quantidade (frutos)</span><input type="number" value="${esc(carga.quantidadeTotal)}" oninput="atualizarCargaVerde('${carga.id}','quantidadeTotal',this.value)"/></label>
         <label class="field"><span>Setor de origem</span>
@@ -3763,7 +3769,18 @@ function calcIndicadoresMes(mes) {
     porAreaVerde[t] = (porAreaVerde[t] || 0) + (Number(c.quantidadeTotal) || 0);
   });
 
-  return { producaoKg, expedidoKg, descarteKg, brotoPctMedio, porArea, nBagsProduzidos: bagsProduzidos.length, nBagsExpedidos: bagsExpedidos.length, producaoVerdeFrutos, porAreaVerde, nCargasVerde: cargasVerdeMes.length };
+  // Por setor, direto da Contagem de campo (Anão Verde) — é a contagem real, árvore por árvore,
+  // então é mais confiável do que o "Setor de origem" da carga verde (que é preenchido à mão e
+  // pode não bater com o que realmente foi contado em cada setor).
+  const contagemVerdeMes = S.contagemLinhas.filter((l) => l.tipo === "Anão Verde" && (l.data || "").slice(0, 7) === mes);
+  const producaoVerdeContagem = contagemVerdeMes.reduce((s, l) => s + (Number(l.total) || 0), 0);
+  const porAreaVerdeContagem = {};
+  contagemVerdeMes.forEach((l) => {
+    const t = l.setor || "—";
+    porAreaVerdeContagem[t] = (porAreaVerdeContagem[t] || 0) + (Number(l.total) || 0);
+  });
+
+  return { producaoKg, expedidoKg, descarteKg, brotoPctMedio, porArea, nBagsProduzidos: bagsProduzidos.length, nBagsExpedidos: bagsExpedidos.length, producaoVerdeFrutos, porAreaVerde, nCargasVerde: cargasVerdeMes.length, producaoVerdeContagem, porAreaVerdeContagem };
 }
 
 function calcEstoqueAtual() {
@@ -4096,8 +4113,8 @@ function renderIndicadores() {
 
   const areasSorted = Object.entries(atual.porArea).sort((a, b) => b[1] - a[1]);
   const maxArea = areasSorted.length ? areasSorted[0][1] : 0;
-  const areasSortedVerde = Object.entries(atual.porAreaVerde).sort((a, b) => b[1] - a[1]);
-  const maxAreaVerde = areasSortedVerde.length ? areasSortedVerde[0][1] : 0;
+  const areasSortedVerdeContagem = Object.entries(atual.porAreaVerdeContagem).sort((a, b) => b[1] - a[1]);
+  const maxAreaVerdeContagem = areasSortedVerdeContagem.length ? areasSortedVerdeContagem[0][1] : 0;
 
   // Detecta bags com peso carregado preenchido mas SEM data de carregamento — esses bags saem
   // do "estoque pendente" (porque tecnicamente já foram carregados) mas nunca entram em NENHUM
@@ -4150,21 +4167,27 @@ function renderIndicadores() {
   </div>
 
   <div class="card">
-    <h3 style="margin-bottom:8px;">🥥 Romaneio Verde (mês)</h3>
-    <div class="muted" style="font-size:10.5px; margin-bottom:8px;">Medido em frutos, não em kg — por isso fica separado dos números do coco seco acima.</div>
-    <div class="grid grid-2" style="margin-bottom:${areasSortedVerde.length>0?"10px":"0"};">
-      <div class="stat-box ico"><div class="stat-ic">🥥</div><div><div class="lbl">Total de frutos</div><div class="val">${fmt(atual.producaoVerdeFrutos,0)}</div></div></div>
+    <h3 style="margin-bottom:8px;">${icoCocoVerde(18)} Romaneio Verde (mês)</h3>
+    <div class="muted" style="font-size:10.5px; margin-bottom:8px;">Medido em frutos, não em kg — por isso fica separado dos números do coco seco acima. Total das cargas que saíram da fazenda.</div>
+    <div class="grid grid-2">
+      <div class="stat-box ico"><div class="stat-ic">${icoCocoVerde(20)}</div><div><div class="lbl">Total de frutos (cargas)</div><div class="val">${fmt(atual.producaoVerdeFrutos,0)}</div></div></div>
       <div class="stat-box ico azul"><div class="stat-ic azul">🚛</div><div><div class="lbl">Cargas verdes</div><div class="val">${atual.nCargasVerde}</div></div></div>
     </div>
-    ${areasSortedVerde.length > 0 ? areasSortedVerde.map(([talhao, qtd]) => {
-      const pct = maxAreaVerde ? (qtd / maxAreaVerde) * 100 : 0;
+  </div>
+
+  <div class="card">
+    <h3 style="margin-bottom:4px;">🌱 Coco Verde por setor — contagem de campo (mês)</h3>
+    <div class="muted" style="font-size:10.5px; margin-bottom:8px;">Vem direto da aba Contagem (árvore por árvore no Anão Verde) — não da carga verde, já que o setor da carga é preenchido à mão e pode não bater com o que foi contado de verdade.</div>
+    <div class="stat-box ico green" style="margin-bottom:${areasSortedVerdeContagem.length>0?"10px":"0"};"><div class="stat-ic green">🌱</div><div><div class="lbl">Total contado (todos os setores)</div><div class="val">${fmt(atual.producaoVerdeContagem,0)}</div></div></div>
+    ${areasSortedVerdeContagem.length > 0 ? areasSortedVerdeContagem.map(([talhao, qtd]) => {
+      const pct = maxAreaVerdeContagem ? (qtd / maxAreaVerdeContagem) * 100 : 0;
       return `<div style="margin-bottom:8px;">
         <div class="row-flex" style="font-size:12.5px; margin-bottom:2px;"><b>${esc(talhao)}</b><span>${fmt(qtd,0)} frutos</span></div>
         <div style="background:#f0efee; border-radius:99px; height:8px; overflow:hidden;">
           <div style="background:#16a34a; height:100%; width:${pct}%;"></div>
         </div>
       </div>`;
-    }).join("") : `<div class="muted" style="font-size:11px;">Nenhuma carga verde com setor preenchido esse mês ainda.</div>`}
+    }).join("") : `<div class="muted" style="font-size:11px;">Nenhuma contagem de Anão Verde registrada esse mês ainda.</div>`}
   </div>
 
   <div class="card">

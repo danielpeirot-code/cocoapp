@@ -265,7 +265,7 @@
       <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
     </div>
     <div class="header-linha2">
-      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v102</span>
+      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v103</span>
       <div class="spacer"></div>
       <span id="backupPill" class="backup-pill"></span>
       <button class="btn-export" onclick="exportarExcel()">⬇️ Excel</button>
@@ -431,6 +431,31 @@ S._mesIndicadores = new Date().toISOString().slice(0, 7); // "YYYY-MM" do mês a
 const uid = () => Math.random().toString(36).slice(2, 10);
 const todayISO = () => new Date().toISOString().slice(0, 10);
 S.contagem.dataContagem = todayISO();
+
+// Guarda no próprio celular (não depende de internet) em qual linha a pessoa parou de contar —
+// tipo, setor, número da linha (A e B) e os valores já digitados nessa linha. Assim, se sair do
+// app no meio do campo (ou o celular travar/reiniciar), ao abrir de novo continua exatamente de
+// onde parou, em vez de voltar tudo em branco.
+const LS_CONTAGEM_KEY = "cocoCampoContagemProgresso";
+function salvarProgressoContagemLocal() {
+  try {
+    localStorage.setItem(LS_CONTAGEM_KEY, JSON.stringify({
+      tipo: S.contagem.tipo, setor: S.contagem.setor,
+      numLinha: S.contagem.numLinha, numLinhaB: S.contagem.numLinhaB,
+      qtdPlantas: S.contagem.qtdPlantas,
+      valores: S.contagem.valores, valoresB: S.contagem.valoresB,
+    }));
+  } catch (e) { /* sem localStorage disponível — segue sem persistir, sem quebrar o app */ }
+}
+function carregarProgressoContagemLocal() {
+  try {
+    const raw = localStorage.getItem(LS_CONTAGEM_KEY);
+    if (!raw) return;
+    const salvo = JSON.parse(raw);
+    if (salvo && typeof salvo === "object") Object.assign(S.contagem, salvo);
+  } catch (e) {}
+}
+carregarProgressoContagemLocal();
 const fmt = (n, casas = 1) => (n === null || n === undefined || Number.isNaN(n)) ? "—" :
   n.toLocaleString("pt-BR", { minimumFractionDigits: casas, maximumFractionDigits: casas });
 const fmtPct = (n) => (n === null || n === undefined || Number.isNaN(n)) ? "—" : (n * 100).toFixed(1) + "%";
@@ -2601,7 +2626,7 @@ function renderContagemInner() {
   setSaveStatus("contagem", S.saveStatus.contagem);
 }
 
-window.ctgSet = function (key, val) { S.contagem[key] = val; };
+window.ctgSet = function (key, val) { S.contagem[key] = val; salvarProgressoContagemLocal(); };
 
 // Botão manual pra "forçar" ir pro setor/tipo escolhido — lê direto dos selects na tela,
 // então funciona mesmo se o onchange do celular não disparar sozinho de vez em quando.
@@ -2610,6 +2635,7 @@ window.verSetorContagem = function () {
   const selSetor = document.getElementById("contagemSetorSelect");
   if (selTipo) S.contagem.tipo = selTipo.value;
   if (selSetor) S.contagem.setor = selSetor.value;
+  salvarProgressoContagemLocal();
   renderContagem();
 };
 window.mudarTipoContagem = function (tipo) {
@@ -2620,6 +2646,7 @@ window.mudarTipoContagem = function (tipo) {
   S.contagem.valores = Array.from({ length: S.contagem.qtdPlantas }, () => "");
   S.contagem.numLinhaB = "";
   S.contagem.valoresB = Array.from({ length: S.contagem.qtdPlantas }, () => "");
+  salvarProgressoContagemLocal();
   renderContagem();
 };
 window.mudarQtdPlantas = function (val) {
@@ -2627,10 +2654,11 @@ window.mudarQtdPlantas = function (val) {
   S.contagem.qtdPlantas = val;
   S.contagem.valores = Array.from({ length: Number(val) || 0 }, () => "");
   S.contagem.valoresB = Array.from({ length: Number(val) || 0 }, () => "");
+  salvarProgressoContagemLocal();
   renderContagem();
 };
-window.setValorPlanta = function (i, val) { S.contagem.valores[i] = val; };
-window.setValorPlantaB = function (i, val) { S.contagem.valoresB[i] = val; };
+window.setValorPlanta = function (i, val) { S.contagem.valores[i] = val; salvarProgressoContagemLocal(); };
+window.setValorPlantaB = function (i, val) { S.contagem.valoresB[i] = val; salvarProgressoContagemLocal(); };
 
 /* =========================================================================
    CONTAGEM POR VOZ
@@ -2815,6 +2843,7 @@ window.salvarLinhaContagem = function () {
   const proximoNumero = Number(ctg.numLinha);
   ctg.numLinha = Number.isFinite(proximoNumero) && ctg.numLinha !== "" ? String(proximoNumero + 1) : "";
   ctg.valores = Array.from({ length: Number(ctg.qtdPlantas) || 0 }, () => "");
+  salvarProgressoContagemLocal();
   marcarSalvando("contagem");
   const ref = doc(collection(db, "contagemLinhas")); // gera o ID já na hora
 
@@ -2852,6 +2881,20 @@ window.salvarDuasLinhasContagem = function () {
   const algumaCelulaB = (ctg.valoresB || []).some((v) => v !== "" && v !== null && v !== undefined);
   const temA = ctg.numLinha !== "" && ctg.numLinha !== null && ctg.numLinha !== undefined && algumaCelulaA;
   const temB = ctg.numLinhaB !== "" && ctg.numLinhaB !== null && ctg.numLinhaB !== undefined && algumaCelulaB;
+
+  // Avisa ANTES de salvar se uma coluna foi contada (tem números digitados) mas esqueceu de
+  // colocar o número da linha dela — sem isso, esses valores eram descartados sem nenhum aviso.
+  const numLinhaVazia = ctg.numLinha === "" || ctg.numLinha === null || ctg.numLinha === undefined;
+  const numLinhaBVazia = ctg.numLinhaB === "" || ctg.numLinhaB === null || ctg.numLinhaB === undefined;
+  if (algumaCelulaA && numLinhaVazia) {
+    const seguir = confirm('Você contou a coluna A mas não colocou o número dessa linha!\n\nSe continuar, esses valores da coluna A NÃO vão ser salvos.\n\nToque em "Cancelar" pra voltar e preencher o número da linha, ou "OK" pra continuar mesmo assim.');
+    if (!seguir) return;
+  }
+  if (algumaCelulaB && numLinhaBVazia) {
+    const seguir = confirm('Você contou a coluna B mas não colocou o número dessa linha!\n\nSe continuar, esses valores da coluna B NÃO vão ser salvos.\n\nToque em "Cancelar" pra voltar e preencher o número da linha B, ou "OK" pra continuar mesmo assim.');
+    if (!seguir) return;
+  }
+
   // Quando sobra só uma linha ímpar no fim do setor (ex: 52 linhas, já contou até a 51), não tem
   // par pra formar — deixa salvar só a que foi preenchida, em vez de obrigar as duas sempre.
   if (!temA && !temB) { alert("Preenche pelo menos uma das duas linhas (número e as quantidades) antes de salvar."); return; }
@@ -2932,6 +2975,7 @@ window.salvarDuasLinhasContagem = function () {
     ctg.numLinhaB = Number.isFinite(proxB) ? String(proxB + 1) : "";
     ctg.valoresB = Array.from({ length: Number(ctg.qtdPlantas) || 0 }, () => "");
   }
+  salvarProgressoContagemLocal();
   renderContagem();
 };
 

@@ -265,7 +265,7 @@
       <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
     </div>
     <div class="header-linha2">
-      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v103</span>
+      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v104</span>
       <div class="spacer"></div>
       <span id="backupPill" class="backup-pill"></span>
       <button class="btn-export" onclick="exportarExcel()">⬇️ Excel</button>
@@ -2518,10 +2518,10 @@ function renderContagemInner() {
     </tr></thead><tbody>`;
     const qtd = Math.max(ctg.valores.length, (ctg.valoresB || []).length);
     for (let i = 0; i < qtd; i++) {
-      html += `<tr>
+      html += `<tr id="ctgLinhaRow-${i}">
         <td style="text-align:left; font-weight:600; color:#a8a29e;">${i+1}</td>
-        <td><input type="number" value="${esc(ctg.valores[i])}" oninput="setValorPlanta(${i}, this.value)"/></td>
-        <td><input type="number" value="${esc((ctg.valoresB||[])[i])}" oninput="setValorPlantaB(${i}, this.value)"/></td>
+        <td><input type="number" enterkeyhint="next" value="${esc(ctg.valores[i])}" oninput="setValorPlanta(${i}, this.value)" onblur="if(this.value!=='') rolarProximaContagem('ctgLinhaRow-${i+1}')"/></td>
+        <td><input type="number" enterkeyhint="next" value="${esc((ctg.valoresB||[])[i])}" oninput="setValorPlantaB(${i}, this.value)" onblur="if(this.value!=='') rolarProximaContagem('ctgLinhaRow-${i+1}')"/></td>
       </tr>`;
     }
     const totalLinhaB = (ctg.valoresB || []).reduce((s, v) => s + (Number(v) || 0), 0);
@@ -2539,7 +2539,7 @@ function renderContagemInner() {
   } else {
     let gridHtml = "";
     ctg.valores.forEach((v, i) => {
-      gridHtml += `<div class="planta-cell"><span class="n">${i+1}</span><input type="number" value="${esc(v)}" oninput="setValorPlanta(${i}, this.value)"/></div>`;
+      gridHtml += `<div class="planta-cell" id="plantaCell-${i}"><span class="n">${i+1}</span><input type="number" enterkeyhint="next" value="${esc(v)}" oninput="setValorPlanta(${i}, this.value)" onblur="if(this.value!=='') rolarProximaContagem('plantaCell-${i+1}')"/></div>`;
     });
     html += `<div style="font-size:10px; font-weight:700; text-transform:uppercase; color:#78716c; margin-bottom:6px;">Quantidade de fruta por planta</div>
     <div class="plantas-grid">${gridHtml}</div>
@@ -2656,6 +2656,15 @@ window.mudarQtdPlantas = function (val) {
   S.contagem.valoresB = Array.from({ length: Number(val) || 0 }, () => "");
   salvarProgressoContagemLocal();
   renderContagem();
+};
+// Rola a tela sozinha pra próxima árvore/linha assim que termina de digitar a atual (ao tirar o
+// dedo do campo) — pra não precisar ficar arrastando o dedo pra rolar enquanto conta cacho por
+// cacho. Um pequeno atraso deixa o teclado do celular recolher antes de calcular a posição certa.
+window.rolarProximaContagem = function (idAlvo) {
+  setTimeout(() => {
+    const el = document.getElementById(idAlvo);
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, 80);
 };
 window.setValorPlanta = function (i, val) { S.contagem.valores[i] = val; salvarProgressoContagemLocal(); };
 window.setValorPlantaB = function (i, val) { S.contagem.valoresB[i] = val; salvarProgressoContagemLocal(); };
@@ -3170,6 +3179,27 @@ function renderColheitaInner() {
     </div>
     <div class="muted" style="font-size:10.5px; margin-top:2px;">Não apaga nada da Contagem — só zera o que aparece aqui, pra começar a contar de novo em direção a uma nova meta (ex: depois de fechar uma carga).</div>
   </div>`;
+
+  // Quanto já foi contado hoje EM CADA setor desse tipo — útil pra quando a pessoa conta em mais
+  // de um setor no mesmo dia (ex: começa no D1, termina no D2) e depois quer saber quanto veio
+  // de cada um, não só o total geral.
+  const totalPorSetorHoje = config.setores.map((s) => ({
+    setor: s,
+    total: S.contagemLinhas.filter((l) => l.tipo === tipo && l.setor === s && l.data === hoje).reduce((sum, l) => sum + (Number(l.total) || 0), 0),
+  }));
+  if (totalPorSetorHoje.some((r) => r.total > 0)) {
+    html += `<div class="card">
+      <h3 style="margin-bottom:8px; font-size:13px;">📊 Contado hoje por setor — ${esc(tipo)}</h3>
+      <table class="tbl"><thead><tr><th style="text-align:left;">Setor</th><th>Frutos contados</th></tr></thead><tbody>`;
+    totalPorSetorHoje.forEach((r) => {
+      html += `<tr${r.setor === setor ? ' style="background:#eff6ff;"' : ""}>
+        <td style="text-align:left; font-weight:600;">${esc(r.setor)}${r.setor === setor ? " 👈" : ""}</td>
+        <td style="font-weight:700;">${fmt(r.total,0)}</td>
+      </tr>`;
+    });
+    html += `<tr style="font-weight:800; background:#fafaf9;"><td style="text-align:left;">Total (todos os setores)</td><td>${fmt(totalHojeTodosSetoresRaw,0)}</td></tr>`;
+    html += `</tbody></table></div>`;
+  }
 
   // Situação do ciclo de cada linha desse setor — disponível pra entrar colher ou ainda descansando
   html += `<div class="card">

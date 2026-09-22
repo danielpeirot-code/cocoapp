@@ -265,7 +265,7 @@
       <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
     </div>
     <div class="header-linha2">
-      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v105</span>
+      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v106</span>
       <div class="spacer"></div>
       <span id="backupPill" class="backup-pill"></span>
       <button class="btn-export" onclick="exportarExcel()">⬇️ Excel</button>
@@ -325,7 +325,8 @@ import {
   getAuth, signInAnonymously, onAuthStateChanged
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
-  getFirestore, collection, doc, addDoc, updateDoc, deleteDoc, setDoc, getDoc, onSnapshot, enableIndexedDbPersistence
+  getFirestore, collection, doc, addDoc, updateDoc, deleteDoc, setDoc, getDoc, onSnapshot, enableIndexedDbPersistence,
+  enableNetwork, disableNetwork
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 const firebaseConfig = {
@@ -346,6 +347,22 @@ const db = getFirestore(fbApp);
 
 enableIndexedDbPersistence(db).catch((err) => {
   console.warn("Persistência offline não pôde ser ativada:", err.code);
+});
+
+// O Firestore tem o PRÓPRIO controle de reconexão, separado do "🟢 online / 🟡 sem internet"
+// que a gente mostra na tela — e depois de ficar um tempo sem sinal (comum no campo), a espera
+// entre as tentativas dele cresce bastante, podendo levar bem mais de um minuto pra tentar de
+// novo sozinho, MESMO já com o celular mostrando internet de volta. Isso explicava listas como
+// os bags pendentes e os botões de editar/excluir ficarem "sumidas"/travadas por um tempão
+// depois de reconectar. Aqui a gente força uma reconexão na hora, tanto quando o navegador avisa
+// que voltou a internet quanto quando a pessoa volta pro app (o celular pode ter "congelado" a
+// aba enquanto ficava em segundo plano no bolso) — sem esperar o tempo de espera do Firestore.
+function forcarReconexaoFirestore() {
+  disableNetwork(db).then(() => enableNetwork(db)).catch(() => {});
+}
+window.addEventListener("online", forcarReconexaoFirestore);
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") forcarReconexaoFirestore();
 });
 
 /* =========================================================================

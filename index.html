@@ -265,7 +265,7 @@
       <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
     </div>
     <div class="header-linha2">
-      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v106</span>
+      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v107</span>
       <div class="spacer"></div>
       <span id="backupPill" class="backup-pill"></span>
       <button class="btn-export" onclick="exportarExcel()">⬇️ Excel</button>
@@ -2377,8 +2377,14 @@ function renderDescarteDaCargaHTML(carga) {
 
   // Sem registro ainda pra essa carga — mostra o formulário, já com data e carga vinculados,
   // sem precisar digitar número nenhum.
-  if (!S._formDescarte || S._formDescarte.cargaId !== carga.id) S._formDescarte = descarteVazioPara(carga);
-  const f = S._formDescarte;
+  // Cada carga tem o SEU PRÓPRIO formulário (guardado por cargaId), em vez de um único formulário
+  // compartilhado por todas as cargas em aberto. Antes, se tivesse mais de uma carga sem descarte
+  // lançado ao mesmo tempo (ou se qualquer outra atualização em segundo plano disparasse um novo
+  // desenho da tela enquanto você digitava), o formulário de uma carga podia ser silenciosamente
+  // trocado pelo de outra — e ao salvar, ia tudo zerado, mesmo tendo preenchido certinho.
+  if (!S._formsDescarte) S._formsDescarte = {};
+  if (!S._formsDescarte[carga.id]) S._formsDescarte[carga.id] = descarteVazioPara(carga);
+  const f = S._formsDescarte[carga.id];
 
   html += `<div class="card" style="padding:10px;">
     <div class="row-flex" style="margin-bottom:10px;">
@@ -2386,15 +2392,15 @@ function renderDescarteDaCargaHTML(carga) {
       <span id="savingPill-descartes" class="saving-pill"></span>
     </div>
     <div class="grid grid-2" style="margin-bottom:10px;">
-      <label class="field"><span>Data</span><input type="date" value="${esc(f.data)}" oninput="S._formDescarte.data=this.value"/></label>
-      <label class="field"><span>Descartes (unid)</span><input type="number" value="${esc(f.descartesUnid)}" oninput="S._formDescarte.descartesUnid=this.value"/></label>
+      <label class="field"><span>Data</span><input type="date" value="${esc(f.data)}" oninput="S._formsDescarte['${carga.id}'].data=this.value"/></label>
+      <label class="field"><span>Descartes (unid)</span><input type="number" value="${esc(f.descartesUnid)}" oninput="S._formsDescarte['${carga.id}'].descartesUnid=this.value"/></label>
     </div>
     <div class="tbl-wrap"><table class="tbl" style="min-width:400px;"><thead><tr><th style="text-align:left;">Categoria</th><th>Kg</th><th>Unidades</th></tr></thead><tbody>`;
   CATS_DESCARTES.forEach((cat) => {
     html += `<tr>
       <td style="text-align:left; font-weight:600;">${cat.label}</td>
-      <td><input type="number" value="${esc(f.cats[cat.key].kg)}" oninput="S._formDescarte.cats['${cat.key}'].kg=this.value"/></td>
-      <td><input type="number" value="${esc(f.cats[cat.key].unid)}" oninput="S._formDescarte.cats['${cat.key}'].unid=this.value"/></td>
+      <td><input type="number" value="${esc(f.cats[cat.key].kg)}" oninput="S._formsDescarte['${carga.id}'].cats['${cat.key}'].kg=this.value"/></td>
+      <td><input type="number" value="${esc(f.cats[cat.key].unid)}" oninput="S._formsDescarte['${carga.id}'].cats['${cat.key}'].unid=this.value"/></td>
     </tr>`;
   });
   html += `</tbody></table></div>
@@ -2405,9 +2411,12 @@ function renderDescarteDaCargaHTML(carga) {
 }
 
 window.addDescarte = function (cargaId) {
-  if (!S._formDescarte || S._formDescarte.cargaId !== cargaId) return;
-  const payload = { ...S._formDescarte };
-  S._formDescarte = null;
+  const form = S._formsDescarte && S._formsDescarte[cargaId];
+  if (!form) return;
+  // Cópia funda (não só das chaves de cima) — pra não correr risco nenhum de o objeto salvo
+  // ainda compartilhar a mesma tabela "cats" de outro formulário.
+  const payload = { ...form, cats: JSON.parse(JSON.stringify(form.cats)) };
+  delete S._formsDescarte[cargaId];
   marcarSalvando("descartes");
   addDoc(collection(db, "descartes"), payload).then(() => { if (navigator.onLine) setSaveStatus("descartes", "saved"); }).catch((e) => tratarErroSalvamento("descartes", e));
   renderRomaneio();

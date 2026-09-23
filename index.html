@@ -265,7 +265,7 @@
       <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
     </div>
     <div class="header-linha2">
-      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v112</span>
+      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v113</span>
       <div class="spacer"></div>
       <span id="backupPill" class="backup-pill"></span>
       <button class="btn-export" onclick="exportarExcel()">⬇️ Excel</button>
@@ -1926,46 +1926,6 @@ function renderRomaneio() {
     <div style="margin-top:10px;"><button class="btn" onclick="criarCarga()">➕ Criar carga</button></div>
   </div>`;
 
-  // Total por descascador, somando TODAS as cargas (não só a de hoje) — pra fechar pagamento por
-  // pessoa sem precisar somar carga por carga na mão. Ex: Lucas descascou em 3 cargas de dias
-  // diferentes, aqui já soma tudo num total só pra ele, e no fim soma todo mundo junto.
-  const totaisDescasca = {};
-  S.cargas.forEach((carga) => {
-    (carga.descascaManual || []).forEach((d) => {
-      const nome = d.colaborador || "—";
-      if (!totaisDescasca[nome]) totaisDescasca[nome] = { quantidade: 0, total: 0 };
-      const qtd = Number(d.quantidade) || 0;
-      const valor = Number(d.valorUnidade) || 0;
-      totaisDescasca[nome].quantidade += qtd;
-      totaisDescasca[nome].total += qtd * valor;
-    });
-  });
-  const listaTotaisDescasca = Object.entries(totaisDescasca).sort((a, b) => b[1].total - a[1].total);
-  if (listaTotaisDescasca.length > 0) {
-    const qtdGeralDescasca = listaTotaisDescasca.reduce((s, [, v]) => s + v.quantidade, 0);
-    const totalGeralDescasca = listaTotaisDescasca.reduce((s, [, v]) => s + v.total, 0);
-    html += `<div class="card">
-      <div class="row-flex" style="cursor:pointer; margin-bottom:${S._verTotaisDescasca?"8px":"0"};" onclick="toggleTotaisDescasca()">
-        <h3 style="margin:0;">💰 Total por descascador (pagamento)</h3>
-        <span>${S._verTotaisDescasca ? "▾" : "▸"}</span>
-      </div>
-      ${S._verTotaisDescasca ? `
-      <div class="muted" style="font-size:10.5px; margin-bottom:8px;">Soma de todas as cargas lançadas, de todas as datas — não só a carga de hoje.</div>
-      <div class="tbl-wrap"><table class="tbl" style="min-width:360px;"><thead><tr><th style="text-align:left;">Colaborador</th><th>Qtd</th><th>Total (R$)</th></tr></thead><tbody>
-        ${listaTotaisDescasca.map(([nome, v]) => `<tr>
-          <td style="text-align:left; font-weight:600;">${esc(nome)}</td>
-          <td>${fmt(v.quantidade,0)}</td>
-          <td style="font-weight:700; color:#166534;">R$ ${v.total.toFixed(2)}</td>
-        </tr>`).join("")}
-        <tr style="font-weight:800; background:#fafaf9;">
-          <td style="text-align:left;">Total geral</td>
-          <td>${fmt(qtdGeralDescasca,0)}</td>
-          <td style="color:#166534;">R$ ${totalGeralDescasca.toFixed(2)}</td>
-        </tr>
-      </tbody></table></div>` : ""}
-    </div>`;
-  }
-
   const abertas = S.cargas.filter((c) => c.status !== "arquivada");
   const arquivadas = S.cargas.filter((c) => c.status === "arquivada");
 
@@ -2118,8 +2078,6 @@ window.reabrirCarga = function (cargaId) {
 S._novaCargaVerde = { numero: "", data: todayISO(), encarregado: "" };
 S._openCargaVerde = null;
 S._verArquivadasVerde = false;
-S._verTotaisDescasca = true;
-window.toggleTotaisDescasca = function () { S._verTotaisDescasca = !S._verTotaisDescasca; renderRomaneio(); };
 const _cargaVerdeTimers = {};
 
 window.toggleCargaVerde = function (id) {

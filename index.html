@@ -265,7 +265,7 @@
       <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
     </div>
     <div class="header-linha2">
-      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v107</span>
+      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v108</span>
       <div class="spacer"></div>
       <span id="backupPill" class="backup-pill"></span>
       <button class="btn-export" onclick="exportarExcel()">⬇️ Excel</button>
@@ -1073,6 +1073,9 @@ function renderCargaCard(carga, linhasCalc, totalEstocado, totalCarregado, total
         <div class="grid grid-2" style="margin-bottom:8px;">
           <input type="text" id="descascaNomeInput-${carga.id}" placeholder="Nome do colaborador" list="listaColaboradores" style="padding:7px 9px; border:1px solid #d6d3d1; border-radius:8px; font-size:13px;"/>
           <input type="number" id="descascaQtdInput-${carga.id}" placeholder="Qtd. descascada" style="padding:7px 9px; border:1px solid #d6d3d1; border-radius:8px; font-size:13px;"/>
+        </div>
+        <div class="grid grid-2" style="margin-bottom:8px;">
+          <label class="field" style="gap:2px;"><span style="font-size:10.5px;">Data do trabalho</span><input type="date" id="descascaDataInput-${carga.id}" value="${esc((S._dataDescascaManual && S._dataDescascaManual[carga.id]) || todayISO())}" oninput="if(!S._dataDescascaManual) S._dataDescascaManual={}; S._dataDescascaManual['${carga.id}']=this.value;" style="padding:7px 9px; border:1px solid #d6d3d1; border-radius:8px; font-size:13px;"/></label>
         </div>
         <button class="btn ghost" style="width:auto;" onclick="adicionarDescascaManual('${carga.id}')">➕ Adicionar</button>`;
 
@@ -3625,17 +3628,21 @@ window.trocarValorDescasca = function () {
 window.adicionarDescascaManual = function (cargaId) {
   const nomeInput = document.getElementById("descascaNomeInput-" + cargaId);
   const qtdInput = document.getElementById("descascaQtdInput-" + cargaId);
+  const dataInput = document.getElementById("descascaDataInput-" + cargaId);
   const nome = nomeInput ? nomeInput.value.trim() : "";
   const quantidade = Number(qtdInput ? qtdInput.value : 0);
+  const data = (dataInput && dataInput.value) ? dataInput.value : todayISO();
   if (!nome || !quantidade || quantidade <= 0) { alert("Preenche o nome do colaborador e a quantidade descascada."); return; }
 
   const carga = S.cargas.find((c) => c.id === cargaId);
   if (!carga) return;
-  const novaLista = [...(carga.descascaManual || []), { colaborador: nome, quantidade, valorUnidade: valorDescascaAtual(), data: todayISO() }];
+  const novaLista = [...(carga.descascaManual || []), { colaborador: nome, quantidade, valorUnidade: valorDescascaAtual(), data }];
   const idx = S.cargas.findIndex((c) => c.id === cargaId);
   S.cargas[idx] = { ...carga, descascaManual: novaLista };
   if (nomeInput) nomeInput.value = "";
   if (qtdInput) qtdInput.value = "";
+  // A data fica como estava (não volta pra hoje sozinha) — assim dá pra lançar vários
+  // colaboradores seguidos no mesmo dia passado sem ter que escolher a data de novo toda hora.
   renderRomaneio();
 
   marcarSalvando("romaneio");

@@ -265,7 +265,7 @@
       <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
     </div>
     <div class="header-linha2">
-      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v109</span>
+      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v110</span>
       <div class="spacer"></div>
       <span id="backupPill" class="backup-pill"></span>
       <button class="btn-export" onclick="exportarExcel()">⬇️ Excel</button>
@@ -414,8 +414,11 @@ const TIPOS_OCORRENCIA = [
 ];
 const BAGS = Array.from({ length: 60 }, (_, i) => i + 1); // BAG 1 até BAG 60 (fixos da fazenda)
 const TIPOS_CONTAGEM = {
-  "Híbrido": { setores: ["A3A4", "B3B4", "C1C2", "C3C4"], linhasPorSetor: 40, plantasPadrao: 78 },
-  "Anão Seco": { setores: ["D1", "D2", "D3", "D4"], linhasPorSetor: 52, plantasPadrao: 45 },
+  // "linhasAmostradas": no Híbrido e no Anão Seco não se conta linha por linha — é amostragem de
+  // 5 em 5 (linha 5, 10, 15...) pra estimar o total do setor. Por isso o ciclo/disponibilidade na
+  // aba Colheita só faz sentido mostrar essas linhas específicas, não todas de 1 até o fim.
+  "Híbrido": { setores: ["A3A4", "B3B4", "C1C2", "C3C4"], linhasPorSetor: 40, plantasPadrao: 78, linhasAmostradas: [5,10,15,20,25,30,35] },
+  "Anão Seco": { setores: ["D1", "D2", "D3", "D4"], linhasPorSetor: 52, plantasPadrao: 45, linhasAmostradas: [5,10,15,20,25,30,35,40,45] },
   // "censoCompleto": no Anão Verde não se faz amostragem — todas as 52 linhas são contadas de
   // verdade, uma por vez (uma atrás da outra). Por isso o resumo mostra soma real + progresso,
   // em vez da média×linhas que faz sentido só quando é estimativa por amostra.
@@ -3167,12 +3170,12 @@ function renderColheitaInner() {
   const mediaPorLinhaHoje = contadasHoje.length ? contadasHoje.reduce((s, l) => s + (Number(l.total) || 0), 0) / contadasHoje.length : null;
   const linhasRestantesEstimadas = (faltam > 0 && mediaPorLinhaHoje) ? Math.ceil(faltam / mediaPorLinhaHoje) : null;
 
-  // Quais setores desse tipo já têm linha disponível hoje — pra responder "em qual setor eu entro"
+  // Quais setores desse tipo já têm linha disponível hoje — pra responder "em qual setor eu entro".
+  // No Híbrido e Anão Seco, só olha as linhas realmente amostradas (5 em 5) — as outras nunca são
+  // contadas de verdade, então não fazem sentido entrar no cálculo de disponibilidade.
+  const linhasParaChecar = config.linhasAmostradas || Array.from({ length: config.linhasPorSetor }, (_, i) => i + 1);
   const setoresComDisponivel = config.setores.filter((s) => {
-    for (let linha = 1; linha <= config.linhasPorSetor; linha++) {
-      if (statusCicloLinhaComMapa(mapaUltimas, tipo, s, linha).disponivel) return true;
-    }
-    return false;
+    return linhasParaChecar.some((linha) => statusCicloLinhaComMapa(mapaUltimas, tipo, s, linha).disponivel);
   });
 
   let html = `<div class="card" style="padding:10px 12px;">
@@ -3242,14 +3245,15 @@ function renderColheitaInner() {
     <h3 style="margin-bottom:8px; font-size:13px;">📅 Ciclo das linhas — ${esc(setor)}</h3>
     <div class="muted" style="font-size:11px; margin-bottom:8px;">🟢 disponível — 🟠 ainda descansando (dias que faltam pro ciclo de ${CICLO_COLHEITA_DIAS} dias completar)</div>
     <div style="display:flex; flex-wrap:wrap; gap:5px;">`;
-  for (let linha = 1; linha <= config.linhasPorSetor; linha++) {
+  const linhasParaMostrar = config.linhasAmostradas || Array.from({ length: config.linhasPorSetor }, (_, i) => i + 1);
+  linhasParaMostrar.forEach((linha) => {
     const st = statusCicloLinhaComMapa(mapaUltimas, tipo, setor, linha);
     const cor = st.disponivel ? "#C6EFCE" : "#FED7AA";
     const corTexto = st.disponivel ? "#065f46" : "#9a3412";
     html += `<div title="${st.ultima ? "Última contagem: " + brDate(st.ultima) : "Nunca contada"}" style="background:${cor}; color:${corTexto}; border-radius:6px; padding:4px 6px; font-size:10.5px; font-weight:700; min-width:30px; text-align:center;">
       ${linha}${!st.disponivel ? `<div style="font-size:8.5px; font-weight:600;">${st.diasFaltam}d</div>` : ""}
     </div>`;
-  }
+  });
   html += `</div></div>`;
 
   if (contadasHoje.length > 0) {
@@ -6233,14 +6237,15 @@ function montarLinhasColheita() {
   const rows = [];
   Object.keys(TIPOS_CONTAGEM).forEach((tipo) => {
     const config = TIPOS_CONTAGEM[tipo];
+    const linhasParaExportar = config.linhasAmostradas || Array.from({ length: config.linhasPorSetor }, (_, i) => i + 1);
     config.setores.forEach((setor) => {
-      for (let linha = 1; linha <= config.linhasPorSetor; linha++) {
+      linhasParaExportar.forEach((linha) => {
         const st = statusCicloLinhaComMapa(mapaUltimas, tipo, setor, linha);
         rows.push({
           "Tipo": tipo, "Setor": setor, "Linha": linha,
           "Última Contagem": st.ultima || "", "Situação": st.disponivel ? "Disponível" : `Descansando (${st.diasFaltam}d)`,
         });
-      }
+      });
     });
   });
   return rows;

@@ -265,7 +265,7 @@
       <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
     </div>
     <div class="header-linha2">
-      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v113</span>
+      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v114</span>
       <div class="spacer"></div>
       <span id="backupPill" class="backup-pill"></span>
       <button class="btn-export" onclick="exportarExcel()">⬇️ Excel</button>
@@ -1074,7 +1074,10 @@ function renderCargaCard(carga, linhasCalc, totalEstocado, totalCarregado, total
           <button class="btn ghost" style="width:auto; padding:4px 9px; font-size:10.5px;" onclick="trocarValorDescasca()">✏️ Alterar (senha)</button>
         </div>
         <div class="grid grid-2" style="margin-bottom:8px;">
-          <input type="text" id="descascaNomeInput-${carga.id}" placeholder="Nome do colaborador" list="listaColaboradores" style="padding:7px 9px; border:1px solid #d6d3d1; border-radius:8px; font-size:13px;"/>
+          <select id="descascaNomeInput-${carga.id}" style="padding:7px 9px; border:1px solid #d6d3d1; border-radius:8px; font-size:13px;">
+            <option value="">Selecione o colaborador…</option>
+            ${S.colaboradores.slice().sort((a,b)=>a.nome.localeCompare(b.nome,"pt-BR")).map(col => `<option value="${esc(col.nome)}">${esc(col.nome)}</option>`).join("")}
+          </select>
           <input type="number" id="descascaQtdInput-${carga.id}" placeholder="Qtd. descascada" style="padding:7px 9px; border:1px solid #d6d3d1; border-radius:8px; font-size:13px;"/>
         </div>
         <div class="grid grid-2" style="margin-bottom:8px;">

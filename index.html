@@ -265,7 +265,7 @@
       <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
     </div>
     <div class="header-linha2">
-      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v118</span>
+      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v119</span>
       <div class="spacer"></div>
       <span id="backupPill" class="backup-pill"></span>
       <button class="btn-export" onclick="exportarExcel()">⬇️ Excel</button>
@@ -2378,11 +2378,12 @@ function renderDescarteDaCargaHTML(carga) {
         </tr>`;
     CATS_DESCARTES.forEach((cat) => {
       const naoEDescarte = cat.key === "g400_500" || cat.key === "acima500";
+      const soUnid = cat.key === "rachados";
       html += `<tr>
           <td style="text-align:left; font-weight:600;">${cat.label} ${naoEDescarte ? `<span class="muted" style="font-weight:400; font-size:10px;">(não é descarte)</span>` : ""}</td>
-          <td>${fmt(Number(existente.cats[cat.key].kg)||0,0)}</td>
+          <td>${soUnid ? "—" : fmt(Number(existente.cats[cat.key].kg)||0,0)}</td>
           <td>${fmt(Number(existente.cats[cat.key].unid)||0,0)}</td>
-          <td>${fmtPct(c.pctKg[cat.key])}</td>
+          <td>${soUnid ? "—" : fmtPct(c.pctKg[cat.key])}</td>
           <td>${fmtPct(c.pctUnid[cat.key])}</td>
         </tr>`;
     });
@@ -2427,9 +2428,11 @@ function renderDescarteDaCargaHTML(carga) {
     </div>
     <div class="tbl-wrap"><table class="tbl" style="min-width:400px;"><thead><tr><th style="text-align:left;">Categoria</th><th>Kg</th><th>Unidades</th></tr></thead><tbody>`;
   CATS_DESCARTES.forEach((cat) => {
+    // Rachados só interessa em unidade (pra tirar do cálculo do peso médio) — não precisa pesar.
+    const soUnid = cat.key === "rachados";
     html += `<tr>
       <td style="text-align:left; font-weight:600;">${cat.label}</td>
-      <td><input type="number" value="${esc(f.cats[cat.key].kg)}" oninput="S._formsDescarte['${carga.id}'].cats['${cat.key}'].kg=this.value"/></td>
+      <td>${soUnid ? `<span class="muted">—</span>` : `<input type="number" value="${esc(f.cats[cat.key].kg)}" oninput="S._formsDescarte['${carga.id}'].cats['${cat.key}'].kg=this.value"/>`}</td>
       <td><input type="number" value="${esc(f.cats[cat.key].unid)}" oninput="S._formsDescarte['${carga.id}'].cats['${cat.key}'].unid=this.value"/></td>
     </tr>`;
   });

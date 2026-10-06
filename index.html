@@ -265,7 +265,7 @@
       <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
     </div>
     <div class="header-linha2">
-      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v123</span>
+      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v124</span>
       <div class="spacer"></div>
       <span id="backupPill" class="backup-pill"></span>
       <button class="btn-export" onclick="exportarExcel()">⬇️ Excel</button>
@@ -3282,6 +3282,24 @@ function renderColheitaInner() {
     </div>`;
   }
 
+  // Previsão de liberação: quantos frutos devem ficar disponíveis nas próximas semanas, por setor.
+  const previsao = calcPrevisaoLiberacao(tipo);
+  if (previsao.some((r) => Object.values(r.porFaixa).some((v) => v > 0))) {
+    const faixasPrev = previsao[0].faixas;
+    const totaisFaixa = faixasPrev.map((f) => previsao.reduce((acc, r) => acc + r.porFaixa[f.chave], 0));
+    html += `<div class="card">
+      <h3 style="margin-bottom:2px; font-size:13px;">📆 Previsão de liberação por setor — ${esc(tipo)}</h3>
+      <div class="muted" style="font-size:10.5px; margin-bottom:8px;">Frutos que devem ficar disponíveis em cada faixa, com base na última contagem de cada linha${config.linhasAmostradas ? " (por amostra: cada linha contada representa " + (config.linhasPorSetor / config.linhasAmostradas.length).toFixed(1).replace(".", ",") + " linhas do setor)" : ""}. Linhas nunca contadas ficam de fora.</div>
+      <div class="tbl-wrap"><table class="tbl" style="min-width:380px;"><thead><tr><th style="text-align:left;">Setor</th>${faixasPrev.map((f) => `<th>${f.rotulo}</th>`).join("")}</tr></thead><tbody>
+        ${previsao.map((r) => `<tr>
+          <td style="text-align:left; font-weight:600;">${esc(r.setor)}${r.semRegistro > 0 ? ` <span class="muted" style="font-weight:400; font-size:10px;">(${r.semRegistro} s/ registro)</span>` : ""}</td>
+          ${faixasPrev.map((f) => `<td>${r.porFaixa[f.chave] > 0 ? fmt(r.porFaixa[f.chave], 0) : "—"}</td>`).join("")}
+        </tr>`).join("")}
+        <tr style="font-weight:800; background:#fafaf9;"><td style="text-align:left;">Total</td>${totaisFaixa.map((v) => `<td>${v > 0 ? fmt(v, 0) : "—"}</td>`).join("")}</tr>
+      </tbody></table></div>
+    </div>`;
+  }
+
   // Quanto já foi contado hoje EM CADA setor desse tipo — útil pra quando a pessoa conta em mais
   // de um setor no mesmo dia (ex: começa no D1, termina no D2) e depois quer saber quanto veio
   // de cada um, não só o total geral.
@@ -4339,6 +4357,111 @@ function renderConfiguracoes() {
   document.getElementById("tabContent").innerHTML = html;
 }
 
+// ---- Previsão de liberação por setor (aba Colheita) ----
+// Cada linha libera pra colher 20 dias depois da última contagem (mesma regra do ciclo). Aqui soma,
+// por setor, quantos frutos devem "ficar disponíveis" em cada faixa de dias — usando o que foi
+// contado na última vez em cada linha. Nos tipos por amostra (Híbrido, Anão Seco), cada linha
+// amostrada representa várias linhas do setor, então o valor é multiplicado pra estimar o setor todo.
+function calcPrevisaoLiberacao(tipo) {
+  const cfg = TIPOS_CONTAGEM[tipo];
+  const linhasTipo = cfg.linhasAmostradas || Array.from({ length: cfg.linhasPorSetor }, (_, i) => i + 1);
+  const peso = cfg.linhasAmostradas ? cfg.linhasPorSetor / cfg.linhasAmostradas.length : 1;
+  const ultimos = new Map(); // chave -> { data, total }
+  S.contagemLinhas.forEach((l) => {
+    if (l.tipo !== tipo || !l.data) return;
+    const chave = l.setor + "__" + String(l.numero);
+    const atual = ultimos.get(chave);
+    if (!atual || l.data > atual.data) ultimos.set(chave, { data: l.data, total: Number(l.total) || 0 });
+  });
+  const faixas = [
+    { chave: "ja", rotulo: "Já liberado", max: 0 },
+    { chave: "d7", rotulo: "Em até 7 dias", max: 7 },
+    { chave: "d14", rotulo: "8 a 14 dias", max: 14 },
+    { chave: "d21", rotulo: "15 a 21 dias", max: 21 },
+  ];
+  return cfg.setores.map((setor) => {
+    const porFaixa = { ja: 0, d7: 0, d14: 0, d21: 0 };
+    let semRegistro = 0;
+    linhasTipo.forEach((linha) => {
+      const u = ultimos.get(setor + "__" + String(linha));
+      if (!u) { semRegistro++; return; }
+      const faltam = Math.max(0, CICLO_COLHEITA_DIAS - diasDesde(u.data) - 1);
+      const faixa = faixas.find((f) => faltam <= f.max) || faixas[faixas.length - 1];
+      porFaixa[faixa.chave] += u.total * peso;
+    });
+    return { setor, porFaixa, semRegistro };
+  }).map((r) => ({ ...r, faixas }));
+}
+
+// ---- Tendência por carga (aba Indicadores) ----
+// Peso médio, rachados e % de broto de cada carga seca, em ordem de data — pra enxergar se está
+// subindo ou caindo (ex: rachados no período quente) em vez de olhar só uma carga isolada.
+function calcTendenciaCargas(limite) {
+  const lista = S.cargas.map((carga) => {
+    const bags = bagsDaCarga(carga.id).map((l) => ({ ...l, ...calcLinhaRomaneio(l) }));
+    const carregado = bags.reduce((s, b) => s + b.carregado1, 0);
+    const coco = bags.reduce((s, b) => s + (Number(b.coco1) || 0), 0);
+    const d = descarteDaCarga(carga);
+    const rachados = d ? (Number(d.cats.rachados.unid) || 0) : 0;
+    const real = coco - rachados;
+    const pesoMedio = (carregado > 0 && real > 0) ? carregado / real : null;
+    const brotoPct = d ? calcDescarte(d).brotoPct : null;
+    return { numero: carga.numero, data: carga.data || "", pesoMedio, rachados: d ? rachados : null, brotoPct, temDescarte: !!d };
+  }).filter((c) => c.pesoMedio !== null || c.temDescarte);
+  lista.sort((a, b) => (a.data || "").localeCompare(b.data || "") || (Number(a.numero) || 0) - (Number(b.numero) || 0));
+  return lista.slice(-limite);
+}
+
+function miniLinhaSVG(valores, cor) {
+  const pts = valores.map((v, i) => ({ v, i })).filter((x) => x.v !== null && x.v !== undefined && !Number.isNaN(x.v));
+  if (pts.length < 2) return `<div class="muted" style="font-size:11px;">poucos dados pra mostrar a linha</div>`;
+  const W = 300, H = 56, pad = 6;
+  const min = Math.min(...pts.map((x) => x.v)), max = Math.max(...pts.map((x) => x.v));
+  const faixa = max - min || 1;
+  const n = valores.length;
+  const xy = (x) => [pad + (n > 1 ? (x.i / (n - 1)) * (W - 2 * pad) : 0), H - pad - ((x.v - min) / faixa) * (H - 2 * pad)];
+  const linha = pts.map((x) => xy(x).map((c) => c.toFixed(1)).join(",")).join(" ");
+  const bolinhas = pts.map((x) => { const [cx, cy] = xy(x); return `<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="2.6" fill="${cor}"/>`; }).join("");
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" preserveAspectRatio="none" style="display:block;"><polyline points="${linha}" fill="none" stroke="${cor}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>${bolinhas}</svg>`;
+}
+
+function renderTendenciaCargasHTML() {
+  const dados = calcTendenciaCargas(12);
+  if (dados.length === 0) {
+    return `<div class="card"><h3 style="margin-bottom:6px;">📈 Tendência por carga (seco)</h3><div class="muted" style="font-size:12px;">Ainda não tem cargas com peso carregado ou descarte lançado.</div></div>`;
+  }
+  const serie = (campo, fmtV, titulo, cor) => {
+    const vals = dados.map((d) => d[campo]);
+    const validos = vals.filter((v) => v !== null && v !== undefined);
+    const ultimo = validos.length ? validos[validos.length - 1] : null;
+    const anterior = validos.length > 1 ? validos[validos.length - 2] : null;
+    let seta = "";
+    if (ultimo !== null && anterior !== null && ultimo !== anterior) seta = ultimo > anterior ? ' <span style="color:#16a34a;">▲</span>' : ' <span style="color:#dc2626;">▼</span>';
+    return `<div style="margin-bottom:12px;">
+      <div class="row-flex" style="font-size:12.5px; margin-bottom:2px;"><b>${titulo}</b><span>${ultimo !== null ? fmtV(ultimo) : "—"}${seta}</span></div>
+      ${miniLinhaSVG(vals, cor)}
+    </div>`;
+  };
+  let html = `<div class="card">
+    <h3 style="margin-bottom:2px;">📈 Tendência por carga (seco)</h3>
+    <div class="muted" style="font-size:10.5px; margin-bottom:10px;">Últimas ${dados.length} cargas em ordem de data. O valor ao lado do título é o da carga mais recente; a seta compara com a anterior.</div>
+    ${serie("pesoMedio", (v) => v.toFixed(3) + " kg/unid", "Peso médio", "#16a34a")}
+    ${serie("rachados", (v) => fmt(v, 0) + " unid", "Rachados", "#f97316")}
+    ${serie("brotoPct", (v) => fmtPct(v), "Broto %", "#2563eb")}
+    <div class="tbl-wrap"><table class="tbl" style="min-width:340px;"><thead><tr><th style="text-align:left;">Carga</th><th>Data</th><th>Peso médio</th><th>Rachados</th><th>Broto</th></tr></thead><tbody>`;
+  dados.slice().reverse().forEach((d) => {
+    html += `<tr>
+      <td style="text-align:left; font-weight:600;">Nº ${esc(d.numero)}</td>
+      <td>${d.data ? brDate(d.data) : "—"}</td>
+      <td>${d.pesoMedio !== null ? d.pesoMedio.toFixed(3) : "—"}</td>
+      <td>${d.rachados !== null ? fmt(d.rachados, 0) : "—"}</td>
+      <td>${d.brotoPct !== null && d.brotoPct !== undefined ? fmtPct(d.brotoPct) : "—"}</td>
+    </tr>`;
+  });
+  html += `</tbody></table></div></div>`;
+  return html;
+}
+
 function renderIndicadores() {
   const mes = S._mesIndicadores;
   const atual = calcIndicadoresMes(mes);
@@ -4467,6 +4590,8 @@ function renderIndicadores() {
       </tbody>
     </table>
   </div>`;
+
+  html += renderTendenciaCargasHTML();
 
   document.getElementById("tabContent").innerHTML = html;
   desenharGraficoEvolucaoIndicadores(mes);

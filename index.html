@@ -265,7 +265,7 @@
       <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
     </div>
     <div class="header-linha2">
-      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v121</span>
+      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v122</span>
       <div class="spacer"></div>
       <span id="backupPill" class="backup-pill"></span>
       <button class="btn-export" onclick="exportarExcel()">⬇️ Excel</button>
@@ -3901,6 +3901,13 @@ function calcEstoqueAtual() {
    aplicações, programação, ocorrências) num só lugar, pra bater o olho rápido
    no que precisa de atenção sem precisar entrar em cada aba.
    ========================================================================= */
+// Limites usados pelos alertas da tela inicial — ajuste aqui se quiser mais ou menos sensível.
+const LIMITE_ATRASO_COLHEITA_DIAS = 28;  // linha liberada que passou muito do ciclo de colheita
+const LIMITE_CARGA_ABERTA_DIAS = 10;     // carga seca aberta há mais que isso
+const LIMITE_BAG_PARADO_DIAS = 7;        // bag descascado sem carregar há mais que isso
+const LIMITE_BACKUP_DIAS = 7;            // sem backup no Sheets há mais que isso
+const LS_ULTIMO_BACKUP_KEY = "cocoCampoUltimoBackup";
+
 function montarAlertas() {
   const alertas = [];
 
@@ -3949,6 +3956,46 @@ function montarAlertas() {
     alertas.push({ cor: "amarelo", categoria: "ocorrencia", texto: `Ocorrência: ${o.tipo}${o.setor ? " — " + o.setor : ""} (${brDate(o.data)})` });
   });
 
+  // Colheita: linhas que já liberaram o ciclo e estão esperando há muito mais tempo que o normal.
+  const mapaAlerta = construirMapaUltimasContagens();
+  Object.entries(TIPOS_CONTAGEM).forEach(([tipo, cfg]) => {
+    const linhasTipo = cfg.linhasAmostradas || Array.from({ length: cfg.linhasPorSetor }, (_, i) => i + 1);
+    cfg.setores.forEach((setor) => {
+      const atrasadas = linhasTipo
+        .map((linha) => ({ linha, st: statusCicloLinhaComMapa(mapaAlerta, tipo, setor, linha) }))
+        .filter((x) => x.st.disponivel && x.st.diasDesdeUltima !== null && x.st.diasDesdeUltima > LIMITE_ATRASO_COLHEITA_DIAS)
+        .sort((a, b) => b.st.diasDesdeUltima - a.st.diasDesdeUltima);
+      if (atrasadas.length > 0) {
+        const mais = atrasadas[0];
+        alertas.push({ cor: "amarelo", categoria: "colheita", texto: `${tipo} ${setor}: ${atrasadas.length} linha${atrasadas.length>1?"s":""} esperando há mais de ${LIMITE_ATRASO_COLHEITA_DIAS} dias (a mais antiga: linha ${mais.linha}, ${mais.st.diasDesdeUltima} dias)` });
+      }
+    });
+  });
+
+  // Romaneio seco: cargas abertas há muito tempo e bags descascados que seguem sem carregar.
+  S.cargas.filter((c) => c.status !== "arquivada").forEach((carga) => {
+    const diasCarga = carga.data ? diasDesde(carga.data) : 0;
+    if (diasCarga > LIMITE_CARGA_ABERTA_DIAS) {
+      alertas.push({ cor: "amarelo", categoria: "romaneio", texto: `Carga Nº ${carga.numero} aberta há ${diasCarga} dias` });
+    }
+    const paradas = bagsDaCarga(carga.id).filter((b) => {
+      const temCarregado = b.carregado1 !== undefined && b.carregado1 !== null && b.carregado1 !== "";
+      return !temCarregado && b.dataDescasca && diasDesde(b.dataDescasca) > LIMITE_BAG_PARADO_DIAS;
+    });
+    if (paradas.length > 0) {
+      alertas.push({ cor: "amarelo", categoria: "romaneio", texto: `Carga Nº ${carga.numero}: ${paradas.length} bag${paradas.length>1?"s":""} descascado${paradas.length>1?"s":""} há mais de ${LIMITE_BAG_PARADO_DIAS} dias sem carregar` });
+    }
+  });
+
+  // Backup: lembra se faz tempo que não foi enviado pro Google Sheets.
+  let ultimoBackupISO = null;
+  try { ultimoBackupISO = localStorage.getItem(LS_ULTIMO_BACKUP_KEY); } catch (e) {}
+  if (!ultimoBackupISO) {
+    alertas.push({ cor: "amarelo", categoria: "backup", texto: "Nenhum backup no Sheets registrado neste aparelho ainda" });
+  } else if (diasDesde(ultimoBackupISO) > LIMITE_BACKUP_DIAS) {
+    alertas.push({ cor: "amarelo", categoria: "backup", texto: `Último backup no Sheets foi há ${diasDesde(ultimoBackupISO)} dias` });
+  }
+
   return alertas;
 }
 
@@ -3970,11 +4017,91 @@ function montarResumoSupervisor(alertas) {
   if (porCategoria.estoque) linhas.push({ cor: "vermelho", texto: `${porCategoria.estoque} item${porCategoria.estoque>1?"s":""} de estoque em situação crítica ou de atenção.` });
   if (porCategoria.aplicacao) linhas.push({ cor: "vermelho", texto: `${porCategoria.aplicacao} aplicação${porCategoria.aplicacao>1?"ões":""} atrasada${porCategoria.aplicacao>1?"s":""}.` });
   if (porCategoria.programacao) linhas.push({ cor: "amarelo", texto: `${porCategoria.programacao} atividade${porCategoria.programacao>1?"s":""} da programação com pendência essa semana.` });
+  if (porCategoria.colheita) linhas.push({ cor: "amarelo", texto: `${porCategoria.colheita} setor${porCategoria.colheita>1?"es":""} com linhas esperando colheita há muito tempo.` });
+  if (porCategoria.romaneio) linhas.push({ cor: "amarelo", texto: `${porCategoria.romaneio} pendência${porCategoria.romaneio>1?"s":""} no romaneio seco (carga aberta há muito tempo ou bags sem carregar).` });
+  if (porCategoria.backup) linhas.push({ cor: "amarelo", texto: "Backup no Sheets desatualizado." });
   if (porCategoria.ocorrencia) linhas.push({ cor: "amarelo", texto: `${porCategoria.ocorrencia} ocorrência${porCategoria.ocorrencia>1?"s":""} recente${porCategoria.ocorrencia>1?"s":""} registrada${porCategoria.ocorrencia>1?"s":""}.` });
   if (alertas.length === 0) linhas.push({ cor: "verde", texto: "Nenhuma pendência identificada — tudo dentro do esperado." });
 
   return { situacao, linhas };
 }
+
+// Texto do resumo do dia pra mandar no WhatsApp: contagem por setor, romaneios, descasca por pessoa
+// e os alertas mais urgentes — tudo que aconteceu HOJE, já somado, sem precisar refazer a conta.
+function montarTextoResumoDia() {
+  const hoje = todayISO();
+  const L = [];
+  L.push(`📋 *Resumo do dia — ${brDate(hoje)}*`);
+
+  // Contagem de campo de hoje, por tipo e setor
+  const contagensHoje = S.contagemLinhas.filter((l) => l.data === hoje);
+  if (contagensHoje.length > 0) {
+    L.push("", "🌱 *Contagem de campo*");
+    Object.keys(TIPOS_CONTAGEM).forEach((tipo) => {
+      const doTipo = contagensHoje.filter((l) => l.tipo === tipo);
+      if (doTipo.length === 0) return;
+      const totalTipo = doTipo.reduce((s, l) => s + (Number(l.total) || 0), 0);
+      const meta = Number((S.metasColheita[chaveMetaColheita(hoje, tipo)] || {}).meta) || 0;
+      L.push(`• ${tipo}: ${fmt(totalTipo, 0)} frutos${meta > 0 ? ` (meta ${fmt(meta, 0)})` : ""}`);
+      TIPOS_CONTAGEM[tipo].setores.forEach((setor) => {
+        const doSetor = doTipo.filter((l) => l.setor === setor);
+        if (doSetor.length === 0) return;
+        const totalSetor = doSetor.reduce((s, l) => s + (Number(l.total) || 0), 0);
+        L.push(`   ${setor}: ${fmt(totalSetor, 0)} (${doSetor.length} linha${doSetor.length > 1 ? "s" : ""})`);
+      });
+    });
+  }
+
+  // Romaneio seco: o que foi carregado hoje
+  const bagsHoje = S.bags.filter((b) => b.dataCarregamento === hoje);
+  const kgHoje = bagsHoje.reduce((s, b) => s + (Number(b.carregado1) || 0), 0);
+  const cargasSecoHoje = S.cargas.filter((c) => c.data === hoje);
+  if (bagsHoje.length > 0 || cargasSecoHoje.length > 0) {
+    L.push("", "🥥 *Romaneio seco*");
+    if (bagsHoje.length > 0) L.push(`• ${bagsHoje.length} bag${bagsHoje.length > 1 ? "s" : ""} carregado${bagsHoje.length > 1 ? "s" : ""}: ${fmt(kgHoje, 0)} kg`);
+    cargasSecoHoje.forEach((c) => L.push(`• Carga Nº ${c.numero} aberta hoje`));
+  }
+
+  // Romaneio verde de hoje
+  const verdesHoje = S.cargasVerde.filter((c) => c.data === hoje);
+  if (verdesHoje.length > 0) {
+    L.push("", "🌴 *Romaneio verde*");
+    verdesHoje.forEach((c) => L.push(`• Carga Nº ${c.numero}: ${fmt(Number(c.quantidadeTotal) || 0, 0)} frutos${c.setor ? " (" + c.setor + ")" : ""}`));
+  }
+
+  // Descasca manual de hoje, por pessoa
+  const porPessoa = {};
+  S.cargas.forEach((c) => (c.descascaManual || []).forEach((d) => {
+    if (d.data !== hoje) return;
+    const nome = d.colaborador || "—";
+    if (!porPessoa[nome]) porPessoa[nome] = { qtd: 0, valor: 0 };
+    const q = Number(d.quantidade) || 0;
+    porPessoa[nome].qtd += q;
+    porPessoa[nome].valor += q * (Number(d.valorUnidade) || 0);
+  }));
+  const nomes = Object.keys(porPessoa).sort((a, b) => a.localeCompare(b, "pt-BR"));
+  if (nomes.length > 0) {
+    L.push("", "🙌 *Descasca manual*");
+    nomes.forEach((n) => L.push(`• ${n}: ${fmt(porPessoa[n].qtd, 0)} (R$ ${porPessoa[n].valor.toFixed(2)})`));
+    const totalValor = nomes.reduce((s, n) => s + porPessoa[n].valor, 0);
+    L.push(`Total: R$ ${totalValor.toFixed(2)}`);
+  }
+
+  // Alertas mais urgentes
+  const urgentes = montarAlertas().filter((a) => a.cor === "vermelho").slice(0, 5);
+  if (urgentes.length > 0) {
+    L.push("", "🔴 *Atenção*");
+    urgentes.forEach((a) => L.push(`• ${a.texto}`));
+  }
+
+  if (L.length === 1) L.push("", "Nada lançado hoje ainda.");
+  return L.join("\n");
+}
+
+window.enviarResumoDiaWhatsApp = function () {
+  const texto = montarTextoResumoDia();
+  window.open(`https://wa.me/?text=${encodeURIComponent(texto)}`, "_blank");
+};
 
 function renderDashboard() {
   const mesAtual = todayISO().slice(0, 7);
@@ -4075,6 +4202,7 @@ function renderDashboard() {
       </div>
     </div>
     <div style="margin-top:8px; font-size:11px; opacity:.8;">📋 ${cargasAbertas} carga${cargasAbertas===1?"":"s"} em andamento no Romaneio · ⚠️ ${ocorrenciasHojeCount} ocorrência${ocorrenciasHojeCount===1?"":"s"} registrada${ocorrenciasHojeCount===1?"":"s"} hoje</div>
+    <button onclick="enviarResumoDiaWhatsApp()" style="margin-top:10px; width:100%; padding:9px; border:none; border-radius:10px; background:#fff; color:#065f46; font-weight:800; font-size:13px; cursor:pointer;">📤 Enviar resumo do dia no WhatsApp</button>
   </div>`;
 
   const emojiSituacao = { vermelho: "🔴", amarelo: "🟠", verde: "🟢" }[resumo.situacao.cor];
@@ -6413,6 +6541,7 @@ window.enviarBackupSheets = async function () {
     });
     const data = await res.json();
     if (data && data.ok) {
+      try { localStorage.setItem(LS_ULTIMO_BACKUP_KEY, todayISO()); } catch (e) {}
       if (pill) { pill.textContent = "backup ok ✓"; pill.className = "backup-pill ok"; }
     } else {
       throw new Error((data && data.erro) || "falha desconhecida");

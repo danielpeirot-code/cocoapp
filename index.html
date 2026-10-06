@@ -265,7 +265,7 @@
       <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
     </div>
     <div class="header-linha2">
-      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v119</span>
+      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v120</span>
       <div class="spacer"></div>
       <span id="backupPill" class="backup-pill"></span>
       <button class="btn-export" onclick="exportarExcel()">⬇️ Excel</button>
@@ -3108,12 +3108,12 @@ function construirMapaUltimasContagens() {
 
 function statusCicloLinhaComMapa(mapa, tipo, setor, numero) {
   const ultimaData = mapa.get(tipo + "__" + setor + "__" + String(numero));
-  if (!ultimaData) return { disponivel: true, diasFaltam: 0, ultima: null };
+  if (!ultimaData) return { disponivel: true, diasFaltam: 0, ultima: null, diasDesdeUltima: null };
   const dias = diasDesde(ultimaData);
   // O próprio dia da contagem já conta como o 1º dia do descanso — por isso "-1": contando hoje,
   // já mostra 20 dias faltando (não 21), e completa o ciclo no dia 21 depois da contagem.
   const diasFaltam = Math.max(0, CICLO_COLHEITA_DIAS - dias - 1);
-  return { disponivel: diasFaltam === 0, diasFaltam, ultima: ultimaData };
+  return { disponivel: diasFaltam === 0, diasFaltam, ultima: ultimaData, diasDesdeUltima: dias };
 }
 
 // Toda linha contada na aba Contagem, pra esse tipo+setor+data de hoje, conta como "colhida hoje".
@@ -3296,18 +3296,33 @@ function renderColheitaInner() {
     html += `</tbody></table></div>`;
   }
 
-  // Situação do ciclo de cada linha desse setor — disponível pra entrar colher ou ainda descansando
+  // Situação do ciclo de cada linha desse setor — disponível pra entrar colher ou ainda descansando.
+  // Nas disponíveis mostra há quantos dias foi a última colheita, e lista em ordem quais estão
+  // esperando há mais tempo — assim dá pra decidir por qual entrar primeiro quando várias liberaram.
+  const linhasParaMostrar = config.linhasAmostradas || Array.from({ length: config.linhasPorSetor }, (_, i) => i + 1);
+  const statusLinhas = linhasParaMostrar.map((linha) => ({ linha, st: statusCicloLinhaComMapa(mapaUltimas, tipo, setor, linha) }));
+  const filaEntrada = statusLinhas
+    .filter((x) => x.st.disponivel && x.st.diasDesdeUltima !== null)
+    .sort((a, b) => b.st.diasDesdeUltima - a.st.diasDesdeUltima);
+  const semRegistro = statusLinhas.filter((x) => x.st.disponivel && x.st.diasDesdeUltima === null);
+
   html += `<div class="card">
     <h3 style="margin-bottom:8px; font-size:13px;">📅 Ciclo das linhas — ${esc(setor)}</h3>
-    <div class="muted" style="font-size:11px; margin-bottom:8px;">🟢 disponível — 🟠 ainda descansando (dias que faltam pro ciclo de ${CICLO_COLHEITA_DIAS} dias completar)</div>
+    <div class="muted" style="font-size:11px; margin-bottom:8px;">🟢 disponível (mostra há quantos dias foi a última colheita) — 🟠 ainda descansando (dias que faltam pro ciclo de ${CICLO_COLHEITA_DIAS} dias completar)</div>
+    ${filaEntrada.length > 0 ? `<div style="background:#ecfdf5; border-radius:8px; padding:8px 10px; margin-bottom:10px; font-size:12px; color:#065f46;">
+      <b>👉 Ordem pra entrar (mais tempo sem colher primeiro):</b>
+      <div style="margin-top:4px; font-weight:700;">${filaEntrada.map((x) => `Linha ${x.linha} <span style="font-weight:500;">(${x.st.diasDesdeUltima}d)</span>`).join(" → ")}</div>
+    </div>` : ""}
+    ${semRegistro.length > 0 ? `<div class="muted" style="font-size:11px; margin-bottom:8px;">Sem colheita registrada: ${semRegistro.map((x) => x.linha).join(", ")}</div>` : ""}
     <div style="display:flex; flex-wrap:wrap; gap:5px;">`;
-  const linhasParaMostrar = config.linhasAmostradas || Array.from({ length: config.linhasPorSetor }, (_, i) => i + 1);
-  linhasParaMostrar.forEach((linha) => {
-    const st = statusCicloLinhaComMapa(mapaUltimas, tipo, setor, linha);
+  statusLinhas.forEach(({ linha, st }) => {
     const cor = st.disponivel ? "#C6EFCE" : "#FED7AA";
     const corTexto = st.disponivel ? "#065f46" : "#9a3412";
+    const rodape = !st.disponivel
+      ? `${st.diasFaltam}d`
+      : (st.diasDesdeUltima !== null ? `${st.diasDesdeUltima}d` : "");
     html += `<div title="${st.ultima ? "Última contagem: " + brDate(st.ultima) : "Nunca contada"}" style="background:${cor}; color:${corTexto}; border-radius:6px; padding:4px 6px; font-size:10.5px; font-weight:700; min-width:30px; text-align:center;">
-      ${linha}${!st.disponivel ? `<div style="font-size:8.5px; font-weight:600;">${st.diasFaltam}d</div>` : ""}
+      ${linha}${rodape ? `<div style="font-size:8.5px; font-weight:600;">${rodape}</div>` : ""}
     </div>`;
   });
   html += `</div></div>`;

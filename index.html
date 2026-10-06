@@ -265,7 +265,7 @@
       <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
     </div>
     <div class="header-linha2">
-      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v136</span>
+      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v137</span>
       <div class="spacer"></div>
       <span id="backupPill" class="backup-pill"></span>
       <button class="btn-export" onclick="exportarExcel()">⬇️ Excel</button>
@@ -2129,6 +2129,24 @@ window.criarCargaVerde = function () {
   renderRomaneioVerde();
 };
 
+// Uma carga verde pode ser fechada com mais de um setor (ex: D1 e D2). Guarda a lista em "setores"
+// e também o texto "D1 + D2" em "setor" — assim card, resumo, Excel e resumo do dia (que leem
+// "setor") continuam funcionando sem mudar, e cargas antigas (só com "setor") seguem valendo.
+function setoresDaCargaVerde(carga) {
+  if (Array.isArray(carga.setores)) return carga.setores;
+  return String(carga.setor || "").split("+").map((x) => x.trim()).filter(Boolean);
+}
+window.toggleSetorCargaVerde = function (cargaId, setor) {
+  const carga = S.cargasVerde.find((c) => c.id === cargaId);
+  if (!carga) return;
+  const atuais = new Set(setoresDaCargaVerde(carga));
+  if (atuais.has(setor)) atuais.delete(setor); else atuais.add(setor);
+  const lista = TALHOES.filter((t) => atuais.has(t));
+  atualizarCargaVerde(cargaId, "setores", lista);
+  atualizarCargaVerde(cargaId, "setor", lista.join(" + "));
+  renderRomaneioVerde();
+};
+
 window.atualizarCargaVerde = function (cargaId, campo, valor) {
   const idx = S.cargasVerde.findIndex((c) => c.id === cargaId);
   if (idx >= 0) S.cargasVerde[idx] = { ...S.cargasVerde[idx], [campo]: valor };
@@ -2279,14 +2297,12 @@ function renderCargaVerdeCard(carga) {
       </div>`;
 
     html += `<div style="font-size:11px; font-weight:700; text-transform:uppercase; color:#78716c; margin-bottom:6px;">${icoCocoVerde(14)} Quantidade total</div>
-      <div class="grid grid-2" style="margin-bottom:14px;">
+      <div class="grid grid-2" style="margin-bottom:10px;">
         <label class="field"><span>Quantidade (frutos)</span><input type="number" value="${esc(carga.quantidadeTotal)}" oninput="atualizarCargaVerde('${carga.id}','quantidadeTotal',this.value)"/></label>
-        <label class="field"><span>Setor de origem</span>
-          <select onchange="atualizarCargaVerde('${carga.id}','setor',this.value)">
-            <option value="" ${!carga.setor?"selected":""}>—</option>
-            ${TALHOES.map(t=>`<option value="${t}" ${carga.setor===t?"selected":""}>${t}</option>`).join("")}
-          </select>
-        </label>
+      </div>
+      <div style="font-size:11px; font-weight:700; color:#78716c; margin-bottom:6px;">Setores de origem <span style="font-weight:400;">(toque em todos que entraram na carga)</span></div>
+      <div style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:14px;">
+        ${TALHOES.map((t) => { const sel = setoresDaCargaVerde(carga).includes(t); return `<button type="button" onclick="toggleSetorCargaVerde('${carga.id}','${t}')" style="padding:9px 14px; border-radius:20px; border:2px solid ${sel ? "#16a34a" : "#d6d3d1"}; background:${sel ? "#dcfce7" : "#fff"}; color:${sel ? "#166534" : "#44403c"}; font-weight:${sel ? 800 : 600}; font-size:14px; cursor:pointer;">${sel ? "✔ " : ""}${t}</button>`; }).join("")}
       </div>`;
 
     html += `<div style="font-size:11px; font-weight:700; text-transform:uppercase; color:#78716c; margin-bottom:6px;">🥥 Coco seco junto na carga <span style="font-weight:400; text-transform:none;">(só se o cliente pediu)</span></div>

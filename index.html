@@ -265,7 +265,7 @@
       <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
     </div>
     <div class="header-linha2">
-      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v124</span>
+      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v126</span>
       <div class="spacer"></div>
       <span id="backupPill" class="backup-pill"></span>
       <button class="btn-export" onclick="exportarExcel()">⬇️ Excel</button>
@@ -4780,34 +4780,528 @@ function validarRendimentoProg(item) {
   return { ok: false, esperado, unidade: padrao.unidade, acima: razao > 1 };
 }
 
+/* =========================================================================
+   IMPORTAR PROGRAMAÇÃO DO EXCEL (cronograma semanal)
+   Lê a planilha de cronograma, mostra uma PRÉVIA e só grava depois que a pessoa confirma.
+   ========================================================================= */
+// Na planilha cada linha é um setor (A3, A4, B3...). No app os setores vêm em pares (A3A4, B3B4...),
+// então as linhas do mesmo par somam na mesma atividade.
+const MAP_SETOR_EXCEL = { A3: "A3A4", A4: "A3A4", B3: "B3B4", B4: "B3B4", C1: "C1C2", C2: "C1C2", C3: "C3C4", C4: "C3C4", D1: "D1", D2: "D2", D3: "D3", D4: "D4" };
+const STOPWORDS_ATIV = new Set(["de", "do", "da", "dos", "das", "coco", "caminhao", "para", "e", "o", "a", "em"]);
+
+function normTxt(s) {
+  return String(s == null ? "" : s).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
+}
+function distEdicao(a, b) {
+  const m = a.length, n = b.length;
+  if (!m) return n; if (!n) return m;
+  let prev = Array.from({ length: n + 1 }, (_, j) => j);
+  for (let i = 1; i <= m; i++) {
+    const cur = [i];
+    for (let j = 1; j <= n; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    prev = cur;
+  }
+  return prev[n];
+}
+const PALAVRAS_MIUDAS = new Set(["de", "do", "da", "dos", "das", "e", "o", "a", "os", "as", "para", "em", "no", "na"]);
+function tituloSeTodoMaiusculo(s, forcar) {
+  const t = String(s || "").trim();
+  if (!t || t !== t.toUpperCase() || (!forcar && t.length <= 3)) return t;
+  return t.toLowerCase().split(/\s+/).map((w, i) => {
+    if (i > 0 && PALAVRAS_MIUDAS.has(w)) return w;
+    return w.replace(/^(\(?)(\S)/, (_, a, b) => a + b.toUpperCase());
+  }).join(" ");
+}
+function r3(x) { return Math.round(x * 1000) / 1000; }
+function numeroDaCelula(v) {
+  if (typeof v === "number") return v;
+  if (v === null || v === undefined) return null;
+  const m = String(v).replace(",", ".").match(/-?\d+(?:\.\d+)?/);
+  return m ? parseFloat(m[0]) : null;
+}
+function unidadeDaCelula(v) {
+  if (v === null || v === undefined || typeof v === "number") return "";
+  const m = String(v).trim().match(/([A-Za-zµ]+)\s*$/);
+  return m ? m[1] : "";
+}
+function textoLimpo(v) {
+  if (v === null || v === undefined) return "";
+  const t = String(v).trim();
+  return (t === "-" || t === "–") ? "" : t;
+}
+function isoDeSerialExcel(n) { return new Date(Date.UTC(1899, 11, 30) + Math.round(n) * 86400000).toISOString().slice(0, 10); }
+
+// Acha o nome certo (do app) mais parecido com o que veio da planilha — ignora maiúsculas, acento
+// e pequenos erros de digitação. Devolve null se nada parecido.
+function acharNomeParecido(nome, listaNomes) {
+  const alvo = normTxt(nome);
+  if (!alvo) return null;
+  const exato = listaNomes.find((n) => normTxt(n) === alvo);
+  if (exato) return exato;
+  if (alvo.length >= 6) {
+    const limite = alvo.length >= 9 ? 3 : 2;
+    const parecido = listaNomes.find((n) => { const x = normTxt(n); return x.length >= 6 && distEdicao(alvo, x) <= limite; });
+    if (parecido) return parecido;
+  }
+  return null;
+}
+function tokensAtividade(s) {
+  return normTxt(s).split(" ").filter((t) => t && !STOPWORDS_ATIV.has(t)).map((t) => (t.startsWith("desc") ? "descasc" : t));
+}
+function tarefaCombinaComAtividade(tarefa, atividade) {
+  const t = tokensAtividade(tarefa), a = tokensAtividade(atividade);
+  return t.length > 0 && t.every((x) => a.includes(x));
+}
+
+function parsearCronogramaExcel(XLSX, wb, ctx) {
+  const avisos = [];
+  // Usa a primeira aba que tem o cabeçalho "Atividades"
+  let ws = null;
+  for (const nome of wb.SheetNames) {
+    const cand = wb.Sheets[nome];
+    if (!cand || !cand["!ref"]) continue;
+    const rg = XLSX.utils.decode_range(cand["!ref"]);
+    for (let r = rg.s.r; r <= Math.min(rg.e.r, 15) && !ws; r++) for (let c = rg.s.c; c <= Math.min(rg.e.c, 10); c++) {
+      const cel = cand[XLSX.utils.encode_cell({ r, c })];
+      if (cel && normTxt(cel.v) === "atividades") { ws = cand; break; }
+    }
+    if (ws) break;
+  }
+  if (!ws) throw new Error('Não achei o cabeçalho "Atividades" na planilha. É o mesmo modelo do cronograma semanal?');
+
+  const rg = XLSX.utils.decode_range(ws["!ref"]);
+  const topo = new Map();
+  (ws["!merges"] || []).forEach((m) => {
+    for (let r = m.s.r; r <= m.e.r; r++) for (let c = m.s.c; c <= m.e.c; c++) if (r !== m.s.r || c !== m.s.c) topo.set(r + "," + c, { r: m.s.r, c: m.s.c });
+  });
+  const bruto = (r, c) => { const cel = ws[XLSX.utils.encode_cell({ r, c })]; return cel ? cel.v : undefined; };
+  const val = (r, c) => { const t = topo.get(r + "," + c); return t ? bruto(t.r, t.c) : bruto(r, c); };
+
+  // ---- cabeçalho ----
+  let rH = -1, colAtiv = -1;
+  for (let r = rg.s.r; r <= Math.min(rg.e.r, 15) && rH < 0; r++) for (let c = rg.s.c; c <= Math.min(rg.e.c, 10); c++) {
+    if (normTxt(bruto(r, c)) === "atividades") { rH = r; colAtiv = c; break; }
+  }
+  const rSub = rH + 1;
+  let colArea = -1, colSetor = -1;
+  for (let c = rg.s.c; c <= rg.e.c; c++) {
+    const t = normTxt(bruto(rH, c));
+    if (t === "area" && colArea < 0) colArea = c;
+    if (t === "setor" && colSetor < 0) colSetor = c;
+  }
+  if (colSetor < 0) throw new Error('Não achei a coluna "Setor" na planilha.');
+  const DIA_POR_ROTULO = { seg: "seg", ter: "ter", qua: "qua", qui: "qui", sex: "sex", sab: "sab", dom: "dom" };
+  const colDia = {};
+  let iniciou = false;
+  for (let c = rg.s.c; c <= rg.e.c; c++) {
+    const k = DIA_POR_ROTULO[normTxt(bruto(rSub, c))];
+    if (!iniciou) { if (k === "seg") { colDia.seg = c; iniciou = true; } }
+    else if (k && !colDia[k]) colDia[k] = c;
+    else break; // acabou o bloco "Programado" (o "Executado" vem depois e não entra)
+  }
+  if (Object.keys(colDia).length < 3) throw new Error('Não achei as colunas dos dias (seg, ter, qua...) abaixo de "Programado".');
+  let colTrator = -1, colImpl = -1, colTipo = -1, colQuant = -1, colUni = -1;
+  for (let c = rg.s.c; c <= rg.e.c; c++) {
+    const t = normTxt(bruto(rSub, c));
+    if (t === "trator" && colTrator < 0) colTrator = c;
+    if (t === "implementos" && colImpl < 0) colImpl = c;
+    if (t === "tipo" && colTipo < 0) colTipo = c;
+    if (t === "quant" && colQuant < 0) colQuant = c;
+    if (t === "uni" && colQuant >= 0 && c > colQuant && colUni < 0) colUni = c;
+  }
+
+  // ---- tabela da equipe: bloco com SEG TER QUA QUI SEX e mais nomes embaixo ----
+  const ROT = ["seg", "ter", "qua", "qui", "sex", "sab", "dom"];
+  const blocos = [];
+  for (let r = rg.s.r; r <= rg.e.r; r++) for (let c = rg.s.c; c <= rg.e.c; c++) {
+    if (r === rSub) continue;
+    if (normTxt(bruto(r, c)) !== "seg") continue;
+    const cols = {};
+    for (let i = 0; i < 7; i++) { const k = DIA_POR_ROTULO[normTxt(bruto(r, c + i))]; if (k === ROT[i]) cols[k] = c + i; else break; }
+    if (Object.keys(cols).length < 5 || c === 0) continue;
+    const nameCol = c - 1;
+    const pessoas = [];
+    for (let rr = r + 1; rr <= rg.e.r; rr++) {
+      const nome = bruto(rr, nameCol);
+      if (typeof nome !== "string" || !nome.trim()) continue;
+      const tarefas = {};
+      let alguma = false;
+      Object.entries(cols).forEach(([k, cc]) => { const tx = textoLimpo(bruto(rr, cc)); if (typeof bruto(rr, cc) === "string" && tx) { tarefas[k] = tx; alguma = true; } });
+      if (alguma) pessoas.push({ nome: nome.trim(), tarefas });
+    }
+    blocos.push({ r, c, cols, pessoas });
+  }
+  blocos.sort((a, b) => b.pessoas.length - a.pessoas.length);
+  const blocoEquipe = blocos.length && blocos[0].pessoas.length >= 2 ? blocos[0] : null;
+
+  // ---- qual é a semana ----
+  let semana = null, semanaOrigem = "";
+  if (blocoEquipe) {
+    for (let dr = 1; dr <= 3 && !semana; dr++) {
+      const v = bruto(blocoEquipe.r + dr, blocoEquipe.cols.seg);
+      if (v instanceof Date) { semana = v.toISOString().slice(0, 10); }
+      else if (typeof v === "number" && v > 40000 && v < 60000) semana = isoDeSerialExcel(v);
+    }
+    if (semana) { semana = ctx.segundaDaSemana(semana); semanaOrigem = "datas da tabela da equipe"; }
+  }
+  if (!semana) {
+    const titulo = String(bruto(rg.s.r, rg.s.c) || "");
+    const m = titulo.match(/semana\s*(\d{1,2})/i);
+    if (m) {
+      const ano = Number((ctx.semanaPadrao || "").slice(0, 4)) || new Date().getFullYear();
+      const jan4 = new Date(Date.UTC(ano, 0, 4));
+      const seg1 = new Date(jan4.getTime() - ((jan4.getUTCDay() + 6) % 7) * 86400000);
+      semana = new Date(seg1.getTime() + (Number(m[1]) - 1) * 7 * 86400000).toISOString().slice(0, 10);
+      semanaOrigem = "título da planilha (Semana " + m[1] + ")";
+    }
+  }
+  if (!semana) { semana = ctx.semanaPadrao; semanaOrigem = "semana que está aberta no app"; avisos.push("Não achei a data da semana na planilha — usei a semana aberta no app. Confira antes de importar."); }
+
+  // ---- linhas de atividade/setor ----
+  const grupos = new Map(); // chave atividade||setor
+  const porAtividade = new Map(); // atividadeOriginal -> { produtos: [...] , linhas: [...] }
+  const ignorados = [];
+  let ultAtiv = "";
+  for (let r = rSub + 1; r <= rg.e.r; r++) {
+    const ativ = textoLimpo(val(r, colAtiv));
+    if (ativ) ultAtiv = ativ;
+    const setorRaw = textoLimpo(bruto(r, colSetor));
+    if (!setorRaw || !ultAtiv) continue;
+    const setorNorm = setorRaw.toUpperCase().replace(/\s+/g, "");
+    const setorApp = setorNorm === "SEDE" ? "Sede" : MAP_SETOR_EXCEL[setorNorm];
+    const atividade = ativ || ultAtiv;
+    if (!setorApp) { avisos.push(`Linha ${r + 1}: setor "${setorRaw}" não reconhecido — ignorei.`); continue; }
+
+    const dias = {};
+    Object.entries(colDia).forEach(([k, c]) => { const n = numeroDaCelula(bruto(r, c)); if (n && n > 0) dias[k] = n; });
+    const prod = textoLimpo(bruto(r, colTipo));
+    const infoAtiv = porAtividade.get(atividade) || { linhas: [] };
+    infoAtiv.linhas.push({
+      setorApp, dias,
+      area: textoLimpo(val(r, colArea)),
+      veiculo: colTrator >= 0 ? textoLimpo(val(r, colTrator)) : "",
+      implemento: colImpl >= 0 ? textoLimpo(val(r, colImpl)) : "",
+      produto: (prod && normTxt(prod) !== "ph") ? { nome: prod, qtd: numeroDaCelula(bruto(r, colQuant)), unid: textoLimpo(bruto(r, colUni)) || unidadeDaCelula(bruto(r, colQuant)) } : null,
+    });
+    porAtividade.set(atividade, infoAtiv);
+  }
+
+  const nomesAtividadeApp = ctx.atividadesPadrao || [];
+  const nomesInsumo = ctx.insumos || [];
+  const nomesColab = ctx.colaboradores || [];
+  const resultado = [];
+  const pessoasNaoCadastradas = new Set();
+  const nomePessoaFinal = (nomeBruto) => {
+    const n = normTxt(nomeBruto);
+    let achou = nomesColab.filter((c) => normTxt(c) === n);
+    if (!achou.length) achou = nomesColab.filter((c) => normTxt(c).split(" ")[0] === n);
+    if (achou.length === 1) return achou[0];
+    pessoasNaoCadastradas.add(tituloSeTodoMaiusculo(nomeBruto, true));
+    return tituloSeTodoMaiusculo(nomeBruto, true);
+  };
+  const tarefasCasadas = new Set();
+
+  porAtividade.forEach((info, atividadeOriginal) => {
+    const sugestao = acharNomeParecido(atividadeOriginal, nomesAtividadeApp) || tituloSeTodoMaiusculo(atividadeOriginal);
+    // Produtos: se o mesmo produto se repete em várias linhas, é "por setor" (ex: NPK em todo setor);
+    // se cada linha traz um produto diferente, é a lista de produtos da atividade inteira (ex: calda).
+    const contagem = {};
+    info.linhas.forEach((l) => { if (l.produto) contagem[normTxt(l.produto.nome)] = (contagem[normTxt(l.produto.nome)] || 0) + 1; });
+    const porSetor = Object.values(contagem).some((n) => n > 1);
+    const nomeProduto = (n) => {
+      if (normTxt(n) === "agua") return "Água";
+      return acharNomeParecido(n, nomesInsumo) || tituloSeTodoMaiusculo(n);
+    };
+    const listaAtividade = [];
+    if (!porSetor) info.linhas.forEach((l) => { if (l.produto && !listaAtividade.some((p) => normTxt(p.nome) === normTxt(l.produto.nome))) listaAtividade.push({ nome: nomeProduto(l.produto.nome), quantidade: l.produto.qtd === null ? "" : r3(l.produto.qtd), unidade: l.produto.unid || "" }); });
+
+    const porSetorMap = new Map();
+    info.linhas.forEach((l) => {
+      const g = porSetorMap.get(l.setorApp) || { dias: {}, veiculo: "", implemento: "", area: "", produtos: new Map() };
+      Object.entries(l.dias).forEach(([k, n]) => { g.dias[k] = r3((g.dias[k] || 0) + n); });
+      g.veiculo = g.veiculo || l.veiculo; g.implemento = g.implemento || l.implemento; g.area = g.area || l.area;
+      if (porSetor && l.produto) {
+        const nome = nomeProduto(l.produto.nome), chave = normTxt(nome);
+        const p = g.produtos.get(chave) || { nome, quantidade: 0, unidade: l.produto.unid || "" };
+        p.quantidade = r3(p.quantidade + (l.produto.qtd || 0));
+        g.produtos.set(chave, p);
+      }
+      porSetorMap.set(l.setorApp, g);
+    });
+
+    const itens = [];
+    const setoresSemDias = [];
+    porSetorMap.forEach((g, setorApp) => {
+      const diasComQtd = Object.keys(g.dias);
+      if (diasComQtd.length === 0) { setoresSemDias.push(setorApp); return; }
+      // Cada dia pode ter uma equipe diferente (a mesma pessoa faz recolhimento na segunda e
+      // carregamento na quarta). Agrupa os dias que têm a MESMA equipe — um item por equipe — pra
+      // ninguém aparecer numa atividade em dia que não faz, e o que vai por colaborador sair certo.
+      const equipes = new Map();
+      DIAS_SEMANA.forEach((d) => {
+        if (g.dias[d.key] === undefined) return;
+        const nomes = [];
+        if (blocoEquipe) blocoEquipe.pessoas.forEach((p) => {
+          if (p.tarefas[d.key] && tarefaCombinaComAtividade(p.tarefas[d.key], atividadeOriginal)) nomes.push(nomePessoaFinal(p.nome));
+        });
+        const chave = nomes.slice().sort().join("|");
+        const eq = equipes.get(chave) || { nomes, dias: {} };
+        eq.dias[d.key] = g.dias[d.key];
+        equipes.set(chave, eq);
+      });
+      equipes.forEach((eq) => {
+        const prog = {}; DIAS_SEMANA.forEach((d) => { prog[d.key] = eq.dias[d.key] !== undefined ? eq.dias[d.key] : ""; });
+        itens.push({
+          setor: setorApp, area: g.area, veiculo: g.veiculo, implemento: g.implemento,
+          produtos: porSetor ? [...g.produtos.values()].map((p) => ({ ...p })) : listaAtividade.map((p) => ({ ...p })),
+          quemVaiFazer: eq.nomes.join(", "), prog,
+        });
+      });
+    });
+    if (setoresSemDias.length) ignorados.push(`${atividadeOriginal}: ${setoresSemDias.join(", ")}`);
+    if (itens.length) resultado.push({ atividadeOriginal, atividade: sugestao, itens });
+  });
+
+  // tarefas da equipe que não casaram com nenhuma atividade programada
+  const tarefasSemAtividade = {};
+  if (blocoEquipe) blocoEquipe.pessoas.forEach((p) => Object.entries(p.tarefas).forEach(([dia, tarefa]) => {
+    const casou = resultado.some((g) => tarefaCombinaComAtividade(tarefa, g.atividadeOriginal));
+    if (!casou) { const k = tarefa; (tarefasSemAtividade[k] = tarefasSemAtividade[k] || new Set()).add(tituloSeTodoMaiusculo(p.nome, true)); }
+  }));
+
+  return {
+    semana, semanaOrigem, grupos: resultado, avisos, ignorados,
+    pessoasNaoCadastradas: [...pessoasNaoCadastradas],
+    tarefasSemAtividade: Object.entries(tarefasSemAtividade).map(([tarefa, set]) => ({ tarefa, pessoas: [...set] })),
+    temEquipe: !!blocoEquipe,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Envio da planilha: o app lê e já monta a semana inteira, sem etapa de prévia.
+// ---------------------------------------------------------------------------
+S._ultimoImport = null;   // resumo do último envio (aparece como um cartão que dá pra fechar)
+S._progFormAberto = false; // formulário manual fica recolhido por padrão
+
+window.escolherArquivoProgramacao = function () {
+  if (typeof XLSX === "undefined") { alert("A biblioteca de Excel ainda não carregou — abre o app com internet uma vez e tenta de novo."); return; }
+  const inp = document.getElementById("inputImportProg");
+  if (inp) inp.click();
+};
+
+window.lerArquivoProgramacao = function (input) {
+  const arq = input.files && input.files[0];
+  if (!arq) return;
+  const leitor = new FileReader();
+  leitor.onload = () => {
+    try {
+      const wb = XLSX.read(new Uint8Array(leitor.result), { type: "array" });
+      const res = parsearCronogramaExcel(XLSX, wb, {
+        segundaDaSemana,
+        semanaPadrao: S._progSemana,
+        atividadesPadrao: Object.values(S.atividadesPadrao).map((a) => a.nome).filter(Boolean),
+        colaboradores: S.colaboradores.map((c) => c.nome).filter(Boolean),
+        insumos: S.insumos.map((i) => i.nome).filter(Boolean),
+      });
+      aplicarImportacaoProgramacao(res);
+    } catch (e) {
+      console.error(e);
+      alert("Não consegui ler essa planilha:\n\n" + (e && e.message ? e.message : e));
+    }
+    input.value = "";
+  };
+  leitor.onerror = () => { alert("Não consegui abrir o arquivo."); input.value = ""; };
+  leitor.readAsArrayBuffer(arq);
+};
+
+// Chave pra reconhecer "a mesma atividade" ao reenviar a planilha da mesma semana (mantém o executado).
+function chaveItemProg(atividade, setor, prog) {
+  const dias = DIAS_SEMANA.filter((d) => prog && prog[d.key] !== "" && prog[d.key] !== undefined && Number(prog[d.key]) !== 0).map((d) => d.key).join(",");
+  return normTxt(atividade) + "|" + setor + "|" + dias;
+}
+
+function aplicarImportacaoProgramacao(res) {
+  const total = res.grupos.reduce((s, g) => s + g.itens.length, 0);
+  if (total === 0) { alert("Não achei nenhuma atividade com dias programados nessa planilha."); return; }
+  const existentes = S.programacao.filter((p) => p.semana === res.semana);
+  if (existentes.length > 0 && !confirm(`A semana ${numeroDaSemana(res.semana)} (${brDate(res.semana)}) já tem ${existentes.length} atividade${existentes.length > 1 ? "s" : ""}.\n\nOK = trocar pela planilha (o que já foi lançado como "executado" é mantido nas atividades que continuam iguais).\nCancelar = não importar nada.`)) return;
+
+  const poolAntigos = new Map();
+  existentes.forEach((old) => { const k = chaveItemProg(old.atividade, old.setor, old.prog); (poolAntigos.get(k) || poolAntigos.set(k, []).get(k)).push(old); });
+  const execZerado = {};
+  DIAS_SEMANA.forEach((d) => { execZerado[d.key] = ""; });
+
+  setSaveStatus("programacao", "saving");
+  const promessas = [];
+  existentes.forEach((old) => promessas.push(deleteDoc(doc(db, "programacao", old.id))));
+  let ordem = 0;
+  res.grupos.forEach((g) => {
+    const nome = (g.atividade || "").trim() || g.atividadeOriginal;
+    g.itens.forEach((it) => {
+      const lista = poolAntigos.get(chaveItemProg(nome, it.setor, it.prog));
+      const antigo = lista && lista.length ? lista.shift() : null;
+      const payload = {
+        semana: res.semana, ordem: ordem++, atividade: nome, area: it.area || "", setor: it.setor,
+        planejadoQtd: "", planejadoUni: "", diasNec: "",
+        quemVaiFazer: it.quemVaiFazer || "", veiculo: it.veiculo || "", implemento: it.implemento || "",
+        produtos: (it.produtos || []).map((p) => ({ nome: p.nome, quantidade: p.quantidade, unidade: p.unidade || "" })),
+        prog: { ...it.prog }, exec: { ...execZerado, ...((antigo && antigo.exec) || {}) },
+      };
+      promessas.push(addDoc(collection(db, "programacao"), payload));
+    });
+  });
+  Promise.all(promessas)
+    .then(() => { if (navigator.onLine) setSaveStatus("programacao", "saved"); })
+    .catch((e) => tratarErroSalvamento("programacao", e));
+
+  const avisos = [];
+  if (!res.temEquipe) avisos.push('Não achei a tabela de "quem vai fazer" — as atividades entraram sem equipe.');
+  if (res.pessoasNaoCadastradas.length) avisos.push(`Nomes que não batem com os colaboradores cadastrados (entraram como estão escritos): ${res.pessoasNaoCadastradas.join(", ")}.`);
+  res.tarefasSemAtividade.forEach((t) => avisos.push(`"${t.tarefa}" (${t.pessoas.join(", ")}) não tem atividade correspondente na programação.`));
+  if (res.ignorados.length) avisos.push(`Sem dias programados, não entraram: ${res.ignorados.join(" · ")}`);
+  res.avisos.forEach((a) => avisos.push(a));
+  S._ultimoImport = { semana: res.semana, total, atividades: res.grupos.length, avisos };
+  S._progSemana = res.semana;
+  S._progAberta = null;
+  S._novaProg = progVazia();
+  S._progView = "atividade";
+  renderProgramacao();
+}
+
+window.fecharResumoImportacao = function () { S._ultimoImport = null; renderProgramacao(); };
+window.irSemanaProg = function (delta) {
+  const d = new Date(S._progSemana + "T00:00:00");
+  d.setDate(d.getDate() + delta);
+  mudarProgSemana(d.toISOString().slice(0, 10));
+};
+
+function renderResumoImportacaoHTML() {
+  const r = S._ultimoImport;
+  if (!r) return "";
+  return `<div class="card" style="border:2px solid #16a34a; background:#f0fdf4;">
+    <div class="row-flex"><b>✅ Planilha importada — semana ${numeroDaSemana(r.semana)}</b><button class="x-btn" onclick="fecharResumoImportacao()">✕</button></div>
+    <div style="font-size:12.5px; margin-top:4px;">${r.total} item${r.total === 1 ? "" : "ns"} em ${r.atividades} atividade${r.atividades === 1 ? "" : "s"}, já montados abaixo.</div>
+    ${r.avisos.length ? `<div style="background:#fef9c3; border-radius:8px; padding:8px 10px; margin-top:8px; font-size:11.5px; color:#713f12;">
+      <b>⚠️ Vale conferir:</b>${r.avisos.map((a) => `<div style="margin-top:4px;">• ${esc(a)}</div>`).join("")}
+    </div>` : ""}
+  </div>`;
+}
+
+// Detalhe de uma atividade da semana (abre ao tocar na linha da tabela): onde lança o executado.
+function renderDetalheProgItem(item) {
+  const { somaProg, somaExec, rendimento } = calcRendimentoProg(item);
+  const cor = corAtividade(item.atividade);
+  return `<div class="card" style="border-left:5px solid ${cor.fg};">
+    <div class="row-flex" style="margin-bottom:8px;">
+      <b style="color:${cor.fg};">${esc(item.atividade) || "(sem nome)"} — ${esc(item.setor)}</b>
+      <button class="x-btn" onclick="toggleProg('${item.id}')">✕</button>
+    </div>
+    <div class="grid grid-2" style="font-size:12.5px; margin-bottom:10px; color:#57534e;">
+      ${item.area ? `<div><b>Área:</b> ${esc(item.area)}</div>` : ""}
+      ${item.veiculo ? `<div><b>Veículo:</b> ${esc(item.veiculo)}</div>` : ""}
+      ${item.implemento ? `<div><b>Implemento:</b> ${esc(item.implemento)}</div>` : ""}
+      <div style="grid-column:span 2;"><b>Quem vai fazer:</b> ${item.quemVaiFazer ? esc(item.quemVaiFazer) : "—"}</div>
+      ${(item.produtos && item.produtos.length) ? `<div style="grid-column:span 2;"><b>Produtos:</b> ${item.produtos.map((p) => `${esc(p.nome)} — ${esc(p.quantidade)} ${esc(p.unidade)}`).join("; ")}</div>` : ""}
+    </div>
+    <div class="tbl-wrap"><table class="tbl" style="min-width:520px;">
+      <thead><tr><th style="text-align:left;"></th>${DIAS_SEMANA.map((d) => `<th>${d.label}</th>`).join("")}</tr></thead>
+      <tbody>
+        <tr><td style="text-align:left; font-weight:600;">Programado</td>${DIAS_SEMANA.map((d) => `<td><input type="number" style="width:52px; text-align:center; padding:5px 2px;" value="${esc(item.prog[d.key])}" oninput="atualizarProgDia('${item.id}','prog','${d.key}',this.value)"/></td>`).join("")}</tr>
+        <tr><td style="text-align:left; font-weight:600;">Executado</td>${DIAS_SEMANA.map((d) => `<td><input class="amarelo" type="number" style="width:52px; text-align:center; padding:5px 2px;" value="${esc(item.exec[d.key])}" oninput="atualizarProgDia('${item.id}','exec','${d.key}',this.value)"/></td>`).join("")}</tr>
+      </tbody>
+    </table></div>
+    <div class="muted" style="font-size:11.5px; margin-top:6px;">Programado na semana: <b>${fmt(somaProg, 1)}</b> · Feito: <b>${fmt(somaExec, 1)}</b> · Rendimento: <b>${fmtPct(rendimento)}</b></div>
+    <div style="text-align:right; margin-top:10px; display:flex; justify-content:flex-end; gap:8px;">
+      <button class="btn ghost" style="width:auto;" onclick="duplicarProgramacao('${item.id}')">📋 Duplicar</button>
+      <button class="btn danger" onclick="removerProgramacao('${item.id}')">🗑️ Excluir</button>
+    </div>
+  </div>`;
+}
+
+// Tabela da semana no mesmo desenho do Excel: atividade (agrupada) | setor | dias | equipe.
+function renderTabelaProgramacaoHTML(itensSemana) {
+  const ordenados = itensSemana.slice().sort((a, b) =>
+    ((a.ordem === undefined ? 9999 : a.ordem) - (b.ordem === undefined ? 9999 : b.ordem))
+    || String(a.atividade || "").localeCompare(String(b.atividade || ""), "pt-BR")
+    || (TALHOES.indexOf(a.setor) - TALHOES.indexOf(b.setor)));
+  if (ordenados.length === 0) {
+    return `<div class="empty">Nenhuma atividade nessa semana ainda.<br>Toca em <b>📥 Enviar planilha do Excel</b> lá em cima.</div>`;
+  }
+  const grupos = [], idxPorAtiv = new Map();
+  ordenados.forEach((it) => {
+    const k = it.atividade || "";
+    if (!idxPorAtiv.has(k)) { idxPorAtiv.set(k, grupos.length); grupos.push({ atividade: k, itens: [] }); }
+    grupos[idxPorAtiv.get(k)].itens.push(it);
+  });
+  const fmtD = (v) => String(v).replace(".", ",");
+  let html = `<div class="card" style="padding:8px;">
+    <div class="muted" style="font-size:11px; margin:0 4px 6px;">Toca numa linha pra ver os detalhes e lançar o executado (✔ = feito).</div>
+    <div class="tbl-wrap"><table class="tbl" style="min-width:700px; font-size:12px;">
+    <thead><tr><th style="text-align:left;">Atividade</th><th>Setor</th>${DIAS_SEMANA.map((d) => `<th>${d.label}</th>`).join("")}<th style="text-align:left;">Equipe</th></tr></thead><tbody>`;
+  grupos.forEach((g) => {
+    const cor = corAtividade(g.atividade);
+    g.itens.forEach((item, i) => {
+      const aberto = S._progAberta === item.id;
+      html += `<tr onclick="toggleProg('${item.id}')" style="cursor:pointer; ${aberto ? "background:#ecfdf5;" : ""}">`;
+      if (i === 0) html += `<td rowspan="${g.itens.length}" style="text-align:left; font-weight:700; vertical-align:top; background:${cor.bg}; color:${cor.fg}; border-left:5px solid ${cor.fg}; min-width:130px;">${esc(g.atividade) || "(sem nome)"}</td>`;
+      html += `<td style="font-weight:700;">${esc(item.setor)}</td>`;
+      DIAS_SEMANA.forEach((d) => {
+        const p = item.prog ? item.prog[d.key] : "", e = item.exec ? item.exec[d.key] : "";
+        const temP = p !== "" && p !== undefined && p !== null && Number(p) !== 0;
+        const temE = e !== "" && e !== undefined && e !== null;
+        html += `<td>${temP ? fmtD(p) : ""}${temE ? `<div style="font-size:10px; color:#a16207;">✔ ${fmtD(e)}</div>` : ""}</td>`;
+      });
+      html += `<td style="text-align:left; font-size:11px; min-width:150px;">${esc(item.quemVaiFazer || "")}</td></tr>`;
+    });
+  });
+  html += `</tbody></table></div></div>`;
+  const aberto = ordenados.find((it) => it.id === S._progAberta);
+  if (aberto) html += renderDetalheProgItem(aberto);
+  return html;
+}
+
 function renderProgramacao() {
   const semanaFim = new Date(S._progSemana + "T00:00:00");
   semanaFim.setDate(semanaFim.getDate() + 6);
   const itensSemana = S.programacao.filter((p) => p.semana === S._progSemana);
   const nv = S._novaProg;
 
+  const fimSemanaISO = semanaFim.toISOString().slice(0, 10);
   let html = `
   <div class="card">
-    <div class="row-flex" style="margin-bottom:8px;">
-      <h3>🗓️ Semana ${numeroDaSemana(S._progSemana)}</h3>
+    <div class="row-flex" style="margin-bottom:4px;">
+      <div style="display:flex; align-items:center; gap:6px;">
+        <button class="btn ghost" style="width:auto; padding:4px 10px;" onclick="irSemanaProg(-7)">◀</button>
+        <h3 style="margin:0;">🗓️ Semana ${numeroDaSemana(S._progSemana)}</h3>
+        <button class="btn ghost" style="width:auto; padding:4px 10px;" onclick="irSemanaProg(7)">▶</button>
+      </div>
       <span id="savingPill-programacao" class="saving-pill"></span>
     </div>
-    <label class="field"><span>Data da segunda-feira</span>
-      <input type="date" value="${esc(S._progSemana)}" onchange="mudarProgSemana(this.value)"/>
-    </label>
-    <div class="muted" style="font-size:11.5px; margin-top:4px;">Semana ${numeroDaSemana(S._progSemana)} — ${brDate(S._progSemana)} até ${brDate(semanaFim.toISOString().slice(0,10))}</div>
+    <div class="muted" style="font-size:11.5px; margin-bottom:10px;">${brDate(S._progSemana)} até ${brDate(fimSemanaISO)}</div>
+    <button class="btn" onclick="escolherArquivoProgramacao()">📥 Enviar planilha do Excel</button>
+    <div class="muted" style="font-size:11px; margin-top:4px;">O app monta a semana inteira igual ao Excel — é só escolher o arquivo.</div>
+    <input type="file" id="inputImportProg" accept=".xlsx,.xlsm,.xls" style="display:none" onchange="lerArquivoProgramacao(this)"/>
     <div style="display:flex; gap:6px; margin-top:10px; flex-wrap:wrap;">
       <button class="btn ${S._progView!=='colaborador'?'':'ghost'}" style="width:auto;" onclick="mudarProgView('atividade')">📋 Por atividade</button>
       <button class="btn ${S._progView==='colaborador'?'':'ghost'}" style="width:auto;" onclick="mudarProgView('colaborador')">👤 Por colaborador</button>
-      ${itensSemana.length > 0 ? `<button class="btn ghost" style="width:auto;" onclick="duplicarSemanaInteira()">📆 Duplicar semana pra próxima (${itensSemana.length})</button>` : ""}
     </div>
-    ${itensSemana.length > 0 ? `<div style="display:flex; gap:6px; margin-top:8px; flex-wrap:wrap;">
+    <details style="margin-top:10px;">
+      <summary style="font-size:12px; color:#78716c; cursor:pointer;">⋯ Mais opções (outra data, duplicar, compartilhar)</summary>
+      <div style="margin-top:8px;">
+        <label class="field"><span>Data da segunda-feira</span>
+          <input type="date" value="${esc(S._progSemana)}" onchange="mudarProgSemana(this.value)"/>
+        </label>
+        <div style="margin-top:8px;">${itensSemana.length > 0 ? `<button class="btn ghost" style="width:auto;" onclick="duplicarSemanaInteira()">📆 Duplicar semana pra próxima (${itensSemana.length})</button>` : ""}</div>
+        ${itensSemana.length > 0 ? `<div style="display:flex; gap:6px; margin-top:8px; flex-wrap:wrap;">
       <button class="btn ghost" style="width:auto; color:#128C7E; border:1px solid #128C7E; font-size:11.5px;" onclick="compartilharProgramacaoAtividadesWhatsapp()">📲 Compartilhar por atividade (texto)</button>
       <button class="btn ghost" style="width:auto; color:#128C7E; border:1px solid #128C7E; font-size:11.5px;" onclick="gerarImagemProgramacaoAtividades()">🖼️ Gerar imagem — Cronograma</button>
       <button class="btn ghost" style="width:auto; color:#128C7E; border:1px solid #128C7E; font-size:11.5px;" onclick="compartilharProgramacaoColaboradorWhatsapp()">📲 Compartilhar por colaborador (texto)</button>
       <button class="btn ghost" style="width:auto; color:#128C7E; border:1px solid #128C7E; font-size:11.5px;" onclick="gerarImagemProgramacaoColaborador()">🖼️ Gerar imagem por colaborador</button>
     </div>` : ""}
+      </div>
+    </details>
   </div>`;
+  html += renderResumoImportacaoHTML();
 
   if (S._progView === "colaborador") {
     html += renderProgramacaoPorColaborador(itensSemana);
@@ -4816,9 +5310,10 @@ function renderProgramacao() {
     return;
   }
 
-  html += `
-  <div class="card">
-    <h3 style="margin-bottom:8px;">➕ Nova atividade programada</h3>
+  let formHtml = "";
+  formHtml += `
+  <details class="card" ${S._progFormAberto ? "open" : ""} ontoggle="S._progFormAberto=this.open">
+    <summary style="font-size:13px; font-weight:700; cursor:pointer; margin-bottom:8px;">➕ Adicionar atividade manualmente</summary>
     <div class="grid grid-2" style="margin-bottom:8px;">
       <label class="field" style="grid-column:span 2;"><span>Atividade</span>
         <select onchange="S._novaProg.atividade=this.value; renderProgramacao();">
@@ -4841,10 +5336,10 @@ function renderProgramacao() {
 
   const infoSetorNv = S.setoresInfo[nv.setor];
   if (nv.setor !== "Sede" && infoSetorNv && infoSetorNv.area) {
-    html += `<button class="btn ghost" style="width:auto; margin-bottom:8px; font-size:11.5px;" onclick="S._novaProg.planejadoQtd='${infoSetorNv.area}'; S._novaProg.planejadoUni='ha'; renderProgramacao();">📥 Usar área do setor ${esc(nv.setor)} (${esc(infoSetorNv.area)} ha)</button>`;
+    formHtml += `<button class="btn ghost" style="width:auto; margin-bottom:8px; font-size:11.5px;" onclick="S._novaProg.planejadoQtd='${infoSetorNv.area}'; S._novaProg.planejadoUni='ha'; renderProgramacao();">📥 Usar área do setor ${esc(nv.setor)} (${esc(infoSetorNv.area)} ha)</button>`;
   }
 
-  html += `<div class="card" style="background:#f0fdf4; margin-bottom:10px; padding:10px;">
+  formHtml += `<div class="card" style="background:#f0fdf4; margin-bottom:10px; padding:10px;">
     <div style="font-size:12px; font-weight:700; color:#166534; margin-bottom:2px;">🗓️ Em quais dias e setores?</div>
     <div class="muted" style="font-size:11px; margin-bottom:8px;">Preenche só os dias que vai fazer. Cada dia já vem com o setor de cima (${esc(nv.setor)}) — mas pode trocar por outro dia a dia, se for passar por setores diferentes (ex: segunda no A3A4, terça no B3B4...). Ao salvar, se usar mais de um setor, o app já separa automaticamente numa programação pra cada um.</div>
     ${DIAS_SEMANA.map(d=>`<div class="grid grid-2" style="gap:8px; margin-bottom:6px; align-items:end;">
@@ -4859,21 +5354,21 @@ function renderProgramacao() {
     </div>`).join("")}
   </div>`;
 
-  html += `<div style="font-size:10px; font-weight:700; text-transform:uppercase; color:#78716c; margin-bottom:6px;">Quem vai fazer</div>
+  formHtml += `<div style="font-size:10px; font-weight:700; text-transform:uppercase; color:#78716c; margin-bottom:6px;">Quem vai fazer</div>
     <div style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:6px;">`;
   if (S.colaboradores.length === 0) {
-    html += `<span class="muted" style="font-size:11.5px;">Nenhum colaborador cadastrado ainda — usa o campo abaixo pra cadastrar.</span>`;
+    formHtml += `<span class="muted" style="font-size:11.5px;">Nenhum colaborador cadastrado ainda — usa o campo abaixo pra cadastrar.</span>`;
   } else {
     const selecionados = pessoasDoItem(nv);
     S.colaboradores.slice().sort((a,b)=>a.nome.localeCompare(b.nome,"pt-BR")).forEach((c) => {
       const marcado = selecionados.includes(c.nome);
-      html += `<label style="display:inline-flex; align-items:center; gap:4px; background:${marcado?'#dcfce7':'#f5f5f4'}; border:1px solid ${marcado?'#86efac':'#e7e5e4'}; border-radius:99px; padding:4px 4px 4px 10px; font-size:11.5px; cursor:pointer;">
+      formHtml += `<label style="display:inline-flex; align-items:center; gap:4px; background:${marcado?'#dcfce7':'#f5f5f4'}; border:1px solid ${marcado?'#86efac':'#e7e5e4'}; border-radius:99px; padding:4px 4px 4px 10px; font-size:11.5px; cursor:pointer;">
         <input type="checkbox" style="margin:0;" ${marcado?"checked":""} onchange="toggleColaboradorNaAtividade('${esc(c.nome)}', this.checked)"/>${esc(c.nome)}
         <button onclick="event.preventDefault(); removerColaborador('${c.id}');" title="Remover colaborador do catálogo" style="background:none; border:none; cursor:pointer; color:#a8a29e; font-weight:900; padding:0 3px;">✕</button>
       </label>`;
     });
   }
-  html += `</div>
+  formHtml += `</div>
     <div style="display:flex; gap:6px; margin-bottom:8px;">
       <input type="text" id="novoColaboradorInput" placeholder="Nome do novo colaborador" style="flex:1; padding:7px 9px; border:1px solid #d6d3d1; border-radius:8px; font-size:13px;" onkeydown="if(event.key==='Enter'){criarColaborador();}"/>
       <button class="btn ghost" style="width:auto;" onclick="criarColaborador()">➕</button>
@@ -4890,12 +5385,12 @@ function renderProgramacao() {
 
   const validacao = validarRendimentoProg(nv);
   if (validacao) {
-    html += validacao.ok
+    formHtml += validacao.ok
       ? `<div class="muted" style="font-size:11.5px; margin-bottom:10px; color:#166534;">✅ Dentro do esperado pelo padrão cadastrado (~${fmt(validacao.esperado,1)} ${esc(validacao.unidade)}).</div>`
       : `<div style="font-size:11.5px; margin-bottom:10px; color:#9a3412; background:#FFEDD5; border-radius:8px; padding:7px 10px;">⚠️ Pelo padrão cadastrado, o esperado seria ~${fmt(validacao.esperado,1)} ${esc(validacao.unidade)} — o planejado está ${validacao.acima ? "acima" : "abaixo"} disso. Confere se está certo.</div>`;
   }
 
-  html += `
+  formHtml += `
     <details style="margin-bottom:10px;">
       <summary style="font-size:12px; color:#78716c; cursor:pointer;">+ Veículo, implemento e produtos (opcional)</summary>
       <div class="grid grid-2" style="margin-top:8px; margin-bottom:8px;">
@@ -4920,65 +5415,10 @@ function renderProgramacao() {
       <button class="btn ghost" style="width:auto; font-size:10.5px; padding:4px 10px;" onclick="S._novaProg.produtos.push({nome:'',quantidade:'',unidade:'L'}); renderProgramacao();">➕ Produto</button>
     </details>
     <button class="btn" onclick="criarProgramacao()">➕ Adicionar à semana</button>
-  </div>`;
+  </details>`;
 
-  if (itensSemana.length === 0) {
-    html += `<div class="empty">Nenhuma atividade programada pra essa semana ainda.</div>`;
-  } else {
-    itensSemana.forEach((item) => {
-      const aberto = S._progAberta === item.id;
-      const { somaProg, somaExec, rendimento } = calcRendimentoProg(item);
-      const cor = corAtividade(item.atividade);
-      html += `<div class="carga-card" style="border-left:5px solid ${cor.fg};">
-        <button class="carga-head" onclick="toggleProg('${item.id}')">
-          <div class="left">
-            <span class="chev" style="transform:rotate(${aberto?"90":"0"}deg); transition:transform .15s; color:#a8a29e;">›</span>
-            <span style="display:inline-block; width:9px; height:9px; border-radius:50%; background:${cor.fg};"></span>
-            <span class="num">${esc(item.atividade) || "(sem nome)"}</span>
-            <span class="badge">${esc(item.setor)}</span>
-            ${item.quemVaiFazer ? `<span class="muted">👤 ${esc(item.quemVaiFazer)}</span>` : ""}
-          </div>
-          <div class="carga-resumo">
-            <div class="resumo-item"><span class="resumo-lbl">Planejado</span><span class="resumo-val" style="font-size:14px;">${esc(item.planejadoQtd)||"—"} ${esc(item.planejadoUni)}</span></div>
-            <div class="resumo-item"><span class="resumo-lbl">Prog. semana</span><span class="resumo-val" style="font-size:14px;">${fmt(somaProg,1)}</span></div>
-            <div class="resumo-item"><span class="resumo-lbl">Feito</span><span class="resumo-val" style="font-size:14px;">${fmt(somaExec,1)}</span></div>
-            <div class="resumo-item"><span class="resumo-lbl">Rendim.</span><span class="resumo-val ${rendimento!==null && rendimento<0.8?'neg':'pos'}" style="font-size:14px;">${fmtPct(rendimento)}</span></div>
-          </div>
-        </button>`;
-
-      if (aberto) {
-        html += `<div class="carga-body">
-          <div class="grid grid-2" style="font-size:12.5px; margin-bottom:12px; color:#57534e;">
-            <div><b>Área:</b> ${esc(item.area)||"—"}</div>
-            <div><b>Dias necessários:</b> ${esc(item.diasNec)||"—"}</div>
-            ${item.veiculo ? `<div><b>Veículo:</b> ${esc(item.veiculo)}</div>` : ""}
-            ${item.implemento ? `<div><b>Implemento:</b> ${esc(item.implemento)}</div>` : ""}
-            ${(item.produtos && item.produtos.length) ? `<div style="grid-column:span 2;"><b>Produtos:</b> ${item.produtos.map(p=>`${esc(p.nome)} — ${esc(p.quantidade)} ${esc(p.unidade)}`).join("; ")}</div>` : ""}
-          </div>
-          <div class="tbl-wrap">
-            <table class="tbl" style="min-width:520px;">
-              <thead><tr><th style="text-align:left;"></th>${DIAS_SEMANA.map(d=>`<th>${d.label}</th>`).join("")}</tr></thead>
-              <tbody>
-                <tr>
-                  <td style="text-align:left; font-weight:600;">Programado</td>
-                  ${DIAS_SEMANA.map(d=>`<td><input type="number" style="width:52px; text-align:center; padding:5px 2px;" value="${esc(item.prog[d.key])}" oninput="atualizarProgDia('${item.id}','prog','${d.key}',this.value)"/></td>`).join("")}
-                </tr>
-                <tr>
-                  <td style="text-align:left; font-weight:600;">Executado</td>
-                  ${DIAS_SEMANA.map(d=>`<td><input class="amarelo" type="number" style="width:52px; text-align:center; padding:5px 2px;" value="${esc(item.exec[d.key])}" oninput="atualizarProgDia('${item.id}','exec','${d.key}',this.value)"/></td>`).join("")}
-                </tr>
-              </tbody>
-            </table>
-          </div>
-          <div style="text-align:right; margin-top:10px; display:flex; justify-content:flex-end; gap:8px;">
-            <button class="btn ghost" style="width:auto;" onclick="duplicarProgramacao('${item.id}')">📋 Duplicar</button>
-            <button class="btn danger" onclick="removerProgramacao('${item.id}')">🗑️ Excluir atividade</button>
-          </div>
-        </div>`;
-      }
-      html += `</div>`;
-    });
-  }
+  html += renderTabelaProgramacaoHTML(itensSemana);
+  html += formHtml;
 
   document.getElementById("tabContent").innerHTML = html;
   setSaveStatus("programacao", S.saveStatus.programacao);

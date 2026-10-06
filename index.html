@@ -265,7 +265,7 @@
       <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
     </div>
     <div class="header-linha2">
-      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v135</span>
+      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v136</span>
       <div class="spacer"></div>
       <span id="backupPill" class="backup-pill"></span>
       <button class="btn-export" onclick="exportarExcel()">⬇️ Excel</button>
@@ -1881,6 +1881,7 @@ function montarLinhasResumoCargaVerde(carga) {
   if (carga.nfCte) linhas.push(["NF/CT-e", carga.nfCte]);
   if (mediaAgua !== null) linhas.push(["Amostra de água", `${fmt(mediaAgua,1)} ml`]);
   linhas.push(["Quantidade", `${fmt(Number(carga.quantidadeTotal) || 0, 0)} frutos`]);
+  if (Number(carga.cocoSecoQtd) || Number(carga.cocoSecoKg)) linhas.push(["Coco seco junto", `${fmt(Number(carga.cocoSecoQtd) || 0, 0)} unid · ${fmt(Number(carga.cocoSecoKg) || 0, 1)} kg`]);
   return linhas;
 }
 
@@ -1900,7 +1901,8 @@ window.compartilharCargaVerdeWhatsapp = async function (cargaId) {
     (carga.horarioSaida ? `Saída: ${carga.horarioSaida}\n` : "") +
     (carga.nfCte ? `NF/CT-e: ${carga.nfCte}\n` : "") +
     (mediaAgua !== null ? `Água (amostra): ${fmt(mediaAgua,1)} ml\n` : "") +
-    `Quantidade: ${fmt(Number(carga.quantidadeTotal) || 0, 0)} frutos`;
+    `Quantidade: ${fmt(Number(carga.quantidadeTotal) || 0, 0)} frutos` +
+    ((Number(carga.cocoSecoQtd) || Number(carga.cocoSecoKg)) ? `\nCoco seco junto: ${fmt(Number(carga.cocoSecoQtd) || 0, 0)} unid · ${fmt(Number(carga.cocoSecoKg) || 0, 1)} kg` : "");
 
   const fotos = fotosDaCarga(cargaId);
   let arquivos = [];
@@ -2257,6 +2259,7 @@ function renderCargaVerdeCard(carga) {
         </div>
       </div>
       ${carga.quantidadeTotal ? `<div class="muted" style="font-size:12px; margin-top:4px;">Quantidade: <b style="color:#292524;">${fmt(Number(carga.quantidadeTotal),0)} frutos</b>${carga.setor ? ` — Setor ${esc(carga.setor)}` : ""}</div>` : ""}
+      ${(Number(carga.cocoSecoQtd) || Number(carga.cocoSecoKg)) ? `<div class="muted" style="font-size:12px; margin-top:2px;">🥥 Coco seco junto: <b style="color:#292524;">${fmt(Number(carga.cocoSecoQtd) || 0, 0)} unid · ${fmt(Number(carga.cocoSecoKg) || 0, 1)} kg</b></div>` : ""}
     </button>`;
 
   if (aberto) {
@@ -2284,6 +2287,12 @@ function renderCargaVerdeCard(carga) {
             ${TALHOES.map(t=>`<option value="${t}" ${carga.setor===t?"selected":""}>${t}</option>`).join("")}
           </select>
         </label>
+      </div>`;
+
+    html += `<div style="font-size:11px; font-weight:700; text-transform:uppercase; color:#78716c; margin-bottom:6px;">🥥 Coco seco junto na carga <span style="font-weight:400; text-transform:none;">(só se o cliente pediu)</span></div>
+      <div class="grid grid-2" style="margin-bottom:14px;">
+        <label class="field"><span>Quantidade (unid)</span><input type="number" inputmode="numeric" value="${esc(carga.cocoSecoQtd)}" oninput="atualizarCargaVerde('${carga.id}','cocoSecoQtd',this.value)"/></label>
+        <label class="field"><span>Peso (kg)</span><input type="number" inputmode="decimal" value="${esc(carga.cocoSecoKg)}" oninput="atualizarCargaVerde('${carga.id}','cocoSecoKg',this.value)"/></label>
       </div>`;
 
     const amostras = carga.amostrasAgua || [];
@@ -3907,6 +3916,9 @@ function calcIndicadoresMes(mes) {
   // resto (misturar kg com frutos não faria sentido nenhum).
   const cargasVerdeMes = S.cargasVerde.filter((c) => (c.data || "").slice(0, 7) === mes);
   const producaoVerdeFrutos = cargasVerdeMes.reduce((s, c) => s + (Number(c.quantidadeTotal) || 0), 0);
+  // Coco seco que foi junto nas cargas verdes (cliente pediu) — separado, não entra na produção do seco.
+  const cocoSecoVerdeQtd = cargasVerdeMes.reduce((s, c) => s + (Number(c.cocoSecoQtd) || 0), 0);
+  const cocoSecoVerdeKg = cargasVerdeMes.reduce((s, c) => s + (Number(c.cocoSecoKg) || 0), 0);
   const porAreaVerde = {};
   cargasVerdeMes.forEach((c) => {
     const t = c.setor || "—";
@@ -3924,7 +3936,7 @@ function calcIndicadoresMes(mes) {
     porAreaVerdeContagem[t] = (porAreaVerdeContagem[t] || 0) + (Number(l.total) || 0);
   });
 
-  return { producaoKg, expedidoKg, descarteKg, brotoPctMedio, porArea, nBagsProduzidos: bagsProduzidos.length, nBagsExpedidos: bagsExpedidos.length, producaoVerdeFrutos, porAreaVerde, nCargasVerde: cargasVerdeMes.length, producaoVerdeContagem, porAreaVerdeContagem };
+  return { producaoKg, expedidoKg, descarteKg, brotoPctMedio, porArea, nBagsProduzidos: bagsProduzidos.length, nBagsExpedidos: bagsExpedidos.length, producaoVerdeFrutos, porAreaVerde, nCargasVerde: cargasVerdeMes.length, producaoVerdeContagem, porAreaVerdeContagem, cocoSecoVerdeQtd, cocoSecoVerdeKg };
 }
 
 function calcEstoqueAtual() {
@@ -4102,7 +4114,7 @@ function montarTextoResumoDia() {
   const verdesHoje = S.cargasVerde.filter((c) => c.data === hoje);
   if (verdesHoje.length > 0) {
     L.push("", "🌴 *Romaneio verde*");
-    verdesHoje.forEach((c) => L.push(`• Carga Nº ${c.numero}: ${fmt(Number(c.quantidadeTotal) || 0, 0)} frutos${c.setor ? " (" + c.setor + ")" : ""}`));
+    verdesHoje.forEach((c) => L.push(`• Carga Nº ${c.numero}: ${fmt(Number(c.quantidadeTotal) || 0, 0)} frutos${c.setor ? " (" + c.setor + ")" : ""}${(Number(c.cocoSecoQtd) || Number(c.cocoSecoKg)) ? ` + coco seco ${fmt(Number(c.cocoSecoQtd) || 0, 0)} unid / ${fmt(Number(c.cocoSecoKg) || 0, 1)} kg` : ""}`));
   }
 
   // Descasca manual de hoje, por pessoa
@@ -4573,6 +4585,7 @@ function renderIndicadores() {
       <div class="stat-box ico"><div class="stat-ic">${icoCocoVerde(20)}</div><div><div class="lbl">Total de frutos (cargas)</div><div class="val">${fmt(atual.producaoVerdeFrutos,0)}</div></div></div>
       <div class="stat-box ico azul"><div class="stat-ic azul">🚛</div><div><div class="lbl">Cargas verdes</div><div class="val">${atual.nCargasVerde}</div></div></div>
     </div>
+    ${(atual.cocoSecoVerdeQtd || atual.cocoSecoVerdeKg) ? `<div class="muted" style="font-size:12px; margin-top:10px;">🥥 Coco seco que foi junto nas cargas verdes: <b style="color:#292524;">${fmt(atual.cocoSecoVerdeQtd, 0)} unid · ${fmt(atual.cocoSecoVerdeKg, 1)} kg</b></div>` : ""}
   </div>
 
   <div class="card">
@@ -7375,6 +7388,7 @@ function montarLinhasRomaneioVerde() {
       "Motorista": carga.motorista, "Telefone Motorista": carga.telefoneMotorista, "Placa": carga.placa,
       "Cliente": carga.cliente, "Município": carga.municipio, "Estado": carga.estado, "Horário Saída": carga.horarioSaida, "NF/CT-e": carga.nfCte,
       "Setor de Origem": carga.setor || "", "Quantidade Total (frutos)": carga.quantidadeTotal,
+      "Coco Seco junto (unid)": carga.cocoSecoQtd, "Coco Seco junto (kg)": carga.cocoSecoKg,
       "Média Água (ml)": mediaAgua !== "" ? Number(mediaAgua.toFixed(1)) : "",
     };
   });

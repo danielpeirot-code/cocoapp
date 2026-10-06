@@ -265,7 +265,7 @@
       <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
     </div>
     <div class="header-linha2">
-      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v122</span>
+      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v123</span>
       <div class="spacer"></div>
       <span id="backupPill" class="backup-pill"></span>
       <button class="btn-export" onclick="exportarExcel()">⬇️ Excel</button>
@@ -587,7 +587,14 @@ onAuthStateChanged(auth, (user) => {
   }, (err) => console.error(err));
 
   onSnapshot(collection(db, "descartes"), (snap) => {
-    S.registrosDescarte = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    S.registrosDescarte = snap.docs.map((d) => {
+      const r = { id: d.id, ...d.data() };
+      // Descartes salvos antes de uma categoria nova existir (ex: "Rachados") não têm essa chave —
+      // completa aqui, uma vez só, pra Indicadores, Excel e o resto nunca darem erro ao ler.
+      if (!r.cats) r.cats = {};
+      CATS_DESCARTES.forEach((cat) => { if (!r.cats[cat.key]) r.cats[cat.key] = { kg: "", unid: "" }; });
+      return r;
+    });
     setSaveStatus("descartes", "saved");
     if (snap.metadata.hasPendingWrites) return;
     if (S.currentTab === "romaneio" || S.currentTab === "dashboard") renderTab(); // Descartes agora vive dentro da aba Romaneio

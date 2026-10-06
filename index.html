@@ -265,7 +265,7 @@
       <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
     </div>
     <div class="header-linha2">
-      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v126</span>
+      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v128</span>
       <div class="spacer"></div>
       <span id="backupPill" class="backup-pill"></span>
       <button class="btn-export" onclick="exportarExcel()">⬇️ Excel</button>
@@ -4961,6 +4961,7 @@ function parsearCronogramaExcel(XLSX, wb, ctx) {
   const grupos = new Map(); // chave atividade||setor
   const porAtividade = new Map(); // atividadeOriginal -> { produtos: [...] , linhas: [...] }
   const ignorados = [];
+  const setoresDesconhecidos = new Set();
   let ultAtiv = "";
   for (let r = rSub + 1; r <= rg.e.r; r++) {
     const ativ = textoLimpo(val(r, colAtiv));
@@ -4968,9 +4969,14 @@ function parsearCronogramaExcel(XLSX, wb, ctx) {
     const setorRaw = textoLimpo(bruto(r, colSetor));
     if (!setorRaw || !ultAtiv) continue;
     const setorNorm = setorRaw.toUpperCase().replace(/\s+/g, "");
-    const setorApp = setorNorm === "SEDE" ? "Sede" : MAP_SETOR_EXCEL[setorNorm];
+    let setorApp = setorNorm === "SEDE" ? "Sede" : MAP_SETOR_EXCEL[setorNorm];
     const atividade = ativ || ultAtiv;
-    if (!setorApp) { avisos.push(`Linha ${r + 1}: setor "${setorRaw}" não reconhecido — ignorei.`); continue; }
+    if (!setorApp) {
+      // Setor que o app não conhece (ex: uma área nova): entra do jeito que está escrito na planilha,
+      // em vez de ficar de fora — e avisa uma vez só, pra conferir se não foi erro de digitação.
+      setorApp = setorRaw.trim();
+      if (!setoresDesconhecidos.has(setorApp)) { setoresDesconhecidos.add(setorApp); avisos.push(`Setor "${setorApp}" não é um dos conhecidos (A3A4, B3B4, C1C2, C3C4, D1–D4, Sede) — entrou como está escrito. Se foi erro de digitação, corrija na planilha e envie de novo.`); }
+    }
 
     const dias = {};
     Object.entries(colDia).forEach(([k, c]) => { const n = numeroDaCelula(bruto(r, c)); if (n && n > 0) dias[k] = n; });
@@ -5062,17 +5068,44 @@ function parsearCronogramaExcel(XLSX, wb, ctx) {
     if (itens.length) resultado.push({ atividadeOriginal, atividade: sugestao, itens });
   });
 
-  // tarefas da equipe que não casaram com nenhuma atividade programada
-  const tarefasSemAtividade = {};
-  if (blocoEquipe) blocoEquipe.pessoas.forEach((p) => Object.entries(p.tarefas).forEach(([dia, tarefa]) => {
-    const casou = resultado.some((g) => tarefaCombinaComAtividade(tarefa, g.atividadeOriginal));
-    if (!casou) { const k = tarefa; (tarefasSemAtividade[k] = tarefasSemAtividade[k] || new Set()).add(tituloSeTodoMaiusculo(p.nome, true)); }
-  }));
+  // Tarefas que aparecem só na tabela da equipe, sem linha de atividade com quantidade (ex: "Destalar",
+  // "colchão"): o app cria a atividade sozinho, sem quantidade (marcada com ●), pra a pessoa não ficar
+  // em branco no dia em que faz isso.
+  const tarefasCriadas = [];
+  if (blocoEquipe) {
+    const porTarefa = new Map();
+    blocoEquipe.pessoas.forEach((p) => Object.entries(p.tarefas).forEach(([dia, tarefa]) => {
+      if (resultado.some((g) => tarefaCombinaComAtividade(tarefa, g.atividadeOriginal))) return;
+      const k = normTxt(tarefa);
+      if (!k) return;
+      const t = porTarefa.get(k) || { nome: tarefa, dias: {} };
+      (t.dias[dia] = t.dias[dia] || []).push(nomePessoaFinal(p.nome));
+      porTarefa.set(k, t);
+    }));
+    porTarefa.forEach((t) => {
+      const nomeAtiv = t.nome.charAt(0).toUpperCase() + t.nome.slice(1);
+      const equipes = new Map();
+      DIAS_SEMANA.forEach((d) => {
+        const nomes = t.dias[d.key];
+        if (!nomes) return;
+        const chave = nomes.slice().sort().join("|");
+        const eq = equipes.get(chave) || { nomes, dias: {} };
+        eq.dias[d.key] = 1;
+        equipes.set(chave, eq);
+      });
+      const itens = [];
+      equipes.forEach((eq) => {
+        const prog = {}; DIAS_SEMANA.forEach((d) => { prog[d.key] = eq.dias[d.key] !== undefined ? eq.dias[d.key] : ""; });
+        itens.push({ setor: "Geral", area: "", veiculo: "", implemento: "", produtos: [], quemVaiFazer: eq.nomes.join(", "), prog, semQuantidade: true });
+      });
+      if (itens.length) { resultado.push({ atividadeOriginal: t.nome, atividade: acharNomeParecido(t.nome, nomesAtividadeApp) || nomeAtiv, itens }); tarefasCriadas.push(nomeAtiv); }
+    });
+  }
 
   return {
     semana, semanaOrigem, grupos: resultado, avisos, ignorados,
     pessoasNaoCadastradas: [...pessoasNaoCadastradas],
-    tarefasSemAtividade: Object.entries(tarefasSemAtividade).map(([tarefa, set]) => ({ tarefa, pessoas: [...set] })),
+    tarefasCriadas, tarefasSemAtividade: [],
     temEquipe: !!blocoEquipe,
   };
 }
@@ -5146,6 +5179,7 @@ function aplicarImportacaoProgramacao(res) {
         quemVaiFazer: it.quemVaiFazer || "", veiculo: it.veiculo || "", implemento: it.implemento || "",
         produtos: (it.produtos || []).map((p) => ({ nome: p.nome, quantidade: p.quantidade, unidade: p.unidade || "" })),
         prog: { ...it.prog }, exec: { ...execZerado, ...((antigo && antigo.exec) || {}) },
+        ...(it.semQuantidade ? { semQuantidade: true } : {}),
       };
       promessas.push(addDoc(collection(db, "programacao"), payload));
     });
@@ -5157,7 +5191,7 @@ function aplicarImportacaoProgramacao(res) {
   const avisos = [];
   if (!res.temEquipe) avisos.push('Não achei a tabela de "quem vai fazer" — as atividades entraram sem equipe.');
   if (res.pessoasNaoCadastradas.length) avisos.push(`Nomes que não batem com os colaboradores cadastrados (entraram como estão escritos): ${res.pessoasNaoCadastradas.join(", ")}.`);
-  res.tarefasSemAtividade.forEach((t) => avisos.push(`"${t.tarefa}" (${t.pessoas.join(", ")}) não tem atividade correspondente na programação.`));
+  if (res.tarefasCriadas.length) avisos.push(`Criei também ${res.tarefasCriadas.map((t) => `"${t}"`).join(" e ")} (só aparecem na tabela da equipe, sem linha de atividade) — ficam sem quantidade, marcadas com ●.`);
   if (res.ignorados.length) avisos.push(`Sem dias programados, não entraram: ${res.ignorados.join(" · ")}`);
   res.avisos.forEach((a) => avisos.push(a));
   S._ultimoImport = { semana: res.semana, total, atividades: res.grupos.length, avisos };
@@ -5200,6 +5234,7 @@ function renderDetalheProgItem(item) {
       ${item.area ? `<div><b>Área:</b> ${esc(item.area)}</div>` : ""}
       ${item.veiculo ? `<div><b>Veículo:</b> ${esc(item.veiculo)}</div>` : ""}
       ${item.implemento ? `<div><b>Implemento:</b> ${esc(item.implemento)}</div>` : ""}
+      ${item.semQuantidade ? `<div style="grid-column:span 2; font-size:11.5px; color:#78716c;">● Sem quantidade: só marca em quais dias isso está programado (o "1" dos dias é só um marcador).</div>` : ""}
       <div style="grid-column:span 2;"><b>Quem vai fazer:</b> ${item.quemVaiFazer ? esc(item.quemVaiFazer) : "—"}</div>
       ${(item.produtos && item.produtos.length) ? `<div style="grid-column:span 2;"><b>Produtos:</b> ${item.produtos.map((p) => `${esc(p.nome)} — ${esc(p.quantidade)} ${esc(p.unidade)}`).join("; ")}</div>` : ""}
     </div>
@@ -5249,7 +5284,7 @@ function renderTabelaProgramacaoHTML(itensSemana) {
         const p = item.prog ? item.prog[d.key] : "", e = item.exec ? item.exec[d.key] : "";
         const temP = p !== "" && p !== undefined && p !== null && Number(p) !== 0;
         const temE = e !== "" && e !== undefined && e !== null;
-        html += `<td>${temP ? fmtD(p) : ""}${temE ? `<div style="font-size:10px; color:#a16207;">✔ ${fmtD(e)}</div>` : ""}</td>`;
+        html += `<td>${temP ? (item.semQuantidade ? "●" : fmtD(p)) : ""}${temE ? `<div style="font-size:10px; color:#a16207;">✔ ${fmtD(e)}</div>` : ""}</td>`;
       });
       html += `<td style="text-align:left; font-size:11px; min-width:150px;">${esc(item.quemVaiFazer || "")}</td></tr>`;
     });

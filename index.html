@@ -265,7 +265,7 @@
       <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
     </div>
     <div class="header-linha2">
-      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v134</span>
+      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v135</span>
       <div class="spacer"></div>
       <span id="backupPill" class="backup-pill"></span>
       <button class="btn-export" onclick="exportarExcel()">⬇️ Excel</button>
@@ -2564,12 +2564,12 @@ function renderContagemInner() {
   const mapaCiclo = construirMapaUltimasContagens();
   const statusLinhaA = linhaDisponivelParaContar(ctg.tipo, ctg.setor, ctg.numLinha, mapaCiclo);
   html += !statusLinhaA.disponivel
-    ? `<div style="font-size:11.5px; margin-bottom:8px; color:#9a3412; background:#FFEDD5; border-radius:8px; padding:6px 10px;">🟠 Linha ${esc(ctg.numLinha)} ainda descansando — faltam ${statusLinhaA.diasFaltam} dia${statusLinhaA.diasFaltam>1?"s":""}.</div>`
+    ? `<div style="font-size:11.5px; margin-bottom:8px; color:#9a3412; background:#FFEDD5; border-radius:8px; padding:6px 10px;">🟠 Linha ${esc(ctg.numLinha)} ainda descansando — faltam ${statusLinhaA.diasFaltam} dia${statusLinhaA.diasFaltam>1?"s":""}. Se for urgência, dá pra salvar mesmo assim (pede a senha do supervisor e fica marcado como colheita antecipada).</div>`
     : "";
   if (modoDuasLinhas) {
     const statusLinhaB = linhaDisponivelParaContar(ctg.tipo, ctg.setor, ctg.numLinhaB, mapaCiclo);
     html += !statusLinhaB.disponivel
-      ? `<div style="font-size:11.5px; margin-bottom:8px; color:#9a3412; background:#FFEDD5; border-radius:8px; padding:6px 10px;">🟠 Linha ${esc(ctg.numLinhaB)} ainda descansando — faltam ${statusLinhaB.diasFaltam} dia${statusLinhaB.diasFaltam>1?"s":""}.</div>`
+      ? `<div style="font-size:11.5px; margin-bottom:8px; color:#9a3412; background:#FFEDD5; border-radius:8px; padding:6px 10px;">🟠 Linha ${esc(ctg.numLinhaB)} ainda descansando — faltam ${statusLinhaB.diasFaltam} dia${statusLinhaB.diasFaltam>1?"s":""}. Se for urgência, dá pra salvar mesmo assim (pede a senha do supervisor e fica marcado como colheita antecipada).</div>`
       : "";
   }
 
@@ -2901,6 +2901,17 @@ function linhaDisponivelParaContar(tipo, setor, numero, mapaPronto) {
   return statusCicloLinhaComMapa(mapa, tipo, setor, numero);
 }
 
+// Urgência: colher uma linha que ainda está descansando. Pede confirmação + senha do supervisor
+// e a contagem fica marcada como "colheita antecipada" (aparece com ⚡ na aba Colheita e no Excel).
+// O descanso dessa linha passa a contar de novo a partir da data dessa contagem.
+function liberarColheitaAntecipada(linhasEmDescanso) {
+  const lista = linhasEmDescanso.map((x) => `Linha ${x.linha}: faltam ${x.faltam} dia${x.faltam > 1 ? "s" : ""}`).join("\n");
+  if (!confirm(`Ainda está no descanso (ciclo de ${CICLO_COLHEITA_DIAS} dias):\n\n${lista}\n\nSe for urgência e precisa colher agora, toque em OK — vai pedir a senha do supervisor e a contagem fica marcada como "colheita antecipada". O descanso dessa linha recomeça a contar de hoje.\n\nCancelar = não contar.`)) return false;
+  let liberado = false;
+  pedirSenha(() => { liberado = true; });
+  return liberado;
+}
+
 window.salvarLinhaContagem = function () {
   const ctg = S.contagem;
   if (!ctg.numLinha) return;
@@ -2912,13 +2923,11 @@ window.salvarLinhaContagem = function () {
   }
 
   const status = linhaDisponivelParaContar(ctg.tipo, ctg.setor, ctg.numLinha);
-  if (!status.disponivel) {
-    alert(`Essa linha (${ctg.numLinha}) ainda está descansando — faltam ${status.diasFaltam} dia${status.diasFaltam>1?"s":""} pra completar o ciclo de ${CICLO_COLHEITA_DIAS} dias. Não dá pra contar de novo antes disso.`);
-    return;
-  }
+  const antecipada = !status.disponivel;
+  if (antecipada && !liberarColheitaAntecipada([{ linha: ctg.numLinha, faltam: status.diasFaltam }])) return;
 
   const total = ctg.valores.reduce((s, v) => s + (Number(v) || 0), 0);
-  const payload = { tipo: ctg.tipo, setor: ctg.setor, numero: ctg.numLinha, valores: [...ctg.valores], total, data: ctg.dataContagem || todayISO() };
+  const payload = { tipo: ctg.tipo, setor: ctg.setor, numero: ctg.numLinha, valores: [...ctg.valores], total, data: ctg.dataContagem || todayISO(), ...(antecipada ? { antecipada: true, diasAntecipados: status.diasFaltam } : {}) };
   // Avança pra próxima linha sozinho (se o número for numérico). No Híbrido e Anão Seco a
   // contagem é por amostra de 5 em 5 (5, 10, 15...) — então avança de 5 em 5, não linha a linha.
   const configAtual = TIPOS_CONTAGEM[ctg.tipo];
@@ -2996,12 +3005,12 @@ window.salvarDuasLinhasContagem = function () {
 
   const statusA = temA ? linhaDisponivelParaContar(ctg.tipo, ctg.setor, ctg.numLinha) : null;
   const statusB = temB ? linhaDisponivelParaContar(ctg.tipo, ctg.setor, ctg.numLinhaB) : null;
-  if ((statusA && !statusA.disponivel) || (statusB && !statusB.disponivel)) {
-    const avisos = [];
-    if (statusA && !statusA.disponivel) avisos.push(`Linha ${ctg.numLinha}: faltam ${statusA.diasFaltam} dia${statusA.diasFaltam>1?"s":""}`);
-    if (statusB && !statusB.disponivel) avisos.push(`Linha ${ctg.numLinhaB}: faltam ${statusB.diasFaltam} dia${statusB.diasFaltam>1?"s":""}`);
-    alert("Essa linha ainda está descansando — não dá pra contar antes de completar os 21 dias:\n\n" + avisos.join("\n"));
-    return;
+  const aDescanso = !!(statusA && !statusA.disponivel), bDescanso = !!(statusB && !statusB.disponivel);
+  if (aDescanso || bDescanso) {
+    const emDescanso = [];
+    if (aDescanso) emDescanso.push({ linha: ctg.numLinha, faltam: statusA.diasFaltam });
+    if (bDescanso) emDescanso.push({ linha: ctg.numLinhaB, faltam: statusB.diasFaltam });
+    if (!liberarColheitaAntecipada(emDescanso)) return;
   }
 
   const dataEscolhida = ctg.dataContagem || todayISO();
@@ -3010,13 +3019,13 @@ window.salvarDuasLinhasContagem = function () {
 
   if (temA) {
     const totalA = ctg.valores.reduce((s, v) => s + (Number(v) || 0), 0);
-    const payloadA = { tipo: ctg.tipo, setor: ctg.setor, numero: ctg.numLinha, valores: [...ctg.valores], total: totalA, data: dataEscolhida };
+    const payloadA = { tipo: ctg.tipo, setor: ctg.setor, numero: ctg.numLinha, valores: [...ctg.valores], total: totalA, data: dataEscolhida, ...(aDescanso ? { antecipada: true, diasAntecipados: statusA.diasFaltam } : {}) };
     const refA = doc(collection(db, "contagemLinhas"));
     novosRegistros.push([refA, payloadA]);
   }
   if (temB) {
     const totalB = ctg.valoresB.reduce((s, v) => s + (Number(v) || 0), 0);
-    const payloadB = { tipo: ctg.tipo, setor: ctg.setor, numero: ctg.numLinhaB, valores: [...ctg.valoresB], total: totalB, data: dataEscolhida };
+    const payloadB = { tipo: ctg.tipo, setor: ctg.setor, numero: ctg.numLinhaB, valores: [...ctg.valoresB], total: totalB, data: dataEscolhida, ...(bDescanso ? { antecipada: true, diasAntecipados: statusB.diasFaltam } : {}) };
     const refB = doc(collection(db, "contagemLinhas"));
     novosRegistros.push([refB, payloadB]);
   }
@@ -3340,13 +3349,15 @@ function renderColheitaInner() {
       ${filaEntrada.length > TOP_FILA ? `<div class="muted" style="font-size:11px; margin-top:2px;">+ ${filaEntrada.length - TOP_FILA} outras disponíveis</div>` : ""}
     </div>` : ""}
     ${semRegistro.length > 0 ? `<div class="muted" style="font-size:11px; margin-bottom:8px;">Sem colheita registrada: ${semRegistro.map((x) => x.linha).join(", ")}</div>` : ""}
-    <div class="muted" style="font-size:11px; margin-bottom:8px;">🟢 disponível — 🟠 descansando (dias que faltam pro ciclo de ${CICLO_COLHEITA_DIAS} dias)</div>
+    <div class="muted" style="font-size:11px; margin-bottom:8px;">🟢 disponível — 🟠 descansando (dias que faltam pro ciclo de ${CICLO_COLHEITA_DIAS} dias) — ⚡ última colheita foi antecipada (urgência)</div>
     <div style="display:flex; flex-wrap:wrap; gap:5px;">`;
+  const antecipadas = new Set(S.contagemLinhas.filter((l) => l.tipo === tipo && l.setor === setor && l.antecipada).map((l) => String(l.numero) + "|" + l.data));
   statusLinhas.forEach(({ linha, st }) => {
     const cor = st.disponivel ? "#C6EFCE" : "#FED7AA";
     const corTexto = st.disponivel ? "#065f46" : "#9a3412";
-    html += `<div title="${st.ultima ? "Última contagem: " + brDate(st.ultima) : "Nunca contada"}" style="background:${cor}; color:${corTexto}; border-radius:6px; padding:4px 6px; font-size:10.5px; font-weight:700; min-width:30px; text-align:center;">
-      ${linha}${!st.disponivel ? `<div style="font-size:8.5px; font-weight:600;">${st.diasFaltam}d</div>` : ""}
+    const foiAntecipada = st.ultima && antecipadas.has(String(linha) + "|" + st.ultima);
+    html += `<div title="${st.ultima ? "Última contagem: " + brDate(st.ultima) + (foiAntecipada ? " (colheita antecipada)" : "") : "Nunca contada"}" style="background:${cor}; color:${corTexto}; border-radius:6px; padding:4px 6px; font-size:10.5px; font-weight:700; min-width:30px; text-align:center;">
+      ${linha}${foiAntecipada ? "⚡" : ""}${!st.disponivel ? `<div style="font-size:8.5px; font-weight:600;">${st.diasFaltam}d</div>` : ""}
     </div>`;
   });
   html += `</div></div>`;
@@ -7519,6 +7530,7 @@ function montarLinhasColheita() {
 function montarLinhasContagem() {
   return S.contagemLinhas.map((l) => ({
     "Tipo": l.tipo, "Setor": l.setor, "Linha": l.numero, "Nº Plantas": l.valores.length, "Total Frutas": l.total,
+    "Data": l.data, "Colheita antecipada": l.antecipada ? `Sim (${l.diasAntecipados} dia${l.diasAntecipados > 1 ? "s" : ""} antes)` : "",
   }));
 }
 

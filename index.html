@@ -265,7 +265,7 @@
       <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
     </div>
     <div class="header-linha2">
-      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v132</span>
+      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v134</span>
       <div class="spacer"></div>
       <span id="backupPill" class="backup-pill"></span>
       <button class="btn-export" onclick="exportarExcel()">⬇️ Excel</button>
@@ -655,7 +655,7 @@ onAuthStateChanged(auth, (user) => {
   onSnapshot(collection(db, "colaboradores"), (snap) => {
     S.colaboradores = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     if (snap.metadata.hasPendingWrites) return;
-    if (S.currentTab === "programacao") renderTab();
+    if (S.currentTab === "programacao" || S.currentTab === "configuracoes") renderTab();
   }, (err) => console.error(err));
 
   onSnapshot(collection(db, "receitas"), (snap) => {
@@ -4327,6 +4327,34 @@ function renderConfiguracoes() {
     </div>
   </div>`;
 
+  const cadastradosColab = S.colaboradores.slice().sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
+  const jaCadastrados = new Set(S.colaboradores.map((c) => c.nome.toLowerCase()));
+  const pendentesColab = (S._nomesPendentesCadastro || []).filter((n) => !jaCadastrados.has(n.toLowerCase()));
+  html += `<div class="card" id="cardColaboradores">
+    <h3 style="margin-bottom:4px; font-size:13px;">👤 Colaboradores (${cadastradosColab.length})</h3>
+    <div class="muted" style="font-size:11.5px; margin-bottom:10px;">Os nomes cadastrados aqui aparecem na lista da Descasca Manual e são os que o app usa pra reconhecer as pessoas da planilha de programação.</div>
+    ${pendentesColab.length ? `<div style="background:#fef9c3; border-radius:8px; padding:10px; margin-bottom:10px; font-size:12px; color:#713f12;">
+      <b>Nomes da última planilha que ainda não estão cadastrados:</b>
+      <div style="margin-top:4px; line-height:1.5;">${pendentesColab.map(esc).join(", ")}</div>
+      <button class="btn" style="width:auto; margin-top:8px;" onclick="cadastrarNomesDaPlanilha()">➕ Cadastrar esses ${pendentesColab.length}</button>
+    </div>` : ""}
+    <div style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px;">
+      ${cadastradosColab.length ? cadastradosColab.map((c) => `<span style="display:inline-flex; align-items:center; gap:6px; background:#f5f5f4; border:1px solid #e7e5e4; border-radius:20px; padding:5px 6px 5px 12px; font-size:13.5px;">${esc(c.nome)}<button onclick="removerColaborador('${c.id}')" title="Remover do cadastro" style="background:none; border:none; cursor:pointer; color:#a8a29e; font-size:15px; padding:0 4px;">✕</button></span>`).join("") : `<span class="muted" style="font-size:12px;">Nenhum colaborador cadastrado ainda.</span>`}
+    </div>
+    <div style="display:flex; gap:6px; margin-bottom:8px;">
+      <input type="text" id="novoColaboradorInput" placeholder="Nome do novo colaborador" style="flex:1; padding:9px 10px; border:1px solid #d6d3d1; border-radius:8px; font-size:14px;"/>
+      <button class="btn ghost" style="width:auto;" onclick="criarColaborador()">➕ Cadastrar</button>
+    </div>
+    <details>
+      <summary style="font-size:12px; color:#78716c; cursor:pointer;">📋 Cadastrar vários de uma vez (um nome por linha)</summary>
+      <div style="margin-top:8px;">
+        <textarea id="importarColaboradoresTexto" rows="5" placeholder="Um nome por linha&#10;João Silva&#10;Maria Souza" style="width:100%; padding:8px 10px; border:1px solid #d6d3d1; border-radius:8px; font-size:14px;"></textarea>
+        <button class="btn ghost" style="width:auto; margin-top:8px;" onclick="importarColaboradores()">📋 Cadastrar todos</button>
+      </div>
+    </details>
+    <div class="muted" style="font-size:10.5px; margin-top:8px;">Remover um nome pede a senha do supervisor. Atividades já lançadas continuam com o nome que tinham.</div>
+  </div>`;
+
   html += `<div class="card">
     <h3 style="margin-bottom:8px; font-size:13px;">📋 Cadastros (atalhos)</h3>
     <div class="muted" style="font-size:11.5px; margin-bottom:10px;">Esses você mesmo cadastra e edita direto na tela — sem precisar de senha nem de mim.</div>
@@ -4334,11 +4362,6 @@ function renderConfiguracoes() {
       <button class="list-row" style="cursor:pointer; background:none; border:none; text-align:left; width:100%;" onclick="mudarAba('rendimento')">
         <span class="stat-ic" style="width:28px; height:28px; font-size:13px;">🌾</span>
         <span style="font-size:12.5px; font-weight:700;">Atividades e rendimentos padrão</span>
-        <span class="chev">›</span>
-      </button>
-      <button class="list-row" style="cursor:pointer; background:none; border:none; text-align:left; width:100%;" onclick="mudarAba('programacao')">
-        <span class="stat-ic" style="width:28px; height:28px; font-size:13px;">👤</span>
-        <span style="font-size:12.5px; font-weight:700;">Colaboradores</span>
         <span class="chev">›</span>
       </button>
       <button class="list-row" style="cursor:pointer; background:none; border:none; text-align:left; width:100%;" onclick="mudarAba('setores')">
@@ -4746,6 +4769,14 @@ window.importarColaboradores = function () {
   alert(`${importados} colaborador${importados>1?"es":""} importado${importados>1?"s":""}!${jaExistiam ? `\n${jaExistiam} já estava${jaExistiam>1?"m":""} cadastrado${jaExistiam>1?"s":""} (pulado${jaExistiam>1?"s":""}).` : ""}`);
 };
 
+window.cadastrarNomesDaPlanilha = function () {
+  const ja = new Set(S.colaboradores.map((c) => c.nome.toLowerCase()));
+  const novos = (S._nomesPendentesCadastro || []).filter((n) => !ja.has(n.toLowerCase()));
+  novos.forEach((nome) => addDoc(collection(db, "colaboradores"), { nome }).catch((e) => console.error(e)));
+  S._nomesPendentesCadastro = [];
+  alert(`${novos.length} colaborador${novos.length === 1 ? "" : "es"} cadastrado${novos.length === 1 ? "" : "s"}!`);
+  if (S.currentTab === "configuracoes") renderConfiguracoes();
+};
 window.removerColaborador = function (id) {
   pedirSenha(() => { deleteDoc(doc(db, "colaboradores", id)).catch((e) => console.error(e)); });
 };
@@ -4846,15 +4877,42 @@ function acharNomeParecido(nome, listaNomes) {
   return null;
 }
 function tokensAtividade(s) {
-  return normTxt(s).split(" ").filter((t) => t && !STOPWORDS_ATIV.has(t)).map((t) => (t.startsWith("desc") ? "descasc" : t));
+  // "descamento", "descascamneto"... (até 3 letras de diferença de "descascamento") contam como a mesma palavra
+  return normTxt(s).split(" ").filter((t) => t && !STOPWORDS_ATIV.has(t)).map((t) => (t.startsWith("desc") && distEdicao(t, "descascamento") <= 3 ? "descasc" : t));
 }
-function tarefaCombinaComAtividade(tarefa, atividade) {
+// Palavras iguais ou com UM errinho de digitação (só em palavras compridas, pra não confundir "seco" com "sede").
+function tokensParecidos(x, y) {
+  return x === y || (x.length >= 6 && y.length >= 6 && distEdicao(x, y) <= (x.length >= 9 && y.length >= 9 ? 2 : 1));
+}
+function tarefaCombinaComAtividade(tarefa, atividade, tolerante = true) {
   const t = tokensAtividade(tarefa), a = tokensAtividade(atividade);
-  return t.length > 0 && t.every((x) => a.includes(x));
+  return t.length > 0 && t.every((x) => a.some((y) => (tolerante ? tokensParecidos(x, y) : x === y)));
+}
+// Setor escrito de um jeito diferente do cadastrado: "d-1", "D 1", "DI" (letra i no lugar do 1)...
+// Só corrige quando existe UMA resposta provável; se der dúvida, devolve null (e o app só avisa).
+function normalizarSetorExcel(raw) {
+  const limpo = String(raw).toUpperCase().replace(/[^A-Z0-9]/g, "");
+  if (limpo === "SEDE") return { setor: "Sede", corrigido: false };
+  if (MAP_SETOR_EXCEL[limpo]) return { setor: MAP_SETOR_EXCEL[limpo], corrigido: false };
+  if (Object.values(MAP_SETOR_EXCEL).includes(limpo)) return { setor: limpo, corrigido: false };
+  if (distEdicao(limpo, "SEDE") <= 1) return { setor: "Sede", corrigido: true };
+  if (limpo.length === 2) {
+    const parecidos = { I: "1", L: "1", O: "0", Z: "2", S: "5", B: "8" };
+    const alt = limpo[0] + (parecidos[limpo[1]] || limpo[1]);
+    if (MAP_SETOR_EXCEL[alt]) return { setor: MAP_SETOR_EXCEL[alt], corrigido: true };
+  }
+  const cands = [...new Set(Object.keys(MAP_SETOR_EXCEL).filter((k) => distEdicao(limpo, k) === 1).map((k) => MAP_SETOR_EXCEL[k]))];
+  if (cands.length === 1) return { setor: cands[0], corrigido: true };
+  return null;
 }
 
 function parsearCronogramaExcel(XLSX, wb, ctx) {
   const avisos = [];
+  const correcoesMap = new Map();
+  const registrarCorrecao = (tipo, de, para) => {
+    if (!de || !para || normTxt(de) === normTxt(para)) return; // só mudança de maiúscula/acento não conta
+    correcoesMap.set(tipo + "|" + de + "|" + para, { tipo, de: String(de).trim(), para });
+  };
   // Usa a primeira aba que tem o cabeçalho "Atividades"
   let ws = null;
   for (const nome of wb.SheetNames) {
@@ -4968,8 +5026,9 @@ function parsearCronogramaExcel(XLSX, wb, ctx) {
     if (ativ) ultAtiv = ativ;
     const setorRaw = textoLimpo(bruto(r, colSetor));
     if (!setorRaw || !ultAtiv) continue;
-    const setorNorm = setorRaw.toUpperCase().replace(/\s+/g, "");
-    let setorApp = setorNorm === "SEDE" ? "Sede" : MAP_SETOR_EXCEL[setorNorm];
+    const resSetor = normalizarSetorExcel(setorRaw);
+    let setorApp = resSetor ? resSetor.setor : null;
+    if (resSetor && resSetor.corrigido) registrarCorrecao("Setor", setorRaw, resSetor.setor);
     const atividade = ativ || ultAtiv;
     if (!setorApp) {
       // Setor que o app não conhece (ex: uma área nova): entra do jeito que está escrito na planilha,
@@ -5002,13 +5061,26 @@ function parsearCronogramaExcel(XLSX, wb, ctx) {
     let achou = nomesColab.filter((c) => normTxt(c) === n);
     if (!achou.length) achou = nomesColab.filter((c) => normTxt(c).split(" ")[0] === n);
     if (achou.length === 1) return achou[0];
+    if (!achou.length) {
+      const primeiro = n.split(" ")[0];
+      if (primeiro.length >= 5) {
+        const parecidos = nomesColab.filter((c) => { const f = normTxt(c).split(" ")[0]; return f.length >= 5 && distEdicao(primeiro, f) <= 1; });
+        if (parecidos.length === 1) { registrarCorrecao("Nome", nomeBruto, parecidos[0]); return parecidos[0]; }
+      }
+    }
     pessoasNaoCadastradas.add(tituloSeTodoMaiusculo(nomeBruto, true));
     return tituloSeTodoMaiusculo(nomeBruto, true);
   };
-  const tarefasCasadas = new Set();
+  // Grafias usadas na tabela da equipe — servem pra corrigir erro de digitação no nome da atividade
+  // (ex: "DESCAMENTO" na lista de atividades, mas "Descascamento" na tabela da equipe).
+  const nomesTarefasEquipe = blocoEquipe
+    ? [...new Set(blocoEquipe.pessoas.flatMap((p) => Object.values(p.tarefas)).map((t) => t.charAt(0).toUpperCase() + t.slice(1)))]
+    : [];
 
   porAtividade.forEach((info, atividadeOriginal) => {
-    const sugestao = acharNomeParecido(atividadeOriginal, nomesAtividadeApp) || tituloSeTodoMaiusculo(atividadeOriginal);
+    let sugestao = acharNomeParecido(atividadeOriginal, nomesAtividadeApp);
+    if (!sugestao) sugestao = acharNomeParecido(atividadeOriginal, nomesTarefasEquipe) || tituloSeTodoMaiusculo(atividadeOriginal);
+    registrarCorrecao("Atividade", atividadeOriginal, sugestao);
     // Produtos: se o mesmo produto se repete em várias linhas, é "por setor" (ex: NPK em todo setor);
     // se cada linha traz um produto diferente, é a lista de produtos da atividade inteira (ex: calda).
     const contagem = {};
@@ -5016,7 +5088,9 @@ function parsearCronogramaExcel(XLSX, wb, ctx) {
     const porSetor = Object.values(contagem).some((n) => n > 1);
     const nomeProduto = (n) => {
       if (normTxt(n) === "agua") return "Água";
-      return acharNomeParecido(n, nomesInsumo) || tituloSeTodoMaiusculo(n);
+      const cadastrado = acharNomeParecido(n, nomesInsumo);
+      if (cadastrado) registrarCorrecao("Produto", n, cadastrado);
+      return cadastrado || tituloSeTodoMaiusculo(n);
     };
     const listaAtividade = [];
     if (!porSetor) info.linhas.forEach((l) => { if (l.produto && !listaAtividade.some((p) => normTxt(p.nome) === normTxt(l.produto.nome))) listaAtividade.push({ nome: nomeProduto(l.produto.nome), quantidade: l.produto.qtd === null ? "" : r3(l.produto.qtd), unidade: l.produto.unid || "" }); });
@@ -5048,7 +5122,11 @@ function parsearCronogramaExcel(XLSX, wb, ctx) {
         if (g.dias[d.key] === undefined) return;
         const nomes = [];
         if (blocoEquipe) blocoEquipe.pessoas.forEach((p) => {
-          if (p.tarefas[d.key] && tarefaCombinaComAtividade(p.tarefas[d.key], atividadeOriginal)) nomes.push(nomePessoaFinal(p.nome));
+          const tx = p.tarefas[d.key];
+          if (tx && tarefaCombinaComAtividade(tx, atividadeOriginal)) {
+            if (!tarefaCombinaComAtividade(tx, atividadeOriginal, false)) registrarCorrecao("Tarefa da equipe", tx, sugestao);
+            nomes.push(nomePessoaFinal(p.nome));
+          }
         });
         const chave = nomes.slice().sort().join("|");
         const eq = equipes.get(chave) || { nomes, dias: {} };
@@ -5122,12 +5200,15 @@ function parsearCronogramaExcel(XLSX, wb, ctx) {
   }
   const caldasNaoLigadas = [];
   receitas.forEach((rec) => {
-    const nomesRec = rec.linhas.map((l) => normTxt(l.nome)).filter((n) => n && n !== "ph");
+    const nomesRec = rec.linhas.map((l) => ({ original: l.nome, norm: normTxt(l.nome) })).filter((x) => x.norm && x.norm !== "ph");
     let ligou = false;
     resultado.forEach((g) => {
-      const nomesAtiv = new Set();
-      g.itens.forEach((it) => (it.produtos || []).forEach((pr) => nomesAtiv.add(normTxt(pr.nome))));
-      if (nomesRec.length && nomesRec.filter((n) => nomesAtiv.has(n)).length / nomesRec.length >= 0.8) {
+      const nomesAtiv = new Map(); // nome normalizado -> como está escrito na atividade
+      g.itens.forEach((it) => (it.produtos || []).forEach((pr) => nomesAtiv.set(normTxt(pr.nome), pr.nome)));
+      const acha = (n) => { if (nomesAtiv.has(n)) return n; return [...nomesAtiv.keys()].find((x) => n.length >= 5 && x.length >= 5 && distEdicao(x, n) <= 1) || null; };
+      const casados = nomesRec.filter((x) => acha(x.norm));
+      if (nomesRec.length && casados.length / nomesRec.length >= 0.8) {
+        casados.forEach((x) => { const y = acha(x.norm); if (y !== x.norm) registrarCorrecao("Produto (calda)", x.original, nomesAtiv.get(y)); });
         g.itens.forEach((it) => { it.calda = JSON.parse(JSON.stringify(rec)); });
         ligou = true;
       }
@@ -5138,7 +5219,7 @@ function parsearCronogramaExcel(XLSX, wb, ctx) {
   return {
     semana, semanaOrigem, grupos: resultado, avisos, ignorados,
     pessoasNaoCadastradas: [...pessoasNaoCadastradas],
-    tarefasCriadas, tarefasSemAtividade: [], caldasNaoLigadas,
+    tarefasCriadas, tarefasSemAtividade: [], caldasNaoLigadas, correcoes: [...correcoesMap.values()],
     temEquipe: !!blocoEquipe,
   };
 }
@@ -5229,7 +5310,8 @@ function aplicarImportacaoProgramacao(res) {
   if (res.caldasNaoLigadas && res.caldasNaoLigadas.length) avisos.push(`A tabela de calda "${res.caldasNaoLigadas.join('", "')}" não ficou ligada a nenhuma atividade (os produtos não batem com os da atividade).`);
   if (res.ignorados.length) avisos.push(`Sem dias programados, não entraram: ${res.ignorados.join(" · ")}`);
   res.avisos.forEach((a) => avisos.push(a));
-  S._ultimoImport = { semana: res.semana, total, atividades: res.grupos.length, avisos };
+  S._nomesPendentesCadastro = res.pessoasNaoCadastradas || [];
+  S._ultimoImport = { semana: res.semana, total, atividades: res.grupos.length, avisos, correcoes: res.correcoes || [] };
   S._progSemana = res.semana;
   S._progAberta = null;
   S._novaProg = progVazia();
@@ -5250,8 +5332,13 @@ function renderResumoImportacaoHTML() {
   return `<div class="card" style="border:2px solid #16a34a; background:#f0fdf4;">
     <div class="row-flex"><b>✅ Planilha importada — semana ${numeroDaSemana(r.semana)}</b><button class="x-btn" onclick="fecharResumoImportacao()">✕</button></div>
     <div style="font-size:12.5px; margin-top:4px;">${r.total} item${r.total === 1 ? "" : "ns"} em ${r.atividades} atividade${r.atividades === 1 ? "" : "s"}, já montados abaixo.</div>
+    ${(r.correcoes && r.correcoes.length) ? `<div style="background:#e0f2fe; border-radius:8px; padding:8px 10px; margin-top:8px; font-size:11.5px; color:#0c4a6e;">
+      <b>🛠️ Corrigi sozinho (erro de digitação) — confira se está certo:</b>${r.correcoes.map((c) => `<div style="margin-top:4px;">• ${esc(c.tipo)}: "${esc(c.de)}" → <b>${esc(c.para)}</b></div>`).join("")}
+      <div style="margin-top:6px; color:#0369a1;">Se alguma correção estiver errada, corrija na planilha e envie de novo.</div>
+    </div>` : ""}
     ${r.avisos.length ? `<div style="background:#fef9c3; border-radius:8px; padding:8px 10px; margin-top:8px; font-size:11.5px; color:#713f12;">
       <b>⚠️ Vale conferir:</b>${r.avisos.map((a) => `<div style="margin-top:4px;">• ${esc(a)}</div>`).join("")}
+      ${(S._nomesPendentesCadastro && S._nomesPendentesCadastro.length) ? `<button class="btn" style="width:auto; margin-top:8px;" onclick="mudarAba('configuracoes')">👤 Cadastrar colaboradores</button>` : ""}
     </div>` : ""}
   </div>`;
 }

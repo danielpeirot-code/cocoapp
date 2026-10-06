@@ -265,7 +265,7 @@
       <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
     </div>
     <div class="header-linha2">
-      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v128</span>
+      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v131</span>
       <div class="spacer"></div>
       <span id="backupPill" class="backup-pill"></span>
       <button class="btn-export" onclick="exportarExcel()">⬇️ Excel</button>
@@ -5102,10 +5102,43 @@ function parsearCronogramaExcel(XLSX, wb, ctx) {
     });
   }
 
+  // ---- receitas de calda: bloco "Produto | Para 8,75 ha | Para Tanque – 3.300 L | ..." ----
+  // Lê do jeito que está escrito (texto das células) e liga na atividade cujos produtos batem.
+  const receitas = [];
+  for (let r = rg.s.r; r <= rg.e.r; r++) for (let c = rg.s.c; c <= rg.e.c; c++) {
+    if (r === rSub || normTxt(bruto(r, c)) !== "produto") continue;
+    const colunas = [];
+    for (let cc = c + 1; cc <= rg.e.c; cc++) { const h = textoLimpo(bruto(r, cc)); if (!h) break; colunas.push({ c: cc, nome: h }); }
+    if (!colunas.length) continue;
+    let titulo = "";
+    for (let rr = r - 1; rr >= Math.max(rg.s.r, r - 3); rr--) { const t = bruto(rr, c); if (typeof t === "string" && t.trim()) { titulo = t.trim(); break; } }
+    const linhasR = [];
+    for (let rr = r + 1; rr <= rg.e.r; rr++) {
+      const nome = bruto(rr, c);
+      if (typeof nome !== "string" || !nome.trim()) break;
+      linhasR.push({ nome: nome.trim(), valores: colunas.map((col) => { const v = bruto(rr, col.c); return v === undefined || v === null ? "" : (typeof v === "number" ? String(v).replace(".", ",") : String(v).trim()); }) });
+    }
+    if (linhasR.length) receitas.push({ titulo, colunas: colunas.map((x) => x.nome), linhas: linhasR });
+  }
+  const caldasNaoLigadas = [];
+  receitas.forEach((rec) => {
+    const nomesRec = rec.linhas.map((l) => normTxt(l.nome)).filter((n) => n && n !== "ph");
+    let ligou = false;
+    resultado.forEach((g) => {
+      const nomesAtiv = new Set();
+      g.itens.forEach((it) => (it.produtos || []).forEach((pr) => nomesAtiv.add(normTxt(pr.nome))));
+      if (nomesRec.length && nomesRec.filter((n) => nomesAtiv.has(n)).length / nomesRec.length >= 0.8) {
+        g.itens.forEach((it) => { it.calda = JSON.parse(JSON.stringify(rec)); });
+        ligou = true;
+      }
+    });
+    if (!ligou) caldasNaoLigadas.push(rec.titulo || "(sem título)");
+  });
+
   return {
     semana, semanaOrigem, grupos: resultado, avisos, ignorados,
     pessoasNaoCadastradas: [...pessoasNaoCadastradas],
-    tarefasCriadas, tarefasSemAtividade: [],
+    tarefasCriadas, tarefasSemAtividade: [], caldasNaoLigadas,
     temEquipe: !!blocoEquipe,
   };
 }
@@ -5180,6 +5213,7 @@ function aplicarImportacaoProgramacao(res) {
         produtos: (it.produtos || []).map((p) => ({ nome: p.nome, quantidade: p.quantidade, unidade: p.unidade || "" })),
         prog: { ...it.prog }, exec: { ...execZerado, ...((antigo && antigo.exec) || {}) },
         ...(it.semQuantidade ? { semQuantidade: true } : {}),
+        ...(it.calda ? { calda: JSON.parse(JSON.stringify(it.calda)) } : {}),
       };
       promessas.push(addDoc(collection(db, "programacao"), payload));
     });
@@ -5192,6 +5226,7 @@ function aplicarImportacaoProgramacao(res) {
   if (!res.temEquipe) avisos.push('Não achei a tabela de "quem vai fazer" — as atividades entraram sem equipe.');
   if (res.pessoasNaoCadastradas.length) avisos.push(`Nomes que não batem com os colaboradores cadastrados (entraram como estão escritos): ${res.pessoasNaoCadastradas.join(", ")}.`);
   if (res.tarefasCriadas.length) avisos.push(`Criei também ${res.tarefasCriadas.map((t) => `"${t}"`).join(" e ")} (só aparecem na tabela da equipe, sem linha de atividade) — ficam sem quantidade, marcadas com ●.`);
+  if (res.caldasNaoLigadas && res.caldasNaoLigadas.length) avisos.push(`A tabela de calda "${res.caldasNaoLigadas.join('", "')}" não ficou ligada a nenhuma atividade (os produtos não batem com os da atividade).`);
   if (res.ignorados.length) avisos.push(`Sem dias programados, não entraram: ${res.ignorados.join(" · ")}`);
   res.avisos.forEach((a) => avisos.push(a));
   S._ultimoImport = { semana: res.semana, total, atividades: res.grupos.length, avisos };
@@ -5238,6 +5273,13 @@ function renderDetalheProgItem(item) {
       <div style="grid-column:span 2;"><b>Quem vai fazer:</b> ${item.quemVaiFazer ? esc(item.quemVaiFazer) : "—"}</div>
       ${(item.produtos && item.produtos.length) ? `<div style="grid-column:span 2;"><b>Produtos:</b> ${item.produtos.map((p) => `${esc(p.nome)} — ${esc(p.quantidade)} ${esc(p.unidade)}`).join("; ")}</div>` : ""}
     </div>
+    ${item.calda && item.calda.linhas ? `<div style="margin-bottom:10px;">
+      <div style="font-size:12px; font-weight:700; margin-bottom:4px;">🧪 Calda${item.calda.titulo ? " — " + esc(item.calda.titulo) : ""}</div>
+      <div class="tbl-wrap"><table class="tbl" style="min-width:360px; font-size:12px;">
+        <thead><tr><th style="text-align:left;">Produto</th>${item.calda.colunas.map((c) => `<th>${esc(c)}</th>`).join("")}</tr></thead>
+        <tbody>${item.calda.linhas.map((l) => `<tr><td style="text-align:left; font-weight:600;">${esc(l.nome)}</td>${l.valores.map((v) => `<td>${esc(v)}</td>`).join("")}</tr>`).join("")}</tbody>
+      </table></div>
+    </div>` : ""}
     <div class="tbl-wrap"><table class="tbl" style="min-width:520px;">
       <thead><tr><th style="text-align:left;"></th>${DIAS_SEMANA.map((d) => `<th>${d.label}</th>`).join("")}</tr></thead>
       <tbody>
@@ -5247,18 +5289,87 @@ function renderDetalheProgItem(item) {
     </table></div>
     <div class="muted" style="font-size:11.5px; margin-top:6px;">Programado na semana: <b>${fmt(somaProg, 1)}</b> · Feito: <b>${fmt(somaExec, 1)}</b> · Rendimento: <b>${fmtPct(rendimento)}</b></div>
     <div style="text-align:right; margin-top:10px; display:flex; justify-content:flex-end; gap:8px;">
+      <button class="btn ghost" style="width:auto; color:#128C7E; border:1px solid #128C7E;" onclick="compartilharAtividadeProg('${item.id}')">📲 Enviar essa atividade</button>
       <button class="btn ghost" style="width:auto;" onclick="duplicarProgramacao('${item.id}')">📋 Duplicar</button>
       <button class="btn danger" onclick="removerProgramacao('${item.id}')">🗑️ Excluir</button>
     </div>
   </div>`;
 }
 
-// Tabela da semana no mesmo desenho do Excel: atividade (agrupada) | setor | dias | equipe.
-function renderTabelaProgramacaoHTML(itensSemana) {
-  const ordenados = itensSemana.slice().sort((a, b) =>
+// Mesma ordem da planilha (campo "ordem" gravado na importação); o que foi criado à mão vai pro fim.
+function ordenarItensProg(itens) {
+  return itens.slice().sort((a, b) =>
     ((a.ordem === undefined ? 9999 : a.ordem) - (b.ordem === undefined ? 9999 : b.ordem))
     || String(a.atividade || "").localeCompare(String(b.atividade || ""), "pt-BR")
     || (TALHOES.indexOf(a.setor) - TALHOES.indexOf(b.setor)));
+}
+function numProgTxt(v) { return String(v).replace(".", ","); }
+function diasDoItemTxt(item) {
+  return DIAS_SEMANA.filter((d) => item.prog && item.prog[d.key] !== "" && item.prog[d.key] !== undefined && Number(item.prog[d.key]) !== 0)
+    .map((d) => item.semQuantidade ? d.label : `${d.label} ${numProgTxt(item.prog[d.key])}`).join(" · ");
+}
+function produtosDoItemTxt(item) {
+  return (item.produtos || []).map((p) => `${p.nome}${p.quantidade === "" || p.quantidade === undefined ? "" : " " + numProgTxt(p.quantidade)}${p.unidade ? " " + p.unidade : ""}`).join(" · ");
+}
+function caldaDoItemTxt(item) {
+  const c = item.calda;
+  if (!c || !c.linhas) return [];
+  const linhas = [`🧪 *Calda${c.titulo ? " — " + c.titulo : ""}*`];
+  linhas.push(`   (${c.colunas.join(" | ")})`);
+  c.linhas.forEach((l) => linhas.push(`   ${l.nome}: ${l.valores.join(" | ")}`));
+  return linhas;
+}
+// Texto de uma atividade (com todos os setores dela) pronto pro WhatsApp dos encarregados.
+function textoGrupoAtividadeProg(atividade, itens) {
+  const L = [`🔸 *${atividade || "(sem nome)"}*`];
+  const mesmaCoisa = (fn) => itens.every((it) => JSON.stringify(fn(it)) === JSON.stringify(fn(itens[0])));
+  const prodUnico = itens.length > 1 && mesmaCoisa((it) => it.produtos || []) && (itens[0].produtos || []).length > 0;
+  const caldaUnica = itens.length > 1 && mesmaCoisa((it) => it.calda || null) && !!itens[0].calda;
+  const veicUnico = itens.length > 1 && mesmaCoisa((it) => [it.veiculo, it.implemento]);
+  const veic = (it) => [it.veiculo, it.implemento].filter(Boolean).join(" + ");
+  if (veicUnico && veic(itens[0])) L.push(`🚜 ${veic(itens[0])}`);
+  if (prodUnico) L.push(`🧴 ${produtosDoItemTxt(itens[0])}`);
+  if (caldaUnica) caldaDoItemTxt(itens[0]).forEach((x) => L.push(x));
+  itens.forEach((it) => {
+    L.push(`• *${it.setor}* — ${diasDoItemTxt(it) || "sem dias"}`);
+    if (!veicUnico && veic(it)) L.push(`   🚜 ${veic(it)}`);
+    if (!prodUnico && (it.produtos || []).length) L.push(`   🧴 ${produtosDoItemTxt(it)}`);
+    if (!caldaUnica && it.calda) caldaDoItemTxt(it).forEach((x) => L.push("   " + x.trim()));
+    if (it.quemVaiFazer) L.push(`   👤 ${it.quemVaiFazer}`);
+  });
+  return L.join("\n");
+}
+function gruposDeAtividadeProg(itens) {
+  const grupos = [], idx = new Map();
+  ordenarItensProg(itens).forEach((it) => {
+    const k = it.atividade || "";
+    if (!idx.has(k)) { idx.set(k, grupos.length); grupos.push({ atividade: k, itens: [] }); }
+    grupos[idx.get(k)].itens.push(it);
+  });
+  return grupos;
+}
+
+window.compartilharProgramacaoAtividadesWhatsapp = function () {
+  const itens = S.programacao.filter((p) => p.semana === S._progSemana);
+  if (itens.length === 0) return;
+  const semanaFim = new Date(S._progSemana + "T00:00:00");
+  semanaFim.setDate(semanaFim.getDate() + 6);
+  let texto = `🗓️ *Programação — Semana ${numeroDaSemana(S._progSemana)}*\n${brDate(S._progSemana)} até ${brDate(semanaFim.toISOString().slice(0, 10))}\n\n`;
+  texto += gruposDeAtividadeProg(itens).map((g) => textoGrupoAtividadeProg(g.atividade, g.itens)).join("\n\n");
+  compartilharTextoWhatsapp(`Programação Semana ${numeroDaSemana(S._progSemana)}`, texto.trim());
+};
+// Manda só UMA atividade (com todos os setores dela) — pra mandar pro encarregado certo.
+window.compartilharAtividadeProg = function (id) {
+  const item = S.programacao.find((p) => p.id === id);
+  if (!item) return;
+  const doGrupo = S.programacao.filter((p) => p.semana === item.semana && (p.atividade || "") === (item.atividade || ""));
+  const texto = `🗓️ *Semana ${numeroDaSemana(item.semana)}*\n\n` + textoGrupoAtividadeProg(item.atividade, ordenarItensProg(doGrupo));
+  compartilharTextoWhatsapp(`${item.atividade || "Atividade"} — Semana ${numeroDaSemana(item.semana)}`, texto);
+};
+
+// Tabela da semana no mesmo desenho do Excel: atividade (agrupada) | setor | dias | equipe.
+function renderTabelaProgramacaoHTML(itensSemana) {
+  const ordenados = ordenarItensProg(itensSemana);
   if (ordenados.length === 0) {
     return `<div class="empty">Nenhuma atividade nessa semana ainda.<br>Toca em <b>📥 Enviar planilha do Excel</b> lá em cima.</div>`;
   }
@@ -5271,8 +5382,8 @@ function renderTabelaProgramacaoHTML(itensSemana) {
   const fmtD = (v) => String(v).replace(".", ",");
   let html = `<div class="card" style="padding:8px;">
     <div class="muted" style="font-size:11px; margin:0 4px 6px;">Toca numa linha pra ver os detalhes e lançar o executado (✔ = feito).</div>
-    <div class="tbl-wrap"><table class="tbl" style="min-width:700px; font-size:12px;">
-    <thead><tr><th style="text-align:left;">Atividade</th><th>Setor</th>${DIAS_SEMANA.map((d) => `<th>${d.label}</th>`).join("")}<th style="text-align:left;">Equipe</th></tr></thead><tbody>`;
+    <div class="tbl-wrap"><table class="tbl" style="min-width:920px; font-size:12px;">
+    <thead><tr><th style="text-align:left;">Atividade</th><th>Setor</th>${DIAS_SEMANA.map((d) => `<th>${d.label}</th>`).join("")}<th style="text-align:left;">Veículo / produtos</th><th style="text-align:left;">Equipe</th></tr></thead><tbody>`;
   grupos.forEach((g) => {
     const cor = corAtividade(g.atividade);
     g.itens.forEach((item, i) => {
@@ -5286,6 +5397,9 @@ function renderTabelaProgramacaoHTML(itensSemana) {
         const temE = e !== "" && e !== undefined && e !== null;
         html += `<td>${temP ? (item.semQuantidade ? "●" : fmtD(p)) : ""}${temE ? `<div style="font-size:10px; color:#a16207;">✔ ${fmtD(e)}</div>` : ""}</td>`;
       });
+      const veic = [item.veiculo, item.implemento].filter(Boolean).join(" + ");
+      const prods = produtosDoItemTxt(item);
+      html += `<td style="text-align:left; font-size:11px; min-width:200px;">${veic ? `<div>🚜 ${esc(veic)}</div>` : ""}${prods ? `<div>🧴 ${esc(prods)}</div>` : ""}${item.calda ? `<div>🧪 calda no detalhe</div>` : ""}</td>`;
       html += `<td style="text-align:left; font-size:11px; min-width:150px;">${esc(item.quemVaiFazer || "")}</td></tr>`;
     });
   });
@@ -5294,6 +5408,278 @@ function renderTabelaProgramacaoHTML(itensSemana) {
   if (aberto) html += renderDetalheProgItem(aberto);
   return html;
 }
+
+// ===========================================================================
+// VISUAL PARA CELULAR: cartões grandes (tela) e imagens em pé com letra grande (compartilhar).
+// Quem recebe vê no celular, então nada de tabela larga que obriga a dar zoom.
+// ===========================================================================
+S._progLayout = "cartoes"; // "cartoes" (padrão, celular) ou "tabela" (estilo Excel)
+
+window.mudarProgLayout = function (v) { S._progLayout = v; renderProgramacao(); };
+
+// Resumo "Seg–Qui: tarefa" de cada pessoa, juntando dias seguidos com a mesma tarefa.
+function faixasDoColaborador(nome, itens) {
+  // Por dia: junta as linhas da mesma atividade e lista os setores ("Descascamento (D1, D2)").
+  const porDia = DIAS_SEMANA.map((d) => {
+    const doDia = itens.filter((item) => pessoasDoItem(item).includes(nome)
+      && item.prog && item.prog[d.key] !== undefined && item.prog[d.key] !== "" && Number(item.prog[d.key]) !== 0);
+    if (!doDia.length) return null;
+    const porAtiv = new Map();
+    doDia.forEach((it) => {
+      const k = it.atividade || "(sem nome)";
+      if (!porAtiv.has(k)) porAtiv.set(k, []);
+      if (it.setor && it.setor !== "Geral" && !porAtiv.get(k).includes(it.setor)) porAtiv.get(k).push(it.setor);
+    });
+    return [...porAtiv.entries()].map(([atividade, setores]) => ({ atividade, label: setores.length ? `${atividade} — ${setores.join(", ")}` : atividade }));
+  });
+  const chave = (arr) => arr.map((t) => t.label).join(" + ");
+  const faixas = [];
+  let i = 0;
+  while (i < DIAS_SEMANA.length) {
+    if (!porDia[i]) { i++; continue; }
+    let j = i;
+    while (j + 1 < DIAS_SEMANA.length && porDia[j + 1] && chave(porDia[j + 1]) === chave(porDia[i])) j++;
+    faixas.push({ faixa: i === j ? DIAS_SEMANA[i].label : `${DIAS_SEMANA[i].label}–${DIAS_SEMANA[j].label}`, itens: porDia[i] });
+    i = j + 1;
+  }
+  return faixas;
+}
+
+// --- Tela: cartões por atividade ---
+function renderCartoesProgramacaoHTML(itensSemana) {
+  if (itensSemana.length === 0) return `<div class="empty">Nenhuma atividade nessa semana ainda.<br>Toca em <b>📥 Enviar planilha do Excel</b> lá em cima.</div>`;
+  const chip = (txt, bg, fg) => `<span style="display:inline-block; background:${bg}; color:${fg}; border-radius:8px; padding:4px 9px; margin:3px 4px 3px 0; font-size:14.5px; font-weight:700;">${txt}</span>`;
+  let html = "";
+  gruposDeAtividadeProg(itensSemana).forEach((g) => {
+    const cor = corAtividade(g.atividade);
+    const mesma = (fn) => g.itens.every((it) => JSON.stringify(fn(it)) === JSON.stringify(fn(g.itens[0])));
+    const veic = (it) => [it.veiculo, it.implemento].filter(Boolean).join(" + ");
+    const veicUnico = g.itens.length > 1 && mesma((it) => [it.veiculo, it.implemento]) && veic(g.itens[0]);
+    const prodUnico = g.itens.length > 1 && mesma((it) => it.produtos || []) && (g.itens[0].produtos || []).length > 0;
+    html += `<div style="border-radius:14px; overflow:hidden; border:1px solid #e7e5e4; margin-bottom:14px; background:#fff;">
+      <div style="background:${cor.bg}; color:${cor.fg}; padding:11px 14px; font-size:17px; font-weight:800; line-height:1.25;">${esc(g.atividade) || "(sem nome)"}</div>
+      <div style="padding:4px 14px 8px;">
+        ${veicUnico ? `<div style="font-size:14.5px; padding:6px 0;">🚜 ${esc(veic(g.itens[0]))}</div>` : ""}
+        ${prodUnico ? `<div style="font-size:14.5px; padding:6px 0; line-height:1.4;">🧴 ${esc(produtosDoItemTxt(g.itens[0]))}</div>` : ""}`;
+    g.itens.forEach((item) => {
+      const aberto = S._progAberta === item.id;
+      const dias = DIAS_SEMANA.filter((d) => item.prog && item.prog[d.key] !== "" && item.prog[d.key] !== undefined && Number(item.prog[d.key]) !== 0).map((d) => {
+        const e = item.exec ? item.exec[d.key] : "";
+        const feito = e !== "" && e !== undefined && e !== null;
+        return chip(item.semQuantidade ? d.label : `${d.label} ${numProgTxt(item.prog[d.key])}`, "#dcfce7", "#14532d") + (feito ? chip(`✔ ${numProgTxt(e)}`, "#fef9c3", "#854d0e") : "");
+      }).join("");
+      html += `<div onclick="toggleProg('${item.id}')" style="cursor:pointer; padding:10px 0; border-top:1px solid #f0efee; ${aberto ? "background:#f7fef9;" : ""}">
+        <div style="font-size:16px; font-weight:800; margin-bottom:2px;">${esc(item.setor)}</div>
+        <div>${dias || '<span class="muted">sem dias</span>'}</div>
+        ${!veicUnico && veic(item) ? `<div style="font-size:14.5px; padding-top:4px;">🚜 ${esc(veic(item))}</div>` : ""}
+        ${!prodUnico && (item.produtos || []).length ? `<div style="font-size:14.5px; padding-top:4px; line-height:1.4;">🧴 ${esc(produtosDoItemTxt(item))}</div>` : ""}
+        ${item.calda ? `<div style="font-size:14px; padding-top:4px; color:#0f766e; font-weight:700;">🧪 Calda por tanque — toque pra ver</div>` : ""}
+        ${item.quemVaiFazer ? `<div style="font-size:14.5px; padding-top:4px; line-height:1.4;">👤 ${esc(item.quemVaiFazer)}</div>` : ""}
+      </div>`;
+      if (aberto) html += `<div onclick="event.stopPropagation()">${renderDetalheProgItem(item)}</div>`;
+    });
+    html += `</div></div>`;
+  });
+  return html;
+}
+
+// --- Tela: por colaborador em cartões ---
+function renderColaboradorCartoesHTML(itensSemana, nomes) {
+  let html = `<div class="muted" style="font-size:12px; margin:0 2px 8px;">Cada dia mostra a tarefa da pessoa (dias seguidos com a mesma tarefa ficam juntos).</div>`;
+  nomes.forEach((nome) => {
+    const faixas = faixasDoColaborador(nome, itensSemana);
+    html += `<div style="border-radius:14px; overflow:hidden; border:1px solid #e7e5e4; margin-bottom:12px; background:#fff;">
+      <div style="background:#1f2937; color:#fff; padding:10px 14px; font-size:17px; font-weight:800;">${esc(nome)}</div>
+      <div style="padding:8px 12px;">
+        ${faixas.length ? faixas.map((f) => {
+          const c = corAtividade(f.itens[0].atividade);
+          return `<div style="display:flex; align-items:center; gap:10px; padding:5px 0;">
+            <div style="min-width:74px; font-size:15px; font-weight:800;">${f.faixa}</div>
+            <div style="flex:1; background:${c.bg}; color:${c.fg}; border-radius:8px; padding:6px 10px; font-size:15px; font-weight:700; line-height:1.3;">${esc(f.itens.map((t) => t.label).join(" + "))}</div>
+          </div>`;
+        }).join("") : `<div class="muted" style="font-size:13px; padding:6px 0;">Sem tarefa programada nessa semana.</div>`}
+      </div>
+    </div>`;
+  });
+  return html;
+}
+
+// --- Imagens: em pé, letra grande, pra ler no celular sem zoom ---
+const IMG_LARGURA = 900, IMG_MARGEM = 30;
+function quebrarTextoCanvas(ctx, texto, maxW) {
+  const palavras = String(texto == null ? "" : texto).split(/\s+/).filter(Boolean);
+  const linhas = [];
+  let atual = "";
+  palavras.forEach((p) => {
+    const t = atual ? atual + " " + p : p;
+    if (ctx.measureText(t).width > maxW && atual) { linhas.push(atual); atual = p; } else atual = t;
+  });
+  if (atual) linhas.push(atual);
+  return linhas.length ? linhas : [""];
+}
+// blocos: {t:"titulo",texto,sub} {t:"faixa",texto,bg,fg} {t:"setor",texto} {t:"dias",texto}
+//         {t:"texto",texto} {t:"chip",texto,bg,fg} {t:"linha"} {t:"espaco",h}
+function criarCanvasesDeBlocos(blocos, rodape) {
+  const W = IMG_LARGURA, M = IMG_MARGEM, maxW = W - 2 * M, MAXH = 1560, RODAPE_H = 44;
+  const med = document.createElement("canvas").getContext("2d");
+  const FONTE = (peso, px) => `${peso} ${px}px sans-serif`;
+  // 1ª passada: mede a altura de cada bloco
+  const cmds = blocos.map((b) => {
+    const c = { ...b };
+    if (b.t === "titulo") {
+      med.font = FONTE("bold", 46); c.l1 = quebrarTextoCanvas(med, b.texto, maxW);
+      med.font = FONTE("normal", 31); c.l2 = b.sub ? quebrarTextoCanvas(med, b.sub, maxW) : [];
+      c.h = 24 + c.l1.length * 56 + (c.l2.length ? c.l2.length * 40 + 6 : 0) + 18;
+    } else if (b.t === "faixa") {
+      med.font = FONTE("bold", 42); c.ls = quebrarTextoCanvas(med, b.texto, maxW);
+      c.h = 18 + c.ls.length * 54 + 12;
+    } else if (b.t === "setor") {
+      med.font = FONTE("bold", 40); c.ls = quebrarTextoCanvas(med, b.texto, maxW);
+      c.h = 14 + c.ls.length * 50;
+    } else if (b.t === "dias") {
+      med.font = FONTE("bold", 36); c.ls = quebrarTextoCanvas(med, b.texto, maxW);
+      c.h = c.ls.length * 46 + 6;
+    } else if (b.t === "texto") {
+      med.font = FONTE("normal", 33); c.ls = quebrarTextoCanvas(med, b.texto, maxW - 10);
+      c.h = c.ls.length * 43 + 6;
+    } else if (b.t === "chip") {
+      med.font = FONTE("bold", 36); c.ls = quebrarTextoCanvas(med, b.texto, maxW - 30);
+      c.h = c.ls.length * 46 + 22 + 10;
+    } else if (b.t === "linha") { c.h = 14; }
+    else if (b.t === "quebra") { c.h = 0; }
+    else { c.h = b.h || 12; }
+    return c;
+  });
+  // Divide em páginas só nos pontos de "quebra" (entre atividades/itens/pessoas) — WhatsApp
+  // reduz foto muito comprida e o texto ficaria minúsculo; páginas de ~1500px ficam nítidas.
+  const segmentos = [[]];
+  cmds.forEach((c) => { if (c.t === "quebra") segmentos.push([]); else segmentos[segmentos.length - 1].push(c); });
+  const paginas = [];
+  let atual = [], alturaAtual = 0;
+  segmentos.filter((sg) => sg.length).forEach((sg) => {
+    const h = sg.reduce((x, c) => x + c.h, 0);
+    if (alturaAtual > 0 && alturaAtual + h > MAXH) { paginas.push(atual); atual = []; alturaAtual = 0; }
+    atual = atual.concat(sg); alturaAtual += h;
+  });
+  if (atual.length) paginas.push(atual);
+  return paginas.map((pg, idx) => {
+    const corpoH = pg.reduce((x, c) => x + c.h, 0);
+    const H = corpoH + M + RODAPE_H;
+    const canvas = document.createElement("canvas");
+    canvas.width = W; canvas.height = H;
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, W, H);
+    ctx.textBaseline = "top"; ctx.textAlign = "left";
+    let y = 0;
+    pg.forEach((c) => {
+      if (c.t === "titulo") {
+        ctx.fillStyle = "#1f2937"; ctx.fillRect(0, y, W, c.h);
+        ctx.fillStyle = "#ffffff"; ctx.font = FONTE("bold", 46);
+        c.l1.forEach((ln, i) => ctx.fillText(ln, M, y + 24 + i * 56));
+        ctx.fillStyle = "#d1d5db"; ctx.font = FONTE("normal", 31);
+        c.l2.forEach((ln, i) => ctx.fillText(ln, M, y + 24 + c.l1.length * 56 + 6 + i * 40));
+      } else if (c.t === "faixa") {
+        ctx.fillStyle = c.bg || "#e5e7eb"; ctx.fillRect(0, y, W, c.h);
+        ctx.fillStyle = c.fg || "#111827"; ctx.font = FONTE("bold", 42);
+        c.ls.forEach((ln, i) => ctx.fillText(ln, M, y + 18 + i * 54));
+      } else if (c.t === "setor") {
+        ctx.fillStyle = "#111827"; ctx.font = FONTE("bold", 40);
+        c.ls.forEach((ln, i) => ctx.fillText(ln, M, y + 14 + i * 50));
+      } else if (c.t === "dias") {
+        ctx.fillStyle = "#065f46"; ctx.font = FONTE("bold", 36);
+        c.ls.forEach((ln, i) => ctx.fillText(ln, M, y + i * 46));
+      } else if (c.t === "texto") {
+        ctx.fillStyle = "#1f2937"; ctx.font = FONTE("normal", 33);
+        c.ls.forEach((ln, i) => ctx.fillText(ln, M + 10, y + i * 43));
+      } else if (c.t === "chip") {
+        ctx.fillStyle = c.bg || "#dcfce7"; ctx.fillRect(M, y + 4, maxW, c.h - 10);
+        ctx.fillStyle = c.fg || "#14532d"; ctx.font = FONTE("bold", 36);
+        c.ls.forEach((ln, i) => ctx.fillText(ln, M + 16, y + 4 + 11 + i * 46));
+      } else if (c.t === "linha") {
+        ctx.fillStyle = "#e5e7eb"; ctx.fillRect(M, y + 6, maxW, 2);
+      }
+      y += c.h;
+    });
+    if (paginas.length > 1) {
+      ctx.fillStyle = "#6b7280"; ctx.font = FONTE("normal", 26);
+      ctx.fillText(`${rodape || ""} — página ${idx + 1} de ${paginas.length}`, M, H - RODAPE_H + 6);
+    }
+    return canvas;
+  });
+}
+function entregarImagens(canvases, nomeBase, titulo) {
+  const paraBlob = (cv) => new Promise((resolve) => cv.toBlob(resolve, "image/png"));
+  Promise.all(canvases.map(paraBlob)).then(async (blobs) => {
+    if (blobs.some((b) => !b)) { alert("Não consegui gerar a imagem. Tenta de novo."); return; }
+    const arquivos = blobs.map((b, i) => new File([b], `${nomeBase}${blobs.length > 1 ? "-" + (i + 1) : ""}.png`, { type: "image/png" }));
+    if (navigator.share && navigator.canShare && navigator.canShare({ files: arquivos })) {
+      try { await navigator.share({ files: arquivos, title: titulo }); return; }
+      catch (e) { if (e.name === "AbortError") return; console.warn("Falha ao compartilhar as imagens, baixando em vez disso:", e); }
+    }
+    arquivos.forEach((arq, i) => {
+      setTimeout(() => {
+        const url = URL.createObjectURL(arq);
+        const a = document.createElement("a");
+        a.href = url; a.download = arq.name; a.click();
+        URL.revokeObjectURL(url);
+      }, i * 400);
+    });
+  });
+}
+function subtituloSemana() {
+  const fim = new Date(S._progSemana + "T00:00:00"); fim.setDate(fim.getDate() + 6);
+  return `${brDate(S._progSemana)} até ${brDate(fim.toISOString().slice(0, 10))}`;
+}
+
+window.gerarImagemProgramacaoAtividades = function () {
+  const itens = S.programacao.filter((p) => p.semana === S._progSemana);
+  if (itens.length === 0) return;
+  const blocos = [{ t: "titulo", texto: `Programação — Semana ${numeroDaSemana(S._progSemana)}`, sub: subtituloSemana() }];
+  gruposDeAtividadeProg(itens).forEach((g) => {
+    const cor = corAtividade(g.atividade);
+    const mesma = (fn) => g.itens.every((it) => JSON.stringify(fn(it)) === JSON.stringify(fn(g.itens[0])));
+    const veic = (it) => [it.veiculo, it.implemento].filter(Boolean).join(" + ");
+    const veicUnico = g.itens.length > 1 && mesma((it) => [it.veiculo, it.implemento]) && veic(g.itens[0]);
+    const prodUnico = g.itens.length > 1 && mesma((it) => it.produtos || []) && (g.itens[0].produtos || []).length > 0;
+    const caldaUnica = g.itens.length > 1 && mesma((it) => it.calda || null) && !!g.itens[0].calda;
+    const caldaBlocos = (it) => {
+      const out = [{ t: "espaco", h: 6 }, { t: "chip", texto: `Calda${it.calda.titulo ? " — " + it.calda.titulo : ""}`, bg: "#ccfbf1", fg: "#115e59" }];
+      out.push({ t: "texto", texto: `(${it.calda.colunas.join(" | ")})` });
+      it.calda.linhas.forEach((l) => out.push({ t: "texto", texto: `${l.nome}: ${l.valores.join(" | ")}` }));
+      return out;
+    };
+    blocos.push({ t: "quebra" }, { t: "espaco", h: 14 }, { t: "faixa", texto: g.atividade || "(sem nome)", bg: cor.bg, fg: cor.fg }, { t: "espaco", h: 8 });
+    if (veicUnico) blocos.push({ t: "texto", texto: `Veículo: ${veic(g.itens[0])}` });
+    if (prodUnico) blocos.push({ t: "texto", texto: `Produtos: ${produtosDoItemTxt(g.itens[0])}` });
+    if (caldaUnica) caldaBlocos(g.itens[0]).forEach((b) => blocos.push(b));
+    g.itens.forEach((it, i) => {
+      if (i > 0) blocos.push({ t: "quebra" });
+      if (i > 0 || veicUnico || prodUnico || caldaUnica) blocos.push({ t: "linha" });
+      blocos.push({ t: "setor", texto: it.setor }, { t: "dias", texto: diasDoItemTxt(it) || "sem dias" });
+      if (!veicUnico && veic(it)) blocos.push({ t: "texto", texto: `Veículo: ${veic(it)}` });
+      if (!prodUnico && (it.produtos || []).length) blocos.push({ t: "texto", texto: `Produtos: ${produtosDoItemTxt(it)}` });
+      if (!caldaUnica && it.calda) caldaBlocos(it).forEach((b) => blocos.push(b));
+      if (it.quemVaiFazer) blocos.push({ t: "texto", texto: `Equipe: ${it.quemVaiFazer}` });
+    });
+  });
+  entregarImagens(criarCanvasesDeBlocos(blocos, `Semana ${numeroDaSemana(S._progSemana)}`), `cronograma-semana-${numeroDaSemana(S._progSemana)}`, `Cronograma Semana ${numeroDaSemana(S._progSemana)}`);
+};
+
+window.gerarImagemProgramacaoColaborador = function () {
+  const itens = S.programacao.filter((p) => p.semana === S._progSemana);
+  if (itens.length === 0) return;
+  const nomes = Array.from(new Set(itens.flatMap((it) => pessoasDoItem(it)))).sort((a, b) => a.localeCompare(b, "pt-BR"));
+  if (nomes.length === 0) { alert("Ninguém informado em \"Quem vai fazer\" ainda essa semana."); return; }
+  const blocos = [{ t: "titulo", texto: `Quem faz o quê — Semana ${numeroDaSemana(S._progSemana)}`, sub: subtituloSemana() }];
+  nomes.forEach((nome) => {
+    const faixas = faixasDoColaborador(nome, itens);
+    blocos.push({ t: "quebra" }, { t: "espaco", h: 14 }, { t: "faixa", texto: nome, bg: "#e5e7eb", fg: "#111827" }, { t: "espaco", h: 6 });
+    if (!faixas.length) blocos.push({ t: "texto", texto: "Sem tarefa programada nessa semana." });
+    faixas.forEach((f) => { const c = corAtividade(f.itens[0].atividade); blocos.push({ t: "chip", texto: `${f.faixa} — ${f.itens.map((t) => t.label).join(" + ")}`, bg: c.bg, fg: c.fg }); });
+  });
+  entregarImagens(criarCanvasesDeBlocos(blocos, `Semana ${numeroDaSemana(S._progSemana)}`), `programacao-semana-${numeroDaSemana(S._progSemana)}`, `Programação Semana ${numeroDaSemana(S._progSemana)}`);
+};
+
 
 function renderProgramacao() {
   const semanaFim = new Date(S._progSemana + "T00:00:00");
@@ -5320,19 +5706,28 @@ function renderProgramacao() {
       <button class="btn ${S._progView!=='colaborador'?'':'ghost'}" style="width:auto;" onclick="mudarProgView('atividade')">📋 Por atividade</button>
       <button class="btn ${S._progView==='colaborador'?'':'ghost'}" style="width:auto;" onclick="mudarProgView('colaborador')">👤 Por colaborador</button>
     </div>
+    <div style="display:flex; gap:6px; align-items:center; margin-top:8px;">
+      <span class="muted" style="font-size:11.5px;">Visual:</span>
+      <button class="btn ${S._progLayout!=='tabela'?'':'ghost'}" style="width:auto; padding:5px 12px; font-size:12px;" onclick="mudarProgLayout('cartoes')">🃏 Cartões</button>
+      <button class="btn ${S._progLayout==='tabela'?'':'ghost'}" style="width:auto; padding:5px 12px; font-size:12px;" onclick="mudarProgLayout('tabela')">📊 Tabela</button>
+    </div>
+    ${itensSemana.length > 0 ? `<div style="margin-top:12px; background:#f0fdf4; border-radius:10px; padding:10px;">
+      <div style="font-size:12px; font-weight:700; color:#166534; margin-bottom:6px;">📲 Compartilhar com os encarregados</div>
+      <div style="display:flex; gap:6px; flex-wrap:wrap;">
+        <button class="btn ghost" style="width:auto; color:#128C7E; border:1px solid #128C7E; font-size:11.5px;" onclick="compartilharProgramacaoAtividadesWhatsapp()">📲 Programação da semana (texto)</button>
+        <button class="btn ghost" style="width:auto; color:#128C7E; border:1px solid #128C7E; font-size:11.5px;" onclick="gerarImagemProgramacaoAtividades()">🖼️ Imagem do cronograma</button>
+        <button class="btn ghost" style="width:auto; color:#128C7E; border:1px solid #128C7E; font-size:11.5px;" onclick="compartilharProgramacaoColaboradorWhatsapp()">📲 Por colaborador (texto)</button>
+        <button class="btn ghost" style="width:auto; color:#128C7E; border:1px solid #128C7E; font-size:11.5px;" onclick="gerarImagemProgramacaoColaborador()">🖼️ Por colaborador (imagem)</button>
+      </div>
+      <div class="muted" style="font-size:10.5px; margin-top:6px;">Pra mandar só uma atividade, toca na linha dela na tabela e usa "Enviar essa atividade".</div>
+    </div>` : ""}
     <details style="margin-top:10px;">
-      <summary style="font-size:12px; color:#78716c; cursor:pointer;">⋯ Mais opções (outra data, duplicar, compartilhar)</summary>
+      <summary style="font-size:12px; color:#78716c; cursor:pointer;">⋯ Mais opções (outra data, duplicar semana)</summary>
       <div style="margin-top:8px;">
         <label class="field"><span>Data da segunda-feira</span>
           <input type="date" value="${esc(S._progSemana)}" onchange="mudarProgSemana(this.value)"/>
         </label>
         <div style="margin-top:8px;">${itensSemana.length > 0 ? `<button class="btn ghost" style="width:auto;" onclick="duplicarSemanaInteira()">📆 Duplicar semana pra próxima (${itensSemana.length})</button>` : ""}</div>
-        ${itensSemana.length > 0 ? `<div style="display:flex; gap:6px; margin-top:8px; flex-wrap:wrap;">
-      <button class="btn ghost" style="width:auto; color:#128C7E; border:1px solid #128C7E; font-size:11.5px;" onclick="compartilharProgramacaoAtividadesWhatsapp()">📲 Compartilhar por atividade (texto)</button>
-      <button class="btn ghost" style="width:auto; color:#128C7E; border:1px solid #128C7E; font-size:11.5px;" onclick="gerarImagemProgramacaoAtividades()">🖼️ Gerar imagem — Cronograma</button>
-      <button class="btn ghost" style="width:auto; color:#128C7E; border:1px solid #128C7E; font-size:11.5px;" onclick="compartilharProgramacaoColaboradorWhatsapp()">📲 Compartilhar por colaborador (texto)</button>
-      <button class="btn ghost" style="width:auto; color:#128C7E; border:1px solid #128C7E; font-size:11.5px;" onclick="gerarImagemProgramacaoColaborador()">🖼️ Gerar imagem por colaborador</button>
-    </div>` : ""}
       </div>
     </details>
   </div>`;
@@ -5452,7 +5847,7 @@ function renderProgramacao() {
     <button class="btn" onclick="criarProgramacao()">➕ Adicionar à semana</button>
   </details>`;
 
-  html += renderTabelaProgramacaoHTML(itensSemana);
+  html += S._progLayout === "tabela" ? renderTabelaProgramacaoHTML(itensSemana) : renderCartoesProgramacaoHTML(itensSemana);
   html += formHtml;
 
   document.getElementById("tabContent").innerHTML = html;
@@ -5477,6 +5872,9 @@ function renderProgramacaoPorColaborador(itensSemana) {
     (item.quemVaiFazer || "").split(",").map((n) => n.trim()).filter(Boolean).forEach((n) => colaboradores.add(n));
   });
   const nomes = Array.from(colaboradores).sort((a, b) => a.localeCompare(b, "pt-BR"));
+  if (nomes.length > 0 && S._progLayout !== "tabela") {
+    return `<div style="font-size:16px; font-weight:800; margin:6px 2px 8px;">👤 Quem faz o quê essa semana</div>` + renderColaboradorCartoesHTML(itensSemana, nomes);
+  }
 
   let html = `<div class="card">
     <h3 style="margin-bottom:10px;">👤 Quem faz o quê essa semana</h3>`;
@@ -5672,65 +6070,16 @@ async function compartilharTextoWhatsapp(titulo, texto) {
   window.open(`https://wa.me/?text=${encodeURIComponent(texto)}`, "_blank");
 }
 
-window.compartilharProgramacaoAtividadesWhatsapp = function () {
-  const itens = S.programacao.filter((p) => p.semana === S._progSemana);
-  if (itens.length === 0) return;
-  const semanaFim = new Date(S._progSemana + "T00:00:00");
-  semanaFim.setDate(semanaFim.getDate() + 6);
-
-  let texto = `🗓️ *Programação — Semana ${numeroDaSemana(S._progSemana)}*\n${brDate(S._progSemana)} até ${brDate(semanaFim.toISOString().slice(0,10))}\n\n`;
-  itens.forEach((item) => {
-    texto += `🔸 *${item.atividade || "(sem nome)"}* — ${item.setor}\n`;
-    if (item.quemVaiFazer) texto += `👤 ${item.quemVaiFazer}\n`;
-    if (item.planejadoQtd) texto += `Planejado: ${item.planejadoQtd} ${item.planejadoUni || ""}${item.diasNec ? ` × ${item.diasNec} dias` : ""}\n`;
-    texto += `\n`;
-  });
-
-  compartilharTextoWhatsapp(`Programação Semana ${numeroDaSemana(S._progSemana)}`, texto.trim());
-};
-
 window.compartilharProgramacaoColaboradorWhatsapp = function () {
   const itens = S.programacao.filter((p) => p.semana === S._progSemana);
   if (itens.length === 0) return;
-  const colaboradoresSet = new Set();
-  itens.forEach((item) => {
-    (item.quemVaiFazer || "").split(",").map((n) => n.trim()).filter(Boolean).forEach((n) => colaboradoresSet.add(n));
-  });
-  const nomes = Array.from(colaboradoresSet).sort((a, b) => a.localeCompare(b, "pt-BR"));
+  const nomes = Array.from(new Set(itens.flatMap((it) => pessoasDoItem(it)))).sort((a, b) => a.localeCompare(b, "pt-BR"));
   if (nomes.length === 0) { alert("Ninguém informado em \"Quem vai fazer\" ainda essa semana."); return; }
-
-  const semanaFim = new Date(S._progSemana + "T00:00:00");
-  semanaFim.setDate(semanaFim.getDate() + 6);
-
-  let texto = `🗓️ *Quem faz o quê — Semana ${numeroDaSemana(S._progSemana)}*\n${brDate(S._progSemana)} até ${brDate(semanaFim.toISOString().slice(0,10))}\n\n`;
-
+  let texto = `🗓️ *Quem faz o quê — Semana ${numeroDaSemana(S._progSemana)}*\n${subtituloSemana()}\n\n`;
   nomes.forEach((nome) => {
-    // Resumo de cada dia (junta com "+" se a pessoa tiver mais de uma tarefa no mesmo dia)
-    const porDia = DIAS_SEMANA.map((d) => {
-      const tarefas = itens.filter((item) => {
-        const temPessoa = (item.quemVaiFazer || "").split(",").map((n) => n.trim()).includes(nome);
-        const temDia = item.prog && item.prog[d.key] !== undefined && item.prog[d.key] !== "" && Number(item.prog[d.key]) !== 0;
-        return temPessoa && temDia;
-      });
-      return tarefas.length > 0 ? tarefas.map((t) => t.atividade).join(" + ") : null;
-    });
-
-    // Agrupa dias seguidos com a MESMA tarefa numa faixa só (ex: "Ter-Sáb: Descascamento"),
-    // igual as células coloridas emendadas na sua planilha — bem mais compacto que uma linha por dia.
-    const linhas = [];
-    let i = 0;
-    while (i < DIAS_SEMANA.length) {
-      if (!porDia[i]) { i++; continue; }
-      let j = i;
-      while (j + 1 < DIAS_SEMANA.length && porDia[j + 1] === porDia[i]) j++;
-      const faixa = i === j ? DIAS_SEMANA[i].label : `${DIAS_SEMANA[i].label}-${DIAS_SEMANA[j].label}`;
-      linhas.push(`${faixa}: ${porDia[i]}`);
-      i = j + 1;
-    }
-
-    if (linhas.length > 0) texto += `👤 *${nome}*\n${linhas.join("\n")}\n\n`;
+    const faixas = faixasDoColaborador(nome, itens);
+    if (faixas.length > 0) texto += `👤 *${nome}*\n${faixas.map((f) => `${f.faixa}: ${f.itens.map((t) => t.label).join(" + ")}`).join("\n")}\n\n`;
   });
-
   compartilharTextoWhatsapp(`Quem faz o quê — Semana ${numeroDaSemana(S._progSemana)}`, texto.trim());
 };
 
@@ -5760,319 +6109,6 @@ function desenharTextoComQuebra(ctx, texto, x, yCentro, maxWidth, lineHeight, al
 // Gera o "cronograma" por atividade como imagem — igual a planilha que vocês já usam: uma
 // atividade pode ocupar várias linhas (uma por setor), com os dias programados em destaque,
 // veículo/implemento e os produtos usados. Os dados já existem no cadastro, só reorganiza pra imagem.
-window.gerarImagemProgramacaoAtividades = function () {
-  const itens = S.programacao.filter((p) => p.semana === S._progSemana);
-  if (itens.length === 0) return;
-
-  // Agrupa por nome da atividade, mantendo a ordem em que já aparecem
-  const grupos = [];
-  const indicePorAtividade = {};
-  itens.forEach((item) => {
-    const chave = item.atividade || "(sem nome)";
-    if (!(chave in indicePorAtividade)) {
-      indicePorAtividade[chave] = grupos.length;
-      grupos.push({ atividade: chave, itens: [] });
-    }
-    grupos[indicePorAtividade[chave]].itens.push(item);
-  });
-
-  const L = { ativ: 200, area: 50, setor: 46, dia: 42, trator: 58, impl: 90, tipo: 90, quant: 52, uni: 34 };
-  const numDias = DIAS_SEMANA.length;
-  const largura = L.ativ + L.area + L.setor + L.dia * numDias + L.trator + L.impl + L.tipo + L.quant + L.uni;
-  const alturaTitulo = 34, alturaCab1 = 24, alturaCab2 = 24;
-  const alturaLinhaMin = 28, alturaPorProduto = 11;
-
-  // Cada linha agora tem altura própria, dependendo de quantos produtos tem — uma atividade com
-  // 5 produtos precisa de mais espaço que uma com 1 só. Calcula isso ANTES de desenhar, pra saber
-  // o tamanho total do canvas.
-  function alturaDoItem(item) {
-    const n = Math.max(1, (item.produtos || []).length);
-    return Math.max(alturaLinhaMin, n * alturaPorProduto + 10);
-  }
-  let alturaCorpo = 0;
-  grupos.forEach((grupo) => { grupo.itens.forEach((item) => { alturaCorpo += alturaDoItem(item); }); });
-  const altura = alturaTitulo + alturaCab1 + alturaCab2 + alturaCorpo;
-
-  const canvas = document.createElement("canvas");
-  canvas.width = largura;
-  canvas.height = altura;
-  const ctx = canvas.getContext("2d");
-  ctx.fillStyle = "#ffffff";
-  ctx.fillRect(0, 0, largura, altura);
-  ctx.textBaseline = "middle";
-
-  // Título
-  ctx.fillStyle = "#c0622a";
-  ctx.fillRect(0, 0, largura, alturaTitulo);
-  ctx.fillStyle = "#ffffff";
-  ctx.font = "bold 16px Arial";
-  ctx.textAlign = "center";
-  ctx.fillText(`CRONOGRAMA — SEMANA ${numeroDaSemana(S._progSemana)}`, largura / 2, alturaTitulo / 2);
-
-  let y = alturaTitulo;
-
-  // Cabeçalho nível 1 (grupos de coluna)
-  let x = 0;
-  [
-    { label: "Atividades", w: L.ativ + L.area + L.setor, cor: "#c8e0c3" },
-    { label: "Programado", w: L.dia * numDias, cor: "#ffef62" },
-    { label: "Veículos e Implementos", w: L.trator + L.impl, cor: "#e5e7eb" },
-    { label: "Produtos", w: L.tipo + L.quant + L.uni, cor: "#e5e7eb" },
-  ].forEach((g) => {
-    ctx.fillStyle = g.cor;
-    ctx.fillRect(x, y, g.w, alturaCab1);
-    ctx.strokeStyle = "#999"; ctx.strokeRect(x, y, g.w, alturaCab1);
-    ctx.fillStyle = "#1f2937";
-    ctx.font = "bold 11px Arial";
-    ctx.textAlign = "center";
-    ctx.fillText(g.label, x + g.w / 2, y + alturaCab1 / 2);
-    x += g.w;
-  });
-  y += alturaCab1;
-
-  // Cabeçalho nível 2 (colunas individuais)
-  x = 0;
-  ctx.font = "bold 9.5px Arial";
-  [
-    { label: "Atividades", w: L.ativ, cor: "#dcecd9" }, { label: "Área", w: L.area, cor: "#dcecd9" }, { label: "Setor", w: L.setor, cor: "#dcecd9" },
-    ...DIAS_SEMANA.map((d) => ({ label: d.label, w: L.dia, cor: "#ffef62" })),
-    { label: "Trator", w: L.trator, cor: "#f3f4f6" }, { label: "Implem.", w: L.impl, cor: "#f3f4f6" },
-    { label: "Produto", w: L.tipo, cor: "#f3f4f6" }, { label: "Quant.", w: L.quant, cor: "#f3f4f6" }, { label: "Uni.", w: L.uni, cor: "#f3f4f6" },
-  ].forEach((c) => {
-    ctx.fillStyle = c.cor;
-    ctx.fillRect(x, y, c.w, alturaCab2);
-    ctx.strokeStyle = "#999"; ctx.strokeRect(x, y, c.w, alturaCab2);
-    ctx.fillStyle = "#1f2937";
-    ctx.textAlign = "center";
-    ctx.fillText(c.label, x + c.w / 2, y + alturaCab2 / 2);
-    x += c.w;
-  });
-  y += alturaCab2;
-
-  // Corpo — agrupado por atividade. As colunas Atividade/Área/Trator/Implemento mostram o texto
-  // uma vez só, centralizado no meio do grupo (efeito de célula mesclada do Excel). O fundo
-  // dessas colunas é pintado de uma vez só, ANTES de escrever o texto — se pintasse de novo a
-  // cada linha (como estava antes), a repintura da 2ª linha em diante apagava metade do texto
-  // que tinha "vazado" pra baixo da 1ª linha. Foi esse o bug que cortava as informações.
-  grupos.forEach((grupo, gi) => {
-    const inicioGrupoY = y;
-    const numLinhasGrupo = grupo.itens.length;
-    const alturasItens = grupo.itens.map(alturaDoItem);
-    const alturaGrupo = alturasItens.reduce((s, h) => s + h, 0);
-    const corFundo = gi % 2 === 0 ? "#ffffff" : "#f7f7f7";
-    const centroGrupoY = inicioGrupoY + alturaGrupo / 2;
-    const primeiroItem = grupo.itens[0];
-
-    // 1) Fundo das colunas mescladas (Atividades+Área, e Trator+Implementos), pintado uma vez só
-    ctx.fillStyle = corFundo;
-    ctx.fillRect(0, inicioGrupoY, L.ativ + L.area, alturaGrupo);
-    ctx.fillRect(L.ativ + L.area + L.setor + L.dia * numDias, inicioGrupoY, L.trator + L.impl, alturaGrupo);
-
-    // 2) Texto mesclado, uma vez só, centralizado na altura do grupo inteiro
-    ctx.fillStyle = "#111827";
-    ctx.font = "bold 9.5px Arial";
-    desenharTextoComQuebra(ctx, grupo.atividade, 5, centroGrupoY, L.ativ - 10, 11, "left");
-    ctx.textAlign = "center";
-    ctx.font = "10px Arial";
-    ctx.fillText(primeiroItem.area || "", L.ativ + L.area / 2, centroGrupoY);
-    ctx.font = "9.5px Arial";
-    const xTrator = L.ativ + L.area + L.setor + L.dia * numDias;
-    ctx.fillText(primeiroItem.veiculo || "-", xTrator + L.trator / 2, centroGrupoY);
-    desenharTextoComQuebra(ctx, primeiroItem.implemento || "-", xTrator + L.trator + L.impl / 2, centroGrupoY, L.impl - 8, 11, "center");
-
-    // 3) Agora desenha o que É por linha (Setor, dias programados, produtos) — sem tocar de
-    // novo nas colunas mescladas de cima. Cada linha usa a PRÓPRIA altura (depende de quantos
-    // produtos ela tem), não uma altura fixa igual pra todas.
-    let yLinha = inicioGrupoY;
-    grupo.itens.forEach((item, idx) => {
-      const alturaLinha = alturasItens[idx];
-      let cx = L.ativ + L.area;
-      ctx.fillStyle = "#ffffff";
-      ctx.fillRect(cx, yLinha, L.setor, alturaLinha);
-      ctx.fillStyle = "#111827"; ctx.font = "10px Arial"; ctx.textAlign = "center";
-      ctx.fillText(item.setor || "", cx + L.setor / 2, yLinha + alturaLinha / 2);
-      cx += L.setor;
-
-      DIAS_SEMANA.forEach((d) => {
-        const valor = item.prog && item.prog[d.key];
-        const temValor = valor !== undefined && valor !== "" && Number(valor) !== 0;
-        ctx.fillStyle = temValor ? "#ffef62" : "#ffffff";
-        ctx.fillRect(cx, yLinha, L.dia, alturaLinha);
-        ctx.strokeStyle = "#ddd"; ctx.strokeRect(cx, yLinha, L.dia, alturaLinha);
-        if (temValor) {
-          ctx.fillStyle = "#111827";
-          ctx.textAlign = "center";
-          ctx.fillText(String(valor), cx + L.dia / 2, yLinha + alturaLinha / 2);
-        }
-        cx += L.dia;
-      });
-
-      cx += L.trator + L.impl; // já pintado/escrito acima (mesclado) — só pula essa faixa
-
-      ctx.fillStyle = "#ffffff";
-      ctx.fillRect(cx, yLinha, L.tipo + L.quant + L.uni, alturaLinha);
-      ctx.strokeStyle = "#eee"; ctx.strokeRect(cx, yLinha, L.tipo + L.quant + L.uni, alturaLinha);
-      ctx.font = "9px Arial";
-      const produtosLinha = item.produtos && item.produtos.length ? item.produtos : [{ nome: "-", quantidade: "", unidade: "" }];
-      produtosLinha.forEach((p, pi) => {
-        const yProduto = yLinha + alturaPorProduto * (pi + 0.5) + (alturaLinha - produtosLinha.length * alturaPorProduto) / 2;
-        ctx.fillStyle = "#111827";
-        ctx.textAlign = "left";
-        ctx.fillText(String(p.nome || "-"), cx + 4, yProduto, L.tipo - 6);
-        ctx.textAlign = "center";
-        ctx.fillText(p.quantidade !== undefined && p.quantidade !== "" ? String(p.quantidade) : "-", cx + L.tipo + L.quant / 2, yProduto);
-        ctx.fillText(String(p.unidade || "-"), cx + L.tipo + L.quant + L.uni / 2, yProduto);
-      });
-
-      yLinha += alturaLinha;
-    });
-
-    // 4) Linhas de grade finas separando cada setor dentro do grupo (só nas colunas por linha)
-    ctx.strokeStyle = "#eee";
-    let acumulada = inicioGrupoY;
-    for (let k = 0; k < numLinhasGrupo - 1; k++) {
-      acumulada += alturasItens[k];
-      ctx.beginPath();
-      ctx.moveTo(L.ativ + L.area, acumulada);
-      ctx.lineTo(L.ativ + L.area + L.setor + L.dia * numDias, acumulada);
-      ctx.stroke();
-    }
-
-    y += alturaGrupo;
-
-    // Linha mais forte separando de outra atividade
-    ctx.strokeStyle = "#9ca3af";
-    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(largura, y); ctx.stroke();
-  });
-
-  ctx.strokeStyle = "#555"; ctx.lineWidth = 1.5;
-  ctx.strokeRect(0.5, 0.5, largura - 1, altura - 1);
-
-  canvas.toBlob(async (blob) => {
-    if (!blob) { alert("Não consegui gerar a imagem. Tenta de novo."); return; }
-    const nomeArquivo = `cronograma-semana-${numeroDaSemana(S._progSemana)}.png`;
-    const arquivo = new File([blob], nomeArquivo, { type: "image/png" });
-
-    if (navigator.share && navigator.canShare && navigator.canShare({ files: [arquivo] })) {
-      try {
-        await navigator.share({ files: [arquivo], title: `Cronograma Semana ${numeroDaSemana(S._progSemana)}` });
-        return;
-      } catch (e) {
-        if (e.name === "AbortError") return;
-        console.warn("Falha ao compartilhar a imagem, baixando em vez disso:", e);
-      }
-    }
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = nomeArquivo;
-    a.click();
-    URL.revokeObjectURL(url);
-  }, "image/png");
-};
-
-window.gerarImagemProgramacaoColaborador = async function () {
-  const itens = S.programacao.filter((p) => p.semana === S._progSemana);
-  if (itens.length === 0) return;
-  const colaboradoresSet = new Set();
-  itens.forEach((item) => {
-    (item.quemVaiFazer || "").split(",").map((n) => n.trim()).filter(Boolean).forEach((n) => colaboradoresSet.add(n));
-  });
-  const nomes = Array.from(colaboradoresSet).sort((a, b) => a.localeCompare(b, "pt-BR"));
-  if (nomes.length === 0) { alert("Ninguém informado em \"Quem vai fazer\" ainda essa semana."); return; }
-
-  const semanaInicio = new Date(S._progSemana + "T00:00:00");
-  const colNomeW = 130, colDiaW = 138, rowH = 46, headerH = 58;
-  const largura = colNomeW + colDiaW * DIAS_SEMANA.length;
-  const altura = headerH + rowH * nomes.length;
-
-  const canvas = document.createElement("canvas");
-  canvas.width = largura;
-  canvas.height = altura;
-  const ctx = canvas.getContext("2d");
-
-  ctx.fillStyle = "#ffffff";
-  ctx.fillRect(0, 0, largura, altura);
-
-  // Cabeçalho: canto vazio + um bloco por dia da semana, com a data debaixo do nome do dia
-  ctx.fillStyle = "#1f2937";
-  ctx.fillRect(0, 0, largura, headerH);
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  DIAS_SEMANA.forEach((d, i) => {
-    const x = colNomeW + i * colDiaW;
-    const dataDia = new Date(semanaInicio);
-    dataDia.setDate(dataDia.getDate() + i);
-    ctx.fillStyle = "#ffffff";
-    ctx.font = "bold 15px Arial";
-    ctx.fillText(d.label.toUpperCase(), x + colDiaW / 2, headerH / 2 - 10);
-    ctx.font = "12px Arial";
-    ctx.fillStyle = "#d1d5db";
-    ctx.fillText(dataDia.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }), x + colDiaW / 2, headerH / 2 + 12);
-  });
-
-  // Uma linha por colaborador, uma célula colorida por dia (mesma cor da atividade que já usamos
-  // na tela "Por colaborador" — dias seguidos com a mesma tarefa acabam formando um bloco visual
-  // igual na sua planilha, mesmo sem mesclar célula de verdade).
-  nomes.forEach((nome, li) => {
-    const y = headerH + li * rowH;
-    ctx.fillStyle = li % 2 === 0 ? "#f3f4f6" : "#e5e7eb";
-    ctx.fillRect(0, y, colNomeW, rowH);
-    ctx.fillStyle = "#111827";
-    ctx.font = "bold 13px Arial";
-    ctx.textAlign = "left";
-    ctx.fillText(nome.toUpperCase(), 10, y + rowH / 2, colNomeW - 16);
-
-    DIAS_SEMANA.forEach((d, ci) => {
-      const x = colNomeW + ci * colDiaW;
-      const tarefas = itens.filter((item) => {
-        const temPessoa = (item.quemVaiFazer || "").split(",").map((n) => n.trim()).includes(nome);
-        const temDia = item.prog && item.prog[d.key] !== undefined && item.prog[d.key] !== "" && Number(item.prog[d.key]) !== 0;
-        return temPessoa && temDia;
-      });
-      const cor = tarefas.length > 0 ? corAtividade(tarefas[0].atividade) : null;
-      ctx.fillStyle = cor ? cor.bg : "#fafafa";
-      ctx.fillRect(x, y, colDiaW, rowH);
-      ctx.strokeStyle = "#d1d5db";
-      ctx.lineWidth = 1;
-      ctx.strokeRect(x + 0.5, y + 0.5, colDiaW - 1, rowH - 1);
-      if (tarefas.length > 0) {
-        ctx.fillStyle = cor.fg;
-        ctx.font = "12px Arial";
-        ctx.textAlign = "center";
-        ctx.fillText(tarefas.map((t) => t.atividade).join(" + "), x + colDiaW / 2, y + rowH / 2, colDiaW - 10);
-      }
-    });
-  });
-
-  ctx.strokeStyle = "#9ca3af";
-  ctx.lineWidth = 1.5;
-  ctx.strokeRect(0.5, 0.5, largura - 1, altura - 1);
-
-  canvas.toBlob(async (blob) => {
-    if (!blob) { alert("Não consegui gerar a imagem. Tenta de novo."); return; }
-    const nomeArquivo = `programacao-semana-${numeroDaSemana(S._progSemana)}.png`;
-    const arquivo = new File([blob], nomeArquivo, { type: "image/png" });
-
-    if (navigator.share && navigator.canShare && navigator.canShare({ files: [arquivo] })) {
-      try {
-        await navigator.share({ files: [arquivo], title: `Programação Semana ${numeroDaSemana(S._progSemana)}` });
-        return;
-      } catch (e) {
-        if (e.name === "AbortError") return;
-        console.warn("Falha ao compartilhar a imagem, baixando em vez disso:", e);
-      }
-    }
-    // Sem compartilhamento nativo disponível (ex: computador) — baixa a imagem direto.
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = nomeArquivo;
-    a.click();
-    URL.revokeObjectURL(url);
-  }, "image/png");
-};
-
 /* =========================================================================
    RENDIMENTO POR ATIVIDADE
    Cadastro do rendimento padrão de cada atividade (unidade livre — ha/dia,

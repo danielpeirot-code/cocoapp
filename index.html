@@ -265,7 +265,7 @@
       <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
     </div>
     <div class="header-linha2">
-      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v138</span>
+      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v139</span>
       <div class="spacer"></div>
       <span id="backupPill" class="backup-pill"></span>
       <button class="btn-export" onclick="exportarExcel()">⬇️ Excel</button>
@@ -1958,7 +1958,8 @@ function renderRomaneio() {
   </div>`;
 
   const abertas = S.cargas.filter((c) => c.status !== "arquivada");
-  const arquivadas = S.cargas.filter((c) => c.status === "arquivada");
+  // Arquivadas em ordem numérica do romaneio (maior número primeiro, igual ao Romaneio Verde).
+  const arquivadas = ordenarCargasPorNumero(S.cargas.filter((c) => c.status === "arquivada"));
 
   if (abertas.length === 0 && arquivadas.length === 0) {
     html += `<div class="empty">Nenhuma carga registrada ainda. Crie uma acima.</div>`;
@@ -2394,16 +2395,28 @@ function descarteVazioPara(carga) {
   return { cargaId: carga.id, numeroRomaneio: carga.numero, data: carga.data || todayISO(), descartesUnid: "", cats };
 }
 
+function ordenarCargasPorNumero(lista) {
+  return lista.slice().sort((a, b) => {
+    const na = parseFloat(a.numero), nb = parseFloat(b.numero);
+    if (!Number.isNaN(na) && !Number.isNaN(nb) && na !== nb) return nb - na;
+    return String(b.numero == null ? "" : b.numero).localeCompare(String(a.numero == null ? "" : a.numero), "pt-BR", { numeric: true });
+  });
+}
+
 function renderDescarteDaCargaHTML(carga) {
   const existente = descarteDaCarga(carga);
+  const editando = !!(existente && S._editDescarte && S._editDescarte[carga.id]);
   let html = `<div style="font-size:11px; font-weight:700; text-transform:uppercase; color:#78716c; margin:14px 0 6px;">🗑️ Descarte desta carga</div>`;
 
-  if (existente) {
+  if (existente && !editando) {
     const c = calcDescarte(existente);
     html += `<div class="card" style="padding:10px;">
       <div class="row-flex" style="margin-bottom:8px;">
         <span id="savingPill-descartes" class="saving-pill"></span>
-        <button class="x-btn" onclick="removeDescarte('${existente.id}')">✕ Remover</button>
+        <span style="display:flex; gap:6px;">
+          <button class="x-btn" onclick="editarDescarte('${carga.id}')">✏️ Editar</button>
+          <button class="x-btn" onclick="removeDescarte('${existente.id}')">✕ Remover</button>
+        </span>
       </div>
       <div class="tbl-wrap"><table class="tbl" style="min-width:460px;"><thead><tr>
         <th style="text-align:left;">Categoria</th><th>Kg</th><th>Unid</th><th>% Kg</th><th>% Unid</th>
@@ -2453,9 +2466,9 @@ function renderDescarteDaCargaHTML(carga) {
   if (!S._formsDescarte[carga.id]) S._formsDescarte[carga.id] = descarteVazioPara(carga);
   const f = S._formsDescarte[carga.id];
 
-  html += `<div class="card" style="padding:10px;">
+  html += `<div class="card" style="padding:10px;${editando ? " border:2px solid #f59e0b;" : ""}">
     <div class="row-flex" style="margin-bottom:10px;">
-      <span class="muted" style="font-size:12px;">Nenhum descarte lançado pra essa carga ainda.</span>
+      <span class="muted" style="font-size:12px;">${editando ? "✏️ Editando o descarte desta carga — corrija o que precisar e salve." : "Nenhum descarte lançado pra essa carga ainda."}</span>
       <span id="savingPill-descartes" class="saving-pill"></span>
     </div>
     <div class="grid grid-2" style="margin-bottom:10px;">
@@ -2473,7 +2486,11 @@ function renderDescarteDaCargaHTML(carga) {
     </tr>`;
   });
   html += `</tbody></table></div>
-    <div style="margin-top:10px;"><button class="btn" onclick="addDescarte('${carga.id}')">➕ Salvar descarte desta carga</button></div>
+    <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap;">
+      ${editando
+        ? `<button class="btn" onclick="salvarEdicaoDescarte('${carga.id}')">💾 Salvar alterações</button><button class="btn ghost" style="width:auto;" onclick="cancelarEdicaoDescarte('${carga.id}')">Cancelar</button>`
+        : `<button class="btn" onclick="addDescarte('${carga.id}')">➕ Salvar descarte desta carga</button>`}
+    </div>
   </div>`;
 
   return html;
@@ -2488,6 +2505,41 @@ window.addDescarte = function (cargaId) {
   delete S._formsDescarte[cargaId];
   marcarSalvando("descartes");
   addDoc(collection(db, "descartes"), payload).then(() => { if (navigator.onLine) setSaveStatus("descartes", "saved"); }).catch((e) => tratarErroSalvamento("descartes", e));
+  renderRomaneio();
+};
+// Corrigir um descarte já lançado sem precisar apagar e refazer tudo: abre o formulário já
+// preenchido com os valores salvos; ao salvar, atualiza o mesmo registro.
+window.editarDescarte = function (cargaId) {
+  const carga = S.cargas.find((c) => c.id === cargaId);
+  if (!carga) return;
+  const ex = descarteDaCarga(carga);
+  if (!ex) return;
+  if (!S._formsDescarte) S._formsDescarte = {};
+  if (!S._editDescarte) S._editDescarte = {};
+  S._formsDescarte[cargaId] = {
+    editId: ex.id, cargaId, numeroRomaneio: ex.numeroRomaneio !== undefined ? ex.numeroRomaneio : carga.numero,
+    data: ex.data || carga.data || todayISO(), descartesUnid: ex.descartesUnid !== undefined ? ex.descartesUnid : "",
+    cats: JSON.parse(JSON.stringify(ex.cats)),
+  };
+  S._editDescarte[cargaId] = true;
+  renderRomaneio();
+};
+window.cancelarEdicaoDescarte = function (cargaId) {
+  if (S._editDescarte) delete S._editDescarte[cargaId];
+  if (S._formsDescarte) delete S._formsDescarte[cargaId];
+  renderRomaneio();
+};
+window.salvarEdicaoDescarte = function (cargaId) {
+  const form = S._formsDescarte && S._formsDescarte[cargaId];
+  if (!form || !form.editId) return;
+  const { editId, ...resto } = form;
+  const payload = { ...resto, cats: JSON.parse(JSON.stringify(form.cats)) };
+  delete S._formsDescarte[cargaId];
+  if (S._editDescarte) delete S._editDescarte[cargaId];
+  // Atualiza na tela já (sem esperar o servidor responder), pra não parecer que não salvou.
+  S.registrosDescarte = S.registrosDescarte.map((r) => (r.id === editId ? { ...r, ...payload } : r));
+  marcarSalvando("descartes");
+  updateDoc(doc(db, "descartes", editId), payload).then(() => { if (navigator.onLine) setSaveStatus("descartes", "saved"); }).catch((e) => tratarErroSalvamento("descartes", e));
   renderRomaneio();
 };
 window.removeDescarte = function (id) {

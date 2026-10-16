@@ -265,7 +265,7 @@
       <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
     </div>
     <div class="header-linha2">
-      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v142</span>
+      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v143</span>
       <div class="spacer"></div>
       <span id="backupPill" class="backup-pill"></span>
       <button class="btn-export" onclick="exportarExcel()">⬇️ Excel</button>
@@ -1037,6 +1037,7 @@ function renderCargaCard(carga, linhasCalc, totalEstocado, totalCarregado, total
       <span style="font-size:12px;">Nº da carga: <b>${esc(carga.numero)}</b></span>
       <button class="btn ghost" style="width:auto; padding:4px 9px; font-size:10.5px;" onclick="editarNumeroCarga('${carga.id}')">✏️ Editar (senha)</button>
     </div>`;
+    html += renderDescascaPorDiaDaCargaHTML(carga);
 
     html += `<div style="font-size:11px; font-weight:700; text-transform:uppercase; color:#78716c; margin-bottom:6px;">🚛 Transporte</div>
       <div class="grid grid-4" style="margin-bottom:14px;">
@@ -2409,9 +2410,11 @@ function ordenarCargasPorNumero(lista) {
 // Cada bag tem a data da descasca, o setor, a quantidade de cocos e o peso — é só somar por dia.
 function calcDescascaDoDia(dia) {
   const bags = S.bags.filter((b) => (b.dataDescasca || "").slice(0, 10) === dia);
-  const mapa = {};
+  const mapa = {}, romMapa = {};
   let cocosV = 0, kgV = 0;
   bags.forEach((b) => {
+    const r = romMapa[b.cargaId || "—"] || (romMapa[b.cargaId || "—"] = { cargaId: b.cargaId, bags: 0, cocos: 0, kg: 0 });
+    r.bags++; r.cocos += Number(b.coco1) || 0; r.kg += Number(b.estocado1) || 0;
     const t = b.talhao || "—";
     const coco = Number(b.coco1) || 0, kg = Number(b.estocado1) || 0;
     const o = mapa[t] || (mapa[t] = { setor: t, bags: 0, cocos: 0, kg: 0, cocosV: 0, kgV: 0 });
@@ -2423,6 +2426,8 @@ function calcDescascaDoDia(dia) {
   return {
     dia, bags: bags.length, cocos: porSetor.reduce((x, o) => x + o.cocos, 0), kg: porSetor.reduce((x, o) => x + o.kg, 0),
     kgPorFruto: cocosV > 0 ? kgV / cocosV : null, porSetor,
+    porRomaneio: Object.values(romMapa).map((r) => { const c = S.cargas.find((x) => x.id === r.cargaId); return { ...r, numero: c ? c.numero : null, arquivada: !!(c && c.status === "arquivada") }; })
+      .sort((a, b) => (Number(a.numero) || 0) - (Number(b.numero) || 0)),
     semDados: bags.filter((b) => !(Number(b.coco1) > 0) || !(Number(b.estocado1) > 0)).length,
   };
 }
@@ -2437,8 +2442,35 @@ window.compartilharDescascaDia = function () {
   const L = [`🥥 *Descasca do dia — ${brDate(dia)}*`, `Total: ${dd.bags} bag${dd.bags > 1 ? "s" : ""} · ${fmt(dd.cocos, 0)} cocos · ${fmt(dd.kg, 0)} kg`];
   if (dd.kgPorFruto) L.push(`Média: ${kgf(dd.kgPorFruto)} kg/fruto`);
   dd.porSetor.forEach((o) => L.push(`• ${o.setor}: ${o.bags} bag${o.bags > 1 ? "s" : ""} · ${fmt(o.cocos, 0)} cocos · ${fmt(o.kg, 0)} kg`));
+  if (dd.porRomaneio.length) {
+    L.push("", "Por romaneio:");
+    dd.porRomaneio.forEach((r) => L.push(`• ${r.numero !== null ? "Romaneio " + r.numero : "Sem romaneio"}: ${r.bags} bag${r.bags > 1 ? "s" : ""} · ${fmt(r.cocos, 0)} cocos · ${fmt(r.kg, 0)} kg`));
+  }
   compartilharTextoWhatsapp(`Descasca ${brDate(dia)}`, L.join("\n"));
 };
+// Descasca de UM romaneio, dia a dia (pra ver quantos dias levou e quanto saiu em cada um).
+function calcDescascaPorDiaDaCarga(cargaId) {
+  const mapa = {};
+  bagsDaCarga(cargaId).forEach((b) => {
+    const dia = (b.dataDescasca || "").slice(0, 10) || "sem data";
+    const o = mapa[dia] || (mapa[dia] = { dia, bags: 0, cocos: 0, kg: 0 });
+    o.bags++; o.cocos += Number(b.coco1) || 0; o.kg += Number(b.estocado1) || 0;
+  });
+  const dias = Object.values(mapa).sort((a, b) => a.dia.localeCompare(b.dia));
+  return { dias, bags: dias.reduce((x, o) => x + o.bags, 0), cocos: dias.reduce((x, o) => x + o.cocos, 0), kg: dias.reduce((x, o) => x + o.kg, 0) };
+}
+function renderDescascaPorDiaDaCargaHTML(carga) {
+  const d = calcDescascaPorDiaDaCarga(carga.id);
+  if (!d.bags) return "";
+  return `<details style="margin-bottom:12px; background:#f7fef9; border:1px solid #bbf7d0; border-radius:10px; padding:8px 10px;">
+    <summary style="font-size:12.5px; font-weight:700; cursor:pointer;">🥥 Descasca dia a dia deste romaneio <span style="font-weight:400;">· ${d.dias.length} dia${d.dias.length > 1 ? "s" : ""} · ${d.bags} bags · ${fmt(d.cocos, 0)} cocos · ${fmt(d.kg, 0)} kg</span></summary>
+    <div class="tbl-wrap" style="margin-top:8px;"><table class="tbl" style="min-width:300px;"><thead><tr><th style="text-align:left;">Dia</th><th>Bags</th><th>Cocos</th><th>kg</th></tr></thead><tbody>
+      ${d.dias.map((o) => `<tr><td style="text-align:left; font-weight:600;">${o.dia === "sem data" ? "sem data" : DIAS_CURTOS[new Date(o.dia + "T00:00:00").getDay()] + " " + brDate(o.dia).slice(0, 5)}</td><td>${o.bags}</td><td>${fmt(o.cocos, 0)}</td><td style="font-weight:700;">${fmt(o.kg, 0)}</td></tr>`).join("")}
+      <tr style="font-weight:800; background:#fafaf9;"><td style="text-align:left;">Total</td><td>${d.bags}</td><td>${fmt(d.cocos, 0)}</td><td>${fmt(d.kg, 0)}</td></tr>
+    </tbody></table></div>
+  </details>`;
+}
+
 function renderDescascaDiaHTML() {
   const dia = S._descascaDia || todayISO();
   const dd = calcDescascaDoDia(dia);
@@ -2465,6 +2497,8 @@ function renderDescascaDiaHTML() {
       <div class="tbl-wrap"><table class="tbl" style="min-width:300px;"><thead><tr><th style="text-align:left;">Setor</th><th>Bags</th><th>Cocos</th><th>kg</th><th>kg/fruto</th></tr></thead><tbody>
         ${dd.porSetor.map((o) => `<tr><td style="text-align:left; font-weight:700;">${esc(o.setor)}</td><td>${o.bags}</td><td>${fmt(o.cocos, 0)}</td><td style="font-weight:700;">${fmt(o.kg, 0)}</td><td>${kgf(o.kgPorFruto)}</td></tr>`).join("")}
       </tbody></table></div>
+      <div style="font-size:12px; font-weight:700; margin:12px 0 4px;">Por romaneio</div>
+      ${dd.porRomaneio.map((r) => `<div style="display:flex; justify-content:space-between; gap:8px; font-size:13px; padding:5px 0; border-bottom:1px dashed #e7e5e4;"><span><b>${r.numero !== null ? "Romaneio Nº " + esc(r.numero) : "Sem romaneio"}</b>${r.arquivada ? ' <span class="muted" style="font-size:11px;">(arquivado)</span>' : ""}</span><span>${r.bags} bag${r.bags > 1 ? "s" : ""} · ${fmt(r.cocos, 0)} cocos · <b>${fmt(r.kg, 0)} kg</b></span></div>`).join("")}
       <div style="margin-top:10px;"><button class="btn ghost" style="width:auto; color:#128C7E; border:1px solid #128C7E;" onclick="compartilharDescascaDia()">📲 Enviar descasca do dia</button></div>`;
   }
   html += `<div style="font-size:12px; font-weight:700; margin:14px 0 6px;">Últimos 7 dias (toque num dia pra ver)</div>

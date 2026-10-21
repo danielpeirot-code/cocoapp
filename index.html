@@ -265,7 +265,7 @@
       <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
     </div>
     <div class="header-linha2">
-      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v143</span>
+      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v144</span>
       <div class="spacer"></div>
       <span id="backupPill" class="backup-pill"></span>
       <button class="btn-export" onclick="exportarExcel()">⬇️ Excel</button>
@@ -773,7 +773,17 @@ function calcDescarte(d) {
   // 400-500g e Acima de 500g NÃO são descarte — são coco bom, só separado por tamanho. Por isso
   // esse total NÃO soma as 5 categorias como o "totalKg" acima faz (que é o processado inteiro).
   const totalKgDescarteReal = num(d.cats.brotos.kg) + num(d.cats.refugos.kg) + num(d.cats.g350_400.kg);
-  return { totalKg, totalUnid, pctKg, pctUnid, brotoPct, perda350, aprov350, perda400, aprov400, totalKgDescarteReal };
+  // Carga toda por UNIDADES: "Descartes (unid)" e "Rachados" só têm unidade (não têm kg), então só
+  // entram na conta por unidades — e aqui entram os dois, no total e na perda, pra dar a porcentagem
+  // da carga inteira. (400-500g e Acima 500g continuam sendo coco bom.)
+  const descartesUnid = num(d.descartesUnid);
+  const pctDescartesUnid = totalUnid ? descartesUnid / totalUnid : null;
+  const perdaTotalUnid = num(d.cats.brotos.unid) + num(d.cats.refugos.unid) + num(d.cats.g350_400.unid) + descartesUnid + num(d.cats.rachados.unid);
+  const pctPerdaTotalUnid = totalUnid ? perdaTotalUnid / totalUnid : null;
+  const aproveitamentoUnid = pctPerdaTotalUnid === null ? null : 1 - pctPerdaTotalUnid;
+  const unidCatsPreenchidas = CATS_DESCARTES.some((c) => c.key !== "rachados" && num(d.cats[c.key].unid) > 0);
+  return { totalKg, totalUnid, pctKg, pctUnid, brotoPct, perda350, aprov350, perda400, aprov400, totalKgDescarteReal,
+    descartesUnid, pctDescartesUnid, perdaTotalUnid, pctPerdaTotalUnid, aproveitamentoUnid, unidCatsPreenchidas };
 }
 
 function calcAplicacao(reg, tipo) {
@@ -2545,7 +2555,7 @@ function renderDescarteDaCargaHTML(carga) {
         </tr>`;
     });
     html += `<tr style="font-weight:700; background:#fafaf9;">
-          <td style="text-align:left;">Total processado</td>
+          <td style="text-align:left;">Total <span class="muted" style="font-weight:400; font-size:10px;">(Kg: pesado · Unid: carga toda)</span></td>
           <td>${fmt(c.totalKg,0)}</td><td>${fmt(c.totalUnid,0)}</td><td>100%</td><td>100%</td>
         </tr>
       </tbody></table></div>
@@ -2559,6 +2569,17 @@ function renderDescarteDaCargaHTML(carga) {
         <div class="stat-box ico vermelho"><div class="stat-ic vermelho">📉</div><div><div class="lbl">Perda até 400g</div><div class="val" style="color:#dc2626;">${fmtPct(c.perda400)}</div></div></div>
         <div class="stat-box ico green" style="grid-column:span 3;"><div class="stat-ic">✅</div><div><div class="lbl">Aproveit. até 400g</div><div class="val">${fmtPct(c.aprov400)}</div></div></div>
       </div>
+      ${c.totalUnid > 0 ? `<div style="margin-top:12px; border-top:1px dashed #d6d3d1; padding-top:10px;">
+        <div style="font-size:12px; font-weight:700; margin-bottom:6px;">📦 Carga toda (por unidades) — inclui Descartes e Rachados</div>
+        <div class="grid grid-2" style="gap:8px;">
+          <div class="stat-box ico"><div class="stat-ic">🥥</div><div><div class="lbl">Total de cocos</div><div class="val">${fmt(c.totalUnid, 0)}</div></div></div>
+          <div class="stat-box ico vermelho"><div class="stat-ic vermelho">📉</div><div><div class="lbl">Perda total</div><div class="val" style="color:#dc2626;">${fmtPct(c.pctPerdaTotalUnid)}</div><div class="muted" style="font-size:10px;">${fmt(c.perdaTotalUnid, 0)} unid</div></div></div>
+          <div class="stat-box ico"><div class="stat-ic">💥</div><div><div class="lbl">Rachados</div><div class="val">${fmtPct(c.pctUnid.rachados)}</div><div class="muted" style="font-size:10px;">${fmt(Number(existente.cats.rachados.unid) || 0, 0)} unid</div></div></div>
+          <div class="stat-box ico green"><div class="stat-ic">✅</div><div><div class="lbl">Coco bom</div><div class="val">${fmtPct(c.aproveitamentoUnid)}</div></div></div>
+        </div>
+        <div class="muted" style="font-size:10.5px; margin-top:6px;">Perda total = Brotos + Refugos + 350–400g + Descartes + Rachados, tudo em unidades (Descartes: ${fmt(c.descartesUnid, 0)} unid · ${fmtPct(c.pctDescartesUnid)}). 400–500g e Acima de 500g contam como coco bom.</div>
+        ${!c.unidCatsPreenchidas ? `<div style="background:#fef9c3; color:#713f12; border-radius:8px; padding:7px 10px; margin-top:6px; font-size:11.5px;">⚠️ As unidades de Brotos, Refugos e dos tamanhos não foram lançadas — essa porcentagem por unidades só fica certa se elas estiverem preenchidas (use ✏️ Editar).</div>` : ""}
+      </div>` : ""}
     </div>`;
     return html;
   }

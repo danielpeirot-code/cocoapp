@@ -265,7 +265,7 @@
       <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
     </div>
     <div class="header-linha2">
-      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v144</span>
+      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v145</span>
       <div class="spacer"></div>
       <span id="backupPill" class="backup-pill"></span>
       <button class="btn-export" onclick="exportarExcel()">⬇️ Excel</button>
@@ -1988,7 +1988,8 @@ function renderRomaneio() {
   if (arquivadas.length > 0) {
     html += `<button class="btn ghost" style="margin:6px 0;" onclick="toggleVerArquivadas()">
       ${S._verArquivadas ? "▾" : "▸"} Cargas arquivadas (${arquivadas.length})
-    </button>`;
+    </button>
+    <button class="btn ghost" style="margin:0 0 6px 6px; color:#166534; border:1px solid #16a34a;" onclick="exportarDescartesArquivados()">⬇️ Excel dos descartes (arquivadas)</button>`;
     if (S._verArquivadas) {
       arquivadas.forEach((carga) => {
         const linhasCalc = bagsDaCarga(carga.id).map((l) => ({ ...l, ...calcLinhaRomaneio(l) }));
@@ -7769,6 +7770,77 @@ function montarLinhasRomaneioVerde() {
     };
   });
 }
+
+// ---- Excel dos descartes dos romaneios ARQUIVADOS ----
+// Uma linha por romaneio (em ordem numérica), com as quantidades e o peso de cada categoria, os
+// totais e as porcentagens; romaneio arquivado sem descarte lançado também aparece (marcado), pra
+// dar pra ver o que falta. Segunda aba: total geral de todos os arquivados.
+function montarDescartesArquivados() {
+  const arquivadas = ordenarCargasPorNumero(S.cargas.filter((c) => c.status === "arquivada")).reverse(); // crescente
+  const nz = (v) => (v === "" || v === undefined || v === null) ? "" : (Number(v) || 0);
+  const linhas = arquivadas.map((carga) => {
+    const d = descarteDaCarga(carga);
+    const row = { "Nº Romaneio": carga.numero, "Data da carga": carga.data || "", "Cliente": carga.cliente || "", "Data do descarte": d ? (d.data || "") : "", "Situação": d ? "Lançado" : "SEM DESCARTE LANÇADO" };
+    if (!d) return row;
+    const c = calcDescarte(d);
+    CATS_DESCARTES.forEach((cat) => {
+      if (cat.key !== "rachados") row[`${cat.label} (kg)`] = nz(d.cats[cat.key].kg);
+      row[`${cat.label} (unid)`] = nz(d.cats[cat.key].unid);
+    });
+    row["Descartes (unid)"] = nz(d.descartesUnid);
+    row["TOTAL pesado (kg)"] = c.totalKg; row["TOTAL da carga (unid)"] = c.totalUnid;
+    row["Descarte real (kg)"] = c.totalKgDescarteReal;
+    row["Broto (%)"] = c.brotoPct === null ? "" : c.brotoPct;
+    row["Perda até 350g (%)"] = c.perda350 === null ? "" : c.perda350;
+    row["Perda até 400g (%)"] = c.totalKg ? c.perda400 : "";
+    row["Aproveit. até 400g (%)"] = c.totalKg ? c.aprov400 : "";
+    row["Perda total por unid. (%)"] = c.pctPerdaTotalUnid === null ? "" : c.pctPerdaTotalUnid;
+    row["Rachados (% da carga)"] = c.pctUnid.rachados === null ? "" : c.pctUnid.rachados;
+    row["Descartes (% da carga)"] = c.pctDescartesUnid === null ? "" : c.pctDescartesUnid;
+    row["Coco bom por unid. (%)"] = c.aproveitamentoUnid === null ? "" : c.aproveitamentoUnid;
+    return row;
+  });
+  // total geral de todos os arquivados que têm descarte
+  const registros = arquivadas.map((c) => descarteDaCarga(c)).filter(Boolean);
+  const num = (v) => Number(v) || 0;
+  const porCat = CATS_DESCARTES.map((cat) => ({ cat, kg: registros.reduce((x, r) => x + num(r.cats[cat.key].kg), 0), unid: registros.reduce((x, r) => x + num(r.cats[cat.key].unid), 0) }));
+  const descartesUnid = registros.reduce((x, r) => x + num(r.descartesUnid), 0);
+  const totalKg = porCat.reduce((x, o) => x + o.kg, 0);
+  const totalUnid = porCat.reduce((x, o) => x + o.unid, 0) + descartesUnid;
+  const aoa = [
+    ["Descartes dos romaneios arquivados — total geral"],
+    [`Romaneios arquivados: ${arquivadas.length} · com descarte lançado: ${registros.length}`],
+    [],
+    ["Categoria", "Kg", "Unid", "% do total (kg)", "% do total (unid)"],
+  ];
+  porCat.forEach((o) => aoa.push([o.cat.label, o.cat.key === "rachados" ? "" : o.kg, o.unid, (o.cat.key === "rachados" || !totalKg) ? "" : o.kg / totalKg, totalUnid ? o.unid / totalUnid : ""]));
+  aoa.push(["Descartes (só unidades)", "", descartesUnid, "", totalUnid ? descartesUnid / totalUnid : ""]);
+  aoa.push(["TOTAL", totalKg, totalUnid, totalKg ? 1 : "", totalUnid ? 1 : ""]);
+  const descarteRealKg = registros.reduce((x, r) => x + calcDescarte(r).totalKgDescarteReal, 0);
+  aoa.push([], ["Descarte real (kg) = Brotos + Refugos + 350–400g", descarteRealKg]);
+  return { linhas, aoa, nArquivadas: arquivadas.length, nComDescarte: registros.length };
+}
+window.exportarDescartesArquivados = function () {
+  if (typeof XLSX === "undefined") { alert("A biblioteca de Excel ainda não carregou — abre o app com internet uma vez e tenta de novo."); return; }
+  const { linhas, aoa, nArquivadas, nComDescarte } = montarDescartesArquivados();
+  if (!nArquivadas) { alert("Não tem romaneio arquivado ainda."); return; }
+  const ws1 = XLSX.utils.json_to_sheet(linhas);
+  const cab = Object.keys(linhas.reduce((acc, r) => ({ ...acc, ...r }), {}));
+  ws1["!cols"] = cab.map((h) => ({ wch: Math.max(10, Math.min(28, h.length + 2)) }));
+  const range = XLSX.utils.decode_range(ws1["!ref"]);
+  cab.forEach((h, c) => {
+    if (!h.includes("(%)") && !h.includes("(% da carga)")) return;
+    for (let r = 1; r <= range.e.r; r++) { const cel = ws1[XLSX.utils.encode_cell({ r, c })]; if (cel && typeof cel.v === "number") cel.z = "0.0%"; }
+  });
+  const ws2 = XLSX.utils.aoa_to_sheet(aoa);
+  ws2["!cols"] = [{ wch: 44 }, { wch: 14 }, { wch: 14 }, { wch: 18 }, { wch: 18 }];
+  for (let r = 4; r < aoa.length; r++) for (const c of [3, 4]) { const cel = ws2[XLSX.utils.encode_cell({ r, c })]; if (cel && typeof cel.v === "number") cel.z = "0.0%"; }
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws1, "Descartes por romaneio");
+  XLSX.utils.book_append_sheet(wb, ws2, "Total geral");
+  XLSX.writeFile(wb, `descartes_romaneios_arquivados_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  if (nComDescarte < nArquivadas) alert(`Pronto! Atenção: ${nArquivadas - nComDescarte} romaneio(s) arquivado(s) estão SEM descarte lançado — aparecem marcados na planilha.`);
+};
 
 function montarLinhasDescartes() {
   return S.registrosDescarte.map((r) => {

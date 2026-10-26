@@ -265,7 +265,7 @@
       <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
     </div>
     <div class="header-linha2">
-      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v145</span>
+      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v146</span>
       <div class="spacer"></div>
       <span id="backupPill" class="backup-pill"></span>
       <button class="btn-export" onclick="exportarExcel()">⬇️ Excel</button>
@@ -283,6 +283,8 @@
     <input type="file" id="inputFotoCarga" accept="image/*" multiple style="display:none" onchange="onFotosCargaSelecionadas(this)"/>
     <input type="file" id="inputFotoOcorrenciaCamera" accept="image/*" capture="environment" style="display:none" onchange="onFotoOcorrenciaSelecionada(this)"/>
     <input type="file" id="inputFotoOcorrencia" accept="image/*" style="display:none" onchange="onFotoOcorrenciaSelecionada(this)"/>
+    <input type="file" id="inputFotoDaninhaCamera" accept="image/*" capture="environment" style="display:none" onchange="onFotoDaninhaSelecionada(this)"/>
+    <input type="file" id="inputFotoDaninha" accept="image/*" style="display:none" onchange="onFotoDaninhaSelecionada(this)"/>
   </div>
 
   <div id="fabOverlay" class="fab-overlay" style="display:none;" onclick="fecharAcaoRapida()"></div>
@@ -634,6 +636,19 @@ onAuthStateChanged(auth, (user) => {
     if (S.currentTab === "ocorrencias" || S.currentTab === "dashboard") renderTab();
   }, (err) => console.error(err));
 
+  onSnapshot(collection(db, "daninhas"), (snap) => {
+    S.daninhas = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    setSaveStatus("daninhas", "saved");
+    if (snap.metadata.hasPendingWrites) return;
+    if (S.currentTab === "daninhas") renderTab();
+  }, (err) => console.error(err));
+
+  onSnapshot(collection(db, "herbicidasDaninhas"), (snap) => {
+    S.herbicidasDaninhas = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    if (snap.metadata.hasPendingWrites) return;
+    if (S.currentTab === "daninhas") renderTab();
+  }, (err) => console.error(err));
+
   onSnapshot(collection(db, "atividadesPadrao"), (snap) => {
     const obj = {};
     snap.docs.forEach((d) => { obj[d.id] = d.data(); });
@@ -870,6 +885,7 @@ const CATEGORIAS_NAV = [
     { id: "colheita", label: "Colheita", icon: "🌾" },
     { id: "contagem", label: "Contagem", icon: "🌱" },
     { id: "ocorrencias", label: "Ocorrências", icon: "⚠️" },
+    { id: "daninhas", label: "Daninhas", icon: "🌿" },
     { id: "setores", label: "Setores", icon: "🗺️" },
   ] },
   { id: "producao", label: "Produção", icon: "📊", tabs: [
@@ -984,6 +1000,7 @@ function renderTab() {
     else if (S.currentTab === "rendimento") renderRendimento();
     else if (S.currentTab === "setores") renderSetores();
     else if (S.currentTab === "ocorrencias") renderOcorrencias();
+    else if (S.currentTab === "daninhas") renderDaninhas();
     else renderEstoque();
   } catch (e) {
     // Antes, um erro aqui deixava a tela travada na versão anterior, sem avisar nada — parecia
@@ -1510,13 +1527,13 @@ window.confirmarAcaoOk = function () {
 
 window.escolherFotoCamera = function () {
   window.fecharEscolhaFoto();
-  const id = S._fotoEscolhaAlvo === "carga" ? "inputFotoCargaCamera" : "inputFotoOcorrenciaCamera";
+  const id = S._fotoEscolhaAlvo === "carga" ? "inputFotoCargaCamera" : (S._fotoEscolhaAlvo === "daninha" ? "inputFotoDaninhaCamera" : "inputFotoOcorrenciaCamera");
   const input = document.getElementById(id);
   if (input) input.click();
 };
 window.escolherFotoGaleria = function () {
   window.fecharEscolhaFoto();
-  const id = S._fotoEscolhaAlvo === "carga" ? "inputFotoCarga" : "inputFotoOcorrencia";
+  const id = S._fotoEscolhaAlvo === "carga" ? "inputFotoCarga" : (S._fotoEscolhaAlvo === "daninha" ? "inputFotoDaninha" : "inputFotoOcorrencia");
   const input = document.getElementById(id);
   if (input) input.click();
 };
@@ -7580,6 +7597,464 @@ function renderSetores() {
 }
 
 /* =========================================================================
+   ABA DANINHAS — monitoramento de ervas daninhas por setor + herbicidas que a fazenda usa.
+   Cada linha do monitoramento segue a planilha: Setor | Erva daninha | Tamanho (P/M/G).
+   O app NÃO inventa dose: ele repete a dose que a pessoa cadastrou (bula / receituário).
+   ========================================================================= */
+const TAMANHOS_DANINHA = [
+  { key: "P", faixa: "0–10 cm", max: 10 },
+  { key: "M", faixa: "10–50 cm", max: 50 },
+  { key: "G", faixa: "mais de 50 cm", max: Infinity },
+];
+const GRUPOS_DANINHA = ["Folha larga", "Folha estreita (capim)", "Ciperácea (tiririca)"];
+const MODOS_HERBICIDA = ["Sistêmico", "Contato", "Pré-emergente (residual)"];
+const UNIDADES_DOSE = ["L/ha", "mL/ha", "kg/ha", "g/ha"];
+// Lista inicial pra facilitar (dá pra digitar qualquer outro nome). O grupo ajuda a escolher o herbicida.
+const DANINHAS_BASE = [
+  { nome: "Capim-pé-de-galinha", cientifico: "Eleusine indica", grupo: "Folha estreita (capim)" },
+  { nome: "Capim-colchão", cientifico: "Digitaria horizontalis", grupo: "Folha estreita (capim)" },
+  { nome: "Capim-amargoso", cientifico: "Digitaria insularis", grupo: "Folha estreita (capim)" },
+  { nome: "Capim-braquiária", cientifico: "Urochloa spp.", grupo: "Folha estreita (capim)" },
+  { nome: "Capim-carrapicho", cientifico: "Cenchrus echinatus", grupo: "Folha estreita (capim)" },
+  { nome: "Tiririca", cientifico: "Cyperus rotundus", grupo: "Ciperácea (tiririca)" },
+  { nome: "Trapoeraba", cientifico: "Commelina benghalensis", grupo: "Folha larga" },
+  { nome: "Beldroega", cientifico: "Portulaca oleracea", grupo: "Folha larga" },
+  { nome: "Caruru / Bredo", cientifico: "Amaranthus spp.", grupo: "Folha larga" },
+  { nome: "Corda-de-viola", cientifico: "Ipomoea spp.", grupo: "Folha larga" },
+  { nome: "Picão-preto", cientifico: "Bidens pilosa", grupo: "Folha larga" },
+  { nome: "Mata-pasto / Fedegoso", cientifico: "Senna obtusifolia", grupo: "Folha larga" },
+  { nome: "Guanxuma / Malva", cientifico: "Sida spp.", grupo: "Folha larga" },
+  { nome: "Buva", cientifico: "Conyza spp.", grupo: "Folha larga" },
+  { nome: "Leiteiro", cientifico: "Euphorbia heterophylla", grupo: "Folha larga" },
+  { nome: "Erva-de-santa-luzia", cientifico: "Euphorbia hirta", grupo: "Folha larga" },
+  { nome: "Maria-pretinha", cientifico: "Solanum americanum", grupo: "Folha larga" },
+  { nome: "Carrapicho-de-carneiro", cientifico: "Acanthospermum hispidum", grupo: "Folha larga" },
+];
+
+S.daninhas = [];
+S.herbicidasDaninhas = [];
+S.saveStatus.daninhas = "idle";
+S._daninhasView = "monitorar";
+S._filtroSetorDaninha = "";
+S._daninhaFotoEnviando = null;
+
+function daninhaVazia(manter) {
+  return { data: (manter && manter.data) || "", setor: (manter && manter.setor) || "", nome: "", grupo: "", tamanho: "", alturaCm: "", obs: "", fotoFile: null, fotoPreview: "", editId: null, fotoUrlAtual: "", fotoFileIdAtual: "" };
+}
+function herbicidaVazio() {
+  return { nome: "", ativo: "", modo: MODOS_HERBICIDA[0], controla: [], volumeCalda: "", unidade: UNIDADES_DOSE[0], dose: { P: "", M: "", G: "" }, obs: "", editId: null };
+}
+S._novaDaninha = daninhaVazia();
+S._novoHerbicida = herbicidaVazio();
+
+function tamanhoPorAltura(cm) {
+  if (!Number.isFinite(cm) || cm <= 0) return "";
+  return cm <= 10 ? "P" : (cm <= 50 ? "M" : "G");
+}
+function acharDaninhaBase(nome) {
+  const n = normTxt(nome);
+  if (!n) return null;
+  return DANINHAS_BASE.find((b) => normTxt(b.nome) === n || b.nome.split("/").some((p) => normTxt(p) === n) || normTxt(b.cientifico) === n) || null;
+}
+function areaDoSetorHa(setor) {
+  const info = S.setoresInfo && S.setoresInfo[setor];
+  const n = info ? Number(String(info.area || "").replace(",", ".")) : NaN;
+  return n > 0 ? n : null;
+}
+function numDaninha(v) { const n = Number(String(v == null ? "" : v).replace(",", ".")); return Number.isFinite(n) ? n : NaN; }
+function totalLegivel(total, unidade) {
+  const base = String(unidade).split("/")[0];
+  if ((base === "mL" || base === "g") && total >= 1000) return `${(total / 1000).toFixed(2).replace(".", ",")} ${base === "mL" ? "L" : "kg"}`;
+  return `${(Math.round(total * 100) / 100).toString().replace(".", ",")} ${base}`;
+}
+
+// ---- Sugestão de manejo: só repete o que a pessoa cadastrou em "Meus herbicidas" ----
+function sugestaoManejoDaninha(grupo, tamanho, setor) {
+  const hs = S.herbicidasDaninhas || [];
+  let orient = "";
+  if (grupo === "Ciperácea (tiririca)") orient = "Tiririca e outras ciperáceas rebrotam pelos tubérculos — herbicida de contato só queima a parte de cima; em geral pede sistêmico.";
+  else if (tamanho === "G") orient = "Daninha grande (mais de 50 cm): em geral pede herbicida sistêmico, que chega até a raiz.";
+  else if (tamanho === "P") orient = "Daninha pequena: muitas vezes dá pra controlar com herbicida de contato; sistêmico também serve.";
+  else if (tamanho === "M") orient = "Tamanho médio: sistêmico costuma ser mais seguro; contato funciona se a calda cobrir bem a planta.";
+  if (!hs.length) return { semHerbicidas: true, orient, itens: [] };
+  let cands = hs.filter((h) => !grupo || (h.controla || []).includes(grupo));
+  const nenhumParaGrupo = !!grupo && cands.length === 0;
+  const preferirSistemico = grupo === "Ciperácea (tiririca)" || tamanho === "G" || tamanho === "M";
+  const ordem = (h) => { const sist = h.modo === "Sistêmico"; return preferirSistemico ? (sist ? 0 : 1) : (sist ? 1 : 0); };
+  cands = cands.slice().sort((a, b) => ordem(a) - ordem(b) || String(a.nome).localeCompare(String(b.nome), "pt-BR"));
+  const ha = areaDoSetorHa(setor);
+  const itens = cands.map((h) => {
+    const dose = tamanho ? numDaninha(h.dose && h.dose[tamanho]) : NaN;
+    const temDose = Number.isFinite(dose) && dose > 0;
+    const vol = numDaninha(h.volumeCalda);
+    return {
+      h, tamanho, dose: temDose ? dose : null, unidade: h.unidade || "L/ha",
+      total: (temDose && ha) ? dose * ha : null,
+      volumeCalda: vol > 0 ? vol : null, caldaTotal: (vol > 0 && ha) ? vol * ha : null,
+    };
+  });
+  return { orient, itens, nenhumParaGrupo, ha, semHerbicidas: false };
+}
+function renderSugestaoManejoHTML(grupo, tamanho, setor) {
+  const sug = sugestaoManejoDaninha(grupo, tamanho, setor);
+  let html = `<div style="background:#f0fdf4; border:1px solid #bbf7d0; border-radius:10px; padding:10px 12px; margin-top:10px;">
+    <div style="font-size:12.5px; font-weight:800; color:#166534; margin-bottom:4px;">💡 O que aplicar</div>`;
+  if (sug.orient) html += `<div style="font-size:12px; color:#3f6212; margin-bottom:6px;">${esc(sug.orient)}</div>`;
+  if (sug.semHerbicidas) {
+    html += `<div style="font-size:12.5px;">Você ainda não cadastrou os herbicidas que usa. Toque em <b>🧪 Meus herbicidas</b> pra cadastrar (nome, o que controla e a dose da bula por tamanho) — aí o app já mostra a dose aqui.</div></div>`;
+    return html;
+  }
+  if (!tamanho) html += `<div style="font-size:12px; color:#78716c; margin-bottom:6px;">Escolha o tamanho (P, M ou G) pra ver a dose de cada herbicida.</div>`;
+  if (!grupo) html += `<div style="font-size:12px; color:#78716c; margin-bottom:6px;">Escolha o tipo da folha pra mostrar só os herbicidas que controlam essa daninha.</div>`;
+  if (sug.nenhumParaGrupo) html += `<div style="font-size:12.5px;">Nenhum herbicida cadastrado marca <b>${esc(grupo)}</b> em "controla". Confira o cadastro em <b>🧪 Meus herbicidas</b>.</div>`;
+  sug.itens.forEach((it) => {
+    html += `<div style="border-top:1px dashed #bbf7d0; padding:7px 0; font-size:13px;">
+      <b>${esc(it.h.nome)}</b> <span class="muted" style="font-size:11px;">${esc(it.h.modo || "")}${it.h.ativo ? " · " + esc(it.h.ativo) : ""}</span>`;
+    if (tamanho) {
+      if (it.dose !== null) {
+        html += `<div>Dose p/ tamanho ${esc(tamanho)}: <b>${esc(String(it.dose).replace(".", ","))} ${esc(it.unidade)}</b>${it.total !== null ? ` &nbsp;→ <b>${esc(totalLegivel(it.total, it.unidade))}</b> no ${esc(S._novaDaninha && S._novaDaninha.setor ? S._novaDaninha.setor : setor)} (${esc(String(sug.ha).replace(".", ","))} ha)` : ""}</div>`;
+      } else {
+        html += `<div style="color:#c2410c;">Dose p/ tamanho ${esc(tamanho)} ainda não cadastrada — complete em Meus herbicidas.</div>`;
+      }
+    }
+    if (it.volumeCalda !== null) html += `<div class="muted" style="font-size:12px;">Calda: ${esc(String(it.volumeCalda).replace(".", ","))} L/ha${it.caldaTotal !== null ? ` → ${esc(String(Math.round(it.caldaTotal)).replace(/\B(?=(\d{3})+(?!\d))/g, "."))} L` : ""}</div>`;
+    html += `</div>`;
+  });
+  html += `<div style="font-size:10.5px; color:#78716c; margin-top:6px;">As doses são as que você cadastrou (bula / receituário). Confira com o agrônomo antes de aplicar.</div></div>`;
+  return html;
+}
+
+// ---- Tela ----
+window.mudarDaninhasView = function (v) { S._daninhasView = v; renderDaninhas(); };
+function renderDaninhasSeAtivo() { if (S.currentTab === "daninhas") renderDaninhas(); }
+
+function renderMonitoramentoDaninhaHTML() {
+  const nd = S._novaDaninha;
+  const data = nd.data || todayISO();
+  const setor = nd.setor || TALHOES[0];
+  const editando = !!nd.editId;
+  let html = `<datalist id="listaDaninhasBase">${DANINHAS_BASE.map((b) => `<option value="${esc(b.nome)}">${esc(b.cientifico)}</option>`).join("")}</datalist>
+  <div class="card" style="${editando ? "border:2px solid #f59e0b;" : ""}">
+    <h3 style="margin-bottom:8px;">${editando ? "✏️ Editando monitoramento" : "🌿 Novo monitoramento"}</h3>
+    <div class="grid grid-2" style="margin-bottom:10px;">
+      <label class="field"><span>Data</span><input type="date" value="${esc(data)}" oninput="daninhaCampo('data', this.value)"/></label>
+      <label class="field"><span>Setor</span>
+        <select onchange="daninhaSetor(this.value)">${TALHOES.map((t) => `<option value="${esc(t)}" ${t === setor ? "selected" : ""}>${esc(t)}</option>`).join("")}</select>
+      </label>
+    </div>
+    <label class="field" style="margin-bottom:10px;"><span>Erva daninha <span class="muted" style="font-weight:400;">(digite o nome, ou deixe vazio e tire uma foto)</span></span>
+      <input type="text" list="listaDaninhasBase" value="${esc(nd.nome)}" placeholder="Ex: Capim-colchão, Tiririca…" oninput="daninhaCampo('nome', this.value)" onchange="daninhaNomeMudou(this.value)"/>
+    </label>
+    <label class="field" style="margin-bottom:10px;"><span>Tipo da folha</span>
+      <select onchange="daninhaGrupo(this.value)"><option value="">Não sei</option>${GRUPOS_DANINHA.map((g) => `<option ${g === nd.grupo ? "selected" : ""}>${esc(g)}</option>`).join("")}</select>
+    </label>
+    <div style="font-size:12px; font-weight:700; margin-bottom:6px;">Tamanho</div>
+    <div style="display:flex; gap:8px; margin-bottom:6px;">
+      ${TAMANHOS_DANINHA.map((t) => { const sel = nd.tamanho === t.key; return `<button type="button" onclick="daninhaTamanho('${t.key}')" style="flex:1; padding:10px 4px; border-radius:12px; border:2px solid ${sel ? "#16a34a" : "#d6d3d1"}; background:${sel ? "#dcfce7" : "#fff"}; color:${sel ? "#166534" : "#44403c"}; cursor:pointer;"><div style="font-size:22px; font-weight:900;">${t.key}</div><div style="font-size:11px;">${t.faixa}</div></button>`; }).join("")}
+    </div>
+    <label class="field" style="margin-bottom:10px;"><span>ou a altura em cm <span class="muted" style="font-weight:400;">(escolhe o tamanho sozinho)</span></span>
+      <input type="number" inputmode="decimal" value="${esc(nd.alturaCm)}" placeholder="Ex: 35" oninput="daninhaCampo('alturaCm', this.value)" onchange="daninhaAltura(this.value)"/>
+    </label>
+    <label class="field" style="margin-bottom:10px;"><span>Observação (opcional)</span><input type="text" value="${esc(nd.obs)}" oninput="daninhaCampo('obs', this.value)"/></label>
+    <div style="margin-bottom:6px; font-size:12px; font-weight:700;">Foto ${nd.fotoUrlAtual && !nd.fotoPreview ? '<span class="muted" style="font-weight:400;">(já tem uma foto salva)</span>' : ""}</div>
+    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:6px;">
+      <button class="btn ghost" style="width:auto;" onclick="selecionarFotoDaninha()">📷 ${nd.fotoPreview ? "Trocar foto" : "Tirar / escolher foto"}</button>
+      ${nd.fotoPreview ? `<img src="${esc(nd.fotoPreview)}" style="width:64px; height:64px; object-fit:cover; border-radius:8px; border:1px solid #d6d3d1;"/><button class="x-btn" onclick="removerFotoNovaDaninha()">✕</button>` : ""}
+    </div>
+    ${nd.fotoPreview ? `<button class="btn ghost" style="width:auto; color:#128C7E; border:1px solid #128C7E; margin-bottom:6px;" onclick="compartilharFotoDaninha()">📤 Compartilhar pra identificar</button>
+    <div class="muted" style="font-size:11px; margin-bottom:6px;">Não sabe o nome? Compartilhe a foto com o Google Lens, o app Pl@ntNet ou o Claude, descubra o nome e digite acima. (A identificação por foto ajuda, mas confirme com o agrônomo.)</div>` : ""}
+    ${renderSugestaoManejoHTML(nd.grupo, nd.tamanho, setor)}
+    <div style="display:flex; gap:8px; margin-top:12px; flex-wrap:wrap;">
+      <button class="btn" onclick="criarDaninha()">${editando ? "💾 Salvar alterações" : "✅ Registrar"}</button>
+      ${editando ? `<button class="btn ghost" style="width:auto;" onclick="cancelarEdicaoDaninha()">Cancelar</button>` : ""}
+    </div>
+    <div class="muted" style="font-size:10.5px; margin-top:8px;">P = 0–10 cm · M = 10–50 cm · G = mais de 50 cm. Depois de registrar, data e setor ficam — é só lançar a próxima daninha.</div>
+  </div>`;
+
+  // resumo por setor
+  const porSetor = {};
+  S.daninhas.forEach((d) => { (porSetor[d.setor] = porSetor[d.setor] || []).push(d); });
+  const setoresComDados = TALHOES.filter((t) => porSetor[t]);
+  if (setoresComDados.length) {
+    html += `<div class="card"><h3 style="margin-bottom:8px;">📍 Resumo por setor <span class="muted" style="font-weight:400; font-size:11px;">(última vistoria)</span></h3>
+      ${setoresComDados.map((t) => {
+        const arr = porSetor[t]; const ult = arr.reduce((m, d) => ((d.data || "") > m ? d.data : m), "");
+        const dodia = arr.filter((d) => d.data === ult);
+        return `<div style="padding:6px 0; border-top:1px dashed #e7e5e4; font-size:13px;"><b>${esc(t)}</b> <span class="muted">${ult ? brDate(ult) : ""}</span><div>${dodia.map((d) => `${esc(d.nome)}${d.tamanho ? ` <b>(${esc(d.tamanho)})</b>` : ""}`).join(" · ")}</div></div>`;
+      }).join("")}
+    </div>`;
+  }
+
+  // lista
+  const lista = S.daninhas.filter((d) => !S._filtroSetorDaninha || d.setor === S._filtroSetorDaninha)
+    .sort((a, b) => (b.data || "").localeCompare(a.data || "") || (b.criadoEm || "").localeCompare(a.criadoEm || ""));
+  html += `<div class="card"><div class="row-flex" style="margin-bottom:8px;"><h3 style="margin:0;">Monitoramentos (${lista.length})</h3>
+    <select onchange="S._filtroSetorDaninha=this.value; renderDaninhas();" style="padding:6px 8px; border:1px solid #d6d3d1; border-radius:8px; font-size:13px;"><option value="">Todos os setores</option>${TALHOES.map((t) => `<option value="${esc(t)}" ${S._filtroSetorDaninha === t ? "selected" : ""}>${esc(t)}</option>`).join("")}</select></div>
+    <button class="btn ghost" style="width:auto; margin-bottom:10px; color:#166534; border:1px solid #16a34a;" onclick="exportarDaninhasExcel()">⬇️ Excel do monitoramento</button>`;
+  if (!lista.length) html += `<div class="empty">Nenhum monitoramento registrado ainda.</div>`;
+  const corTam = { P: "#16a34a", M: "#f59e0b", G: "#dc2626" };
+  lista.forEach((d) => {
+    const enviando = S._daninhaFotoEnviando === d.id;
+    html += `<div style="border:1px solid #e7e5e4; border-left:5px solid ${corTam[d.tamanho] || "#a8a29e"}; border-radius:10px; padding:10px 12px; margin-bottom:8px;">
+      <div class="row-flex" style="align-items:flex-start;">
+        <div>
+          <div style="font-size:15px; font-weight:800;">${esc(d.nome)} ${d.identificada === false ? '<span class="status-pill" style="font-size:10px;">não identificada</span>' : ""}</div>
+          <div class="muted" style="font-size:12px;">📍 ${esc(d.setor)} · ${brDate(d.data)}${d.tamanho ? ` · tamanho <b style="color:#292524;">${esc(d.tamanho)}</b>${d.alturaCm !== "" && d.alturaCm !== undefined ? ` (${esc(d.alturaCm)} cm)` : ""}` : ""}${d.grupo ? ` · ${esc(d.grupo)}` : ""}</div>
+          ${d.obs ? `<div style="font-size:12.5px; margin-top:3px;">${esc(d.obs)}</div>` : ""}
+        </div>
+        <div style="display:flex; gap:4px;"><button class="x-btn" onclick="editarDaninha('${d.id}')">✏️</button><button class="x-btn" onclick="removerDaninha('${d.id}','${esc(d.fotoFileId || "")}')">✕</button></div>
+      </div>
+      ${d.fotoUrl ? `<div class="foto-item" style="width:90px; height:90px; margin-top:8px;"><img src="${esc(d.fotoUrl)}" loading="lazy" onclick="window.open('${esc(d.fotoUrl)}','_blank')"/></div>` : (enviando ? `<div class="muted" style="margin-top:8px;">⏳ enviando foto…</div>` : "")}
+      <details style="margin-top:8px;"><summary style="font-size:12.5px; font-weight:700; cursor:pointer; color:#166534;">💡 O que aplicar</summary>${renderSugestaoManejoHTML(d.grupo, d.tamanho, d.setor)}</details>
+    </div>`;
+  });
+  html += `</div>`;
+  return html;
+}
+
+function renderHerbicidasDaninhaHTML() {
+  const nh = S._novoHerbicida;
+  const editando = !!nh.editId;
+  let html = `<div class="card" style="background:#fffbeb; border:1px solid #fde68a;"><div style="font-size:12.5px; line-height:1.5;">⚠️ Cadastre aqui os herbicidas que você usa e as <b>doses da bula ou do receituário do agrônomo</b> (por tamanho da daninha). O app <b>só repete o que você cadastrar</b> — ele não sugere dose por conta própria.</div></div>
+  <div class="card" style="${editando ? "border:2px solid #f59e0b;" : ""}">
+    <h3 style="margin-bottom:8px;">${editando ? "✏️ Editando herbicida" : "🧪 Novo herbicida"}</h3>
+    <div class="grid grid-2" style="margin-bottom:10px;">
+      <label class="field"><span>Nome comercial</span><input type="text" value="${esc(nh.nome)}" oninput="herbCampo('nome', this.value)"/></label>
+      <label class="field"><span>Princípio ativo (opcional)</span><input type="text" value="${esc(nh.ativo)}" placeholder="Ex: glifosato" oninput="herbCampo('ativo', this.value)"/></label>
+      <label class="field"><span>Modo de ação</span><select onchange="herbCampo('modo', this.value)">${MODOS_HERBICIDA.map((m) => `<option ${m === nh.modo ? "selected" : ""}>${esc(m)}</option>`).join("")}</select></label>
+      <label class="field"><span>Volume de calda (L/ha)</span><input type="number" inputmode="decimal" value="${esc(nh.volumeCalda)}" placeholder="Ex: 260" oninput="herbCampo('volumeCalda', this.value)"/></label>
+    </div>
+    <div style="font-size:12px; font-weight:700; margin-bottom:6px;">Controla</div>
+    <div style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px;">
+      ${GRUPOS_DANINHA.map((g) => { const sel = nh.controla.includes(g); return `<button type="button" onclick="herbToggleGrupo('${esc(g)}')" style="padding:8px 12px; border-radius:20px; border:2px solid ${sel ? "#16a34a" : "#d6d3d1"}; background:${sel ? "#dcfce7" : "#fff"}; color:${sel ? "#166534" : "#44403c"}; font-weight:${sel ? 800 : 600}; font-size:13px; cursor:pointer;">${sel ? "✔ " : ""}${esc(g)}</button>`; }).join("")}
+    </div>
+    <div style="font-size:12px; font-weight:700; margin-bottom:6px;">Dose por tamanho da daninha</div>
+    <div style="display:flex; gap:8px; align-items:flex-end; margin-bottom:10px;">
+      ${TAMANHOS_DANINHA.map((t) => `<label class="field" style="flex:1;"><span>${t.key} <span class="muted" style="font-weight:400;">${t.faixa}</span></span><input type="number" inputmode="decimal" value="${esc(nh.dose[t.key])}" oninput="herbDose('${t.key}', this.value)"/></label>`).join("")}
+      <label class="field" style="width:92px;"><span>Unidade</span><select onchange="herbCampo('unidade', this.value)">${UNIDADES_DOSE.map((u) => `<option ${u === nh.unidade ? "selected" : ""}>${esc(u)}</option>`).join("")}</select></label>
+    </div>
+    <label class="field" style="margin-bottom:10px;"><span>Observações (carência, mistura, cuidados…)</span><input type="text" value="${esc(nh.obs)}" oninput="herbCampo('obs', this.value)"/></label>
+    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+      <button class="btn" onclick="salvarHerbicida()">${editando ? "💾 Salvar alterações" : "➕ Cadastrar herbicida"}</button>
+      ${editando ? `<button class="btn ghost" style="width:auto;" onclick="cancelarEdicaoHerbicida()">Cancelar</button>` : ""}
+    </div>
+  </div>`;
+  const lista = S.herbicidasDaninhas.slice().sort((a, b) => String(a.nome).localeCompare(String(b.nome), "pt-BR"));
+  html += `<div class="card"><h3 style="margin-bottom:8px;">Herbicidas cadastrados (${lista.length})</h3>`;
+  if (!lista.length) html += `<div class="empty">Nenhum herbicida cadastrado ainda.</div>`;
+  lista.forEach((h) => {
+    const doses = TAMANHOS_DANINHA.map((t) => `${t.key}: ${h.dose && h.dose[t.key] !== "" && h.dose[t.key] !== undefined ? esc(String(h.dose[t.key]).replace(".", ",")) + " " + esc(h.unidade) : "—"}`).join(" · ");
+    html += `<div style="border:1px solid #e7e5e4; border-radius:10px; padding:10px 12px; margin-bottom:8px;">
+      <div class="row-flex" style="align-items:flex-start;"><div>
+        <div style="font-size:15px; font-weight:800;">${esc(h.nome)} <span class="status-pill" style="font-size:10px;">${esc(h.modo)}</span></div>
+        ${h.ativo ? `<div class="muted" style="font-size:12px;">${esc(h.ativo)}</div>` : ""}
+        <div style="font-size:12.5px; margin-top:4px;">Controla: ${(h.controla || []).length ? esc(h.controla.join(", ")) : '<span style="color:#c2410c;">nada marcado</span>'}</div>
+        <div style="font-size:12.5px;">Doses — ${doses}</div>
+        ${h.volumeCalda !== "" && h.volumeCalda !== undefined ? `<div class="muted" style="font-size:12px;">Calda: ${esc(String(h.volumeCalda).replace(".", ","))} L/ha</div>` : ""}
+        ${h.obs ? `<div class="muted" style="font-size:12px;">${esc(h.obs)}</div>` : ""}
+      </div><div style="display:flex; gap:4px;"><button class="x-btn" onclick="editarHerbicida('${h.id}')">✏️</button><button class="x-btn" onclick="removerHerbicida('${h.id}')">✕</button></div></div></div>`;
+  });
+  html += `</div>`;
+  return html;
+}
+
+function renderDaninhas() {
+  const view = S._daninhasView || "monitorar";
+  let html = `<div class="card">
+    <div class="row-flex" style="margin-bottom:10px;"><h3 style="margin:0;">🌿 Daninhas</h3><span id="savingPill-daninhas" class="saving-pill"></span></div>
+    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+      <button class="btn ${view === "monitorar" ? "" : "ghost"}" style="width:auto;" onclick="mudarDaninhasView('monitorar')">📋 Monitorar</button>
+      <button class="btn ${view === "herbicidas" ? "" : "ghost"}" style="width:auto;" onclick="mudarDaninhasView('herbicidas')">🧪 Meus herbicidas (${S.herbicidasDaninhas.length})</button>
+    </div></div>`;
+  html += view === "herbicidas" ? renderHerbicidasDaninhaHTML() : renderMonitoramentoDaninhaHTML();
+  document.getElementById("tabContent").innerHTML = html;
+  setSaveStatus("daninhas", S.saveStatus.daninhas);
+}
+
+// ---- Formulário do monitoramento ----
+window.daninhaCampo = function (campo, valor) { S._novaDaninha[campo] = valor; };
+window.daninhaSetor = function (v) { S._novaDaninha.setor = v; renderDaninhas(); };
+window.daninhaNomeMudou = function (v) {
+  S._novaDaninha.nome = v;
+  const b = acharDaninhaBase(v);
+  if (b) { S._novaDaninha.grupo = b.grupo; S._novaDaninha.grupoAuto = true; }
+  else if (S._novaDaninha.grupoAuto) { S._novaDaninha.grupo = ""; S._novaDaninha.grupoAuto = false; } // o tipo veio da erva anterior — não vale pra essa
+  renderDaninhas();
+};
+window.daninhaGrupo = function (g) { S._novaDaninha.grupo = g; S._novaDaninha.grupoAuto = false; renderDaninhas(); };
+window.daninhaTamanho = function (t) { S._novaDaninha.tamanho = S._novaDaninha.tamanho === t ? "" : t; renderDaninhas(); };
+window.daninhaAltura = function (v) {
+  S._novaDaninha.alturaCm = v;
+  const t = tamanhoPorAltura(numDaninha(v));
+  if (t) S._novaDaninha.tamanho = t;
+  renderDaninhas();
+};
+
+// Foto: usa o mesmo menu câmera/galeria das outras abas
+window.selecionarFotoDaninha = function () {
+  S._fotoEscolhaAlvo = "daninha";
+  document.getElementById("fotoEscolhaOverlay").style.display = "block";
+  document.getElementById("fotoEscolhaMenu").style.display = "flex";
+};
+window.onFotoDaninhaSelecionada = async function (input) {
+  const file = (input.files || [])[0];
+  input.value = "";
+  if (!file) return;
+  const blob = await comprimirImagem(file);
+  if (S._novaDaninha.fotoPreview) { try { URL.revokeObjectURL(S._novaDaninha.fotoPreview); } catch (e) {} }
+  S._novaDaninha.fotoFile = blob;
+  S._novaDaninha.fotoPreview = URL.createObjectURL(blob);
+  renderDaninhasSeAtivo();
+};
+window.removerFotoNovaDaninha = function () {
+  if (S._novaDaninha.fotoPreview) { try { URL.revokeObjectURL(S._novaDaninha.fotoPreview); } catch (e) {} }
+  S._novaDaninha.fotoFile = null; S._novaDaninha.fotoPreview = "";
+  renderDaninhas();
+};
+window.compartilharFotoDaninha = async function () {
+  const f = S._novaDaninha.fotoFile;
+  if (!f) return;
+  const arq = new File([f], "daninha.jpg", { type: "image/jpeg" });
+  if (navigator.share && navigator.canShare && navigator.canShare({ files: [arq] })) {
+    try { await navigator.share({ files: [arq], title: "Que erva daninha é essa?", text: "Preciso identificar essa erva daninha (lavoura de coqueiro, Bahia)." }); }
+    catch (e) { if (e.name !== "AbortError") console.warn("Falha ao compartilhar a foto:", e); }
+  } else {
+    alert("Esse navegador não abre o compartilhamento de foto. Salve a foto e envie pelo WhatsApp, Google Lens ou Pl@ntNet.");
+    window.open(S._novaDaninha.fotoPreview, "_blank");
+  }
+};
+
+async function enviarFotoDaninha(id, blob, fileIdAntigo) {
+  S._daninhaFotoEnviando = id;
+  renderDaninhasSeAtivo();
+  try {
+    if (!navigator.onLine) throw new Error("sem-internet");
+    const base64 = await blobParaBase64(blob);
+    const res = await comTimeout(fetch(BACKUP_SHEETS_URL, {
+      method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ action: "uploadFoto", pasta: "daninha_" + id, base64, nomeArquivo: `${Date.now()}.jpg`, mimeType: "image/jpeg" }),
+    }), 30000, "envio-demorou");
+    const data = await res.json();
+    if (!data || !data.ok) throw new Error((data && data.erro) || "falha desconhecida no envio");
+    await updateDoc(doc(db, "daninhas", id), { fotoUrl: data.url, fotoFileId: data.fileId });
+    if (fileIdAntigo) fetch(BACKUP_SHEETS_URL, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ action: "excluirFoto", fileId: fileIdAntigo }) }).catch(() => {});
+  } catch (e) {
+    console.error("Falha ao enviar foto da daninha:", e);
+    alert(!navigator.onLine
+      ? "Sem internet no momento — o registro foi salvo, mas a foto não subiu. Use ✏️ pra anexar a foto de novo quando tiver sinal."
+      : "O registro foi salvo, mas não consegui enviar a foto agora. Use ✏️ pra tentar de novo.");
+  } finally {
+    S._daninhaFotoEnviando = null;
+    renderDaninhasSeAtivo();
+  }
+}
+
+window.criarDaninha = function () {
+  const nd = S._novaDaninha;
+  const data = nd.data || todayISO();
+  const setor = nd.setor || TALHOES[0];
+  const nome = String(nd.nome || "").trim();
+  if (!nome && !nd.fotoFile && !nd.fotoUrlAtual) { alert("Digite o nome da erva daninha ou tire uma foto dela."); return; }
+  if (!nd.tamanho) { alert("Escolha o tamanho (P, M ou G) ou digite a altura em cm."); return; }
+  const alt = numDaninha(nd.alturaCm);
+  const dados = { data, setor, nome: nome || "Não identificada", identificada: !!nome, grupo: nd.grupo || "", tamanho: nd.tamanho, alturaCm: Number.isFinite(alt) && alt > 0 ? alt : "", obs: String(nd.obs || "").trim(), atualizadoEm: new Date().toISOString() };
+  marcarSalvando("daninhas");
+  let id;
+  if (nd.editId) {
+    id = nd.editId;
+    updateDoc(doc(db, "daninhas", id), dados).then(() => { if (navigator.onLine) setSaveStatus("daninhas", "saved"); }).catch((e) => tratarErroSalvamento("daninhas", e));
+    S.daninhas = S.daninhas.map((d) => (d.id === id ? { ...d, ...dados } : d));
+  } else {
+    const ref = doc(collection(db, "daninhas"));
+    id = ref.id;
+    dados.criadoEm = new Date().toISOString();
+    setDoc(ref, dados).then(() => { if (navigator.onLine) setSaveStatus("daninhas", "saved"); }).catch((e) => tratarErroSalvamento("daninhas", e));
+  }
+  const foto = nd.fotoFile, fileAntigo = nd.fotoFileIdAtual;
+  if (nd.fotoPreview) { try { URL.revokeObjectURL(nd.fotoPreview); } catch (e) {} }
+  S._novaDaninha = daninhaVazia({ data, setor });
+  renderDaninhas();
+  if (foto) enviarFotoDaninha(id, foto, fileAntigo);
+};
+window.editarDaninha = function (id) {
+  const d = S.daninhas.find((x) => x.id === id);
+  if (!d) return;
+  S._daninhasView = "monitorar";
+  S._novaDaninha = { data: d.data || "", setor: d.setor || "", nome: d.identificada === false ? "" : (d.nome || ""), grupo: d.grupo || "", tamanho: d.tamanho || "", alturaCm: d.alturaCm === undefined ? "" : d.alturaCm, obs: d.obs || "", fotoFile: null, fotoPreview: "", editId: id, fotoUrlAtual: d.fotoUrl || "", fotoFileIdAtual: d.fotoFileId || "" };
+  renderDaninhas();
+  window.scrollTo(0, 0);
+};
+window.cancelarEdicaoDaninha = function () {
+  const { data, setor } = S._novaDaninha;
+  if (S._novaDaninha.fotoPreview) { try { URL.revokeObjectURL(S._novaDaninha.fotoPreview); } catch (e) {} }
+  S._novaDaninha = daninhaVazia({ data, setor });
+  renderDaninhas();
+};
+window.removerDaninha = function (id, fileId) {
+  pedirSenha(() => {
+    deleteDoc(doc(db, "daninhas", id)).catch((e) => console.error(e));
+    if (fileId) fetch(BACKUP_SHEETS_URL, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ action: "excluirFoto", fileId }) }).catch((e) => console.warn("Não consegui apagar a foto no Drive:", e));
+  });
+};
+
+// ---- Cadastro de herbicidas ----
+window.herbCampo = function (campo, valor) { S._novoHerbicida[campo] = valor; };
+window.herbDose = function (tam, valor) { S._novoHerbicida.dose[tam] = valor; };
+window.herbToggleGrupo = function (g) {
+  const arr = S._novoHerbicida.controla;
+  S._novoHerbicida.controla = arr.includes(g) ? arr.filter((x) => x !== g) : [...arr, g];
+  renderDaninhas();
+};
+window.salvarHerbicida = function () {
+  const nh = S._novoHerbicida;
+  if (!String(nh.nome || "").trim()) { alert("Digite o nome do herbicida."); return; }
+  if (!nh.controla.length) { alert("Marque o que ele controla (folha larga, folha estreita ou ciperácea) — é com isso que o app escolhe o herbicida certo."); return; }
+  const dados = { nome: String(nh.nome).trim(), ativo: String(nh.ativo || "").trim(), modo: nh.modo, controla: [...nh.controla], volumeCalda: nh.volumeCalda, unidade: nh.unidade, dose: { P: nh.dose.P, M: nh.dose.M, G: nh.dose.G }, obs: String(nh.obs || "").trim(), atualizadoEm: new Date().toISOString() };
+  marcarSalvando("daninhas");
+  const ok = () => { if (navigator.onLine) setSaveStatus("daninhas", "saved"); };
+  if (nh.editId) {
+    updateDoc(doc(db, "herbicidasDaninhas", nh.editId), dados).then(ok).catch((e) => tratarErroSalvamento("daninhas", e));
+    S.herbicidasDaninhas = S.herbicidasDaninhas.map((h) => (h.id === nh.editId ? { ...h, ...dados } : h));
+  } else {
+    addDoc(collection(db, "herbicidasDaninhas"), { ...dados, criadoEm: new Date().toISOString() }).then(ok).catch((e) => tratarErroSalvamento("daninhas", e));
+  }
+  S._novoHerbicida = herbicidaVazio();
+  renderDaninhas();
+};
+window.editarHerbicida = function (id) {
+  const h = S.herbicidasDaninhas.find((x) => x.id === id);
+  if (!h) return;
+  S._daninhasView = "herbicidas";
+  S._novoHerbicida = { nome: h.nome || "", ativo: h.ativo || "", modo: h.modo || MODOS_HERBICIDA[0], controla: [...(h.controla || [])], volumeCalda: h.volumeCalda === undefined ? "" : h.volumeCalda, unidade: h.unidade || UNIDADES_DOSE[0], dose: { P: (h.dose || {}).P || "", M: (h.dose || {}).M || "", G: (h.dose || {}).G || "" }, obs: h.obs || "", editId: id };
+  renderDaninhas();
+  window.scrollTo(0, 0);
+};
+window.cancelarEdicaoHerbicida = function () { S._novoHerbicida = herbicidaVazio(); renderDaninhas(); };
+window.removerHerbicida = function (id) {
+  pedirSenha(() => { deleteDoc(doc(db, "herbicidasDaninhas", id)).catch((e) => console.error(e)); });
+};
+
+// ---- Excel do monitoramento (colunas do modelo da planilha + data, tipo da folha e observação) ----
+function montarLinhasDaninhas() {
+  const faixa = (t) => { const x = TAMANHOS_DANINHA.find((y) => y.key === t); return x ? x.faixa : ""; };
+  return S.daninhas.slice().sort((a, b) => (a.data || "").localeCompare(b.data || "") || String(a.setor).localeCompare(String(b.setor))).map((d) => ({
+    "Setor": d.setor, "Ervas Daninhas": d.nome,
+    "Tamanho ou altura": d.tamanho ? `${d.tamanho} (${faixa(d.tamanho)})${d.alturaCm !== "" && d.alturaCm !== undefined ? ` · ${d.alturaCm} cm` : ""}` : "",
+    "Data": d.data, "Tipo da folha": d.grupo || "", "Observação": d.obs || "", "Foto (link)": d.fotoUrl || "",
+  }));
+}
+window.exportarDaninhasExcel = function () {
+  if (typeof XLSX === "undefined") { alert("A biblioteca de Excel ainda não carregou — abre o app com internet uma vez e tenta de novo."); return; }
+  if (!S.daninhas.length) { alert("Ainda não tem monitoramento registrado."); return; }
+  const ws = XLSX.utils.json_to_sheet(montarLinhasDaninhas());
+  ws["!cols"] = [{ wch: 10 }, { wch: 26 }, { wch: 28 }, { wch: 12 }, { wch: 22 }, { wch: 30 }, { wch: 40 }];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Monitoramento daninhas");
+  XLSX.writeFile(wb, `monitoramento_daninhas_${new Date().toISOString().slice(0, 10)}.xlsx`);
+};
+
+
+/* =========================================================================
    ABA OCORRÊNCIAS
    Registro de incêndio, praga, doença, quebra de equipamento, etc. — com
    foto, setor, data, responsável, descrição e providência tomada. Vai servir
@@ -8042,6 +8517,7 @@ window.exportarExcel = function () {
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(montarLinhasSetores()), "Setores");
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(montarLinhasFotos()), "Fotos");
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(montarLinhasOcorrencias()), "Ocorrências");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(montarLinhasDaninhas()), "Daninhas");
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(montarLinhasRendimento()), "Rendimento");
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(montarLinhasColheita()), "Colheita");
   XLSX.writeFile(wb, `coco_dados_${new Date().toISOString().slice(0,10)}.xlsx`);

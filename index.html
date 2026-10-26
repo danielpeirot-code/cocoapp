@@ -265,7 +265,7 @@
       <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
     </div>
     <div class="header-linha2">
-      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v147</span>
+      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v148</span>
       <div class="spacer"></div>
       <span id="backupPill" class="backup-pill"></span>
       <button class="btn-export" onclick="exportarExcel()">⬇️ Excel</button>
@@ -7800,6 +7800,18 @@ function renderBancoDaninhasHTML() {
   return html;
 }
 
+// Foto de um registro da lista: sempre mostra o que aconteceu com ela (nada de falha silenciosa).
+function renderFotoDaninhaHTML(d, enviando) {
+  if (d.fotoUrl) return `<div style="margin-top:8px;"><div class="foto-item" style="width:120px; height:120px;"><img src="${esc(d.fotoUrl)}" loading="lazy" onclick="window.open('${esc(d.fotoUrl)}','_blank')"/></div><div class="muted" style="font-size:11px; margin-top:3px;">📷 foto salva — toque pra abrir</div></div>`;
+  if (enviando) return `<div style="margin-top:8px; font-size:13px; color:#a16207;">⏳ Enviando a foto…</div>`;
+  if (d.fotoStatus === "falhou" || d.fotoStatus === "enviando") {
+    const temBlob = !!(S._fotosDaninhaMemoria && S._fotosDaninhaMemoria[d.id]);
+    return `<div style="margin-top:8px; background:#fff7ed; border:1px solid #fdba74; border-radius:8px; padding:8px 10px; font-size:12.5px;">⚠️ ${d.fotoStatus === "falhou" ? "A foto não subiu." : "O envio da foto foi interrompido."}
+      <div style="margin-top:6px; display:flex; gap:6px; flex-wrap:wrap;">${temBlob ? `<button class="btn ghost" style="width:auto; padding:6px 10px; font-size:12px;" onclick="reenviarFotoDaninha('${d.id}')">🔄 Tentar de novo</button>` : ""}<button class="btn ghost" style="width:auto; padding:6px 10px; font-size:12px;" onclick="anexarFotoDaninha('${d.id}')">📷 Tirar outra foto</button></div></div>`;
+  }
+  return `<div style="margin-top:8px;"><button class="btn ghost" style="width:auto; padding:6px 10px; font-size:12px;" onclick="anexarFotoDaninha('${d.id}')">📷 Anexar foto</button></div>`;
+}
+
 function renderMonitoramentoDaninhaHTML() {
   const nd = S._novaDaninha;
   const data = nd.data || todayISO();
@@ -7831,8 +7843,9 @@ function renderMonitoramentoDaninhaHTML() {
     <div style="margin-bottom:6px; font-size:12px; font-weight:700;">Foto ${nd.fotoUrlAtual && !nd.fotoPreview ? '<span class="muted" style="font-weight:400;">(já tem uma foto salva)</span>' : ""}</div>
     <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:6px;">
       <button class="btn ghost" style="width:auto;" onclick="selecionarFotoDaninha()">📷 ${nd.fotoPreview ? "Trocar foto" : "Tirar / escolher foto"}</button>
-      ${nd.fotoPreview ? `<img src="${esc(nd.fotoPreview)}" style="width:64px; height:64px; object-fit:cover; border-radius:8px; border:1px solid #d6d3d1;"/><button class="x-btn" onclick="removerFotoNovaDaninha()">✕</button>` : ""}
+      ${nd.fotoPreview ? `<button class="x-btn" onclick="removerFotoNovaDaninha()">✕ tirar foto</button>` : ""}
     </div>
+    ${nd.fotoPreview ? `<div style="margin-bottom:8px;"><img src="${esc(nd.fotoPreview)}" onclick="window.open('${esc(nd.fotoPreview)}','_blank')" style="width:100%; max-width:260px; max-height:220px; object-fit:cover; border-radius:10px; border:2px solid #16a34a;"/><div style="font-size:12px; color:#166534; font-weight:700; margin-top:4px;">✅ Foto pronta — ela sobe pro Drive quando você tocar em ${nd.editId ? "Salvar alterações" : "Registrar"}.</div></div>` : ""}
     ${nd.fotoPreview ? `<button class="btn ghost" style="width:auto; color:#128C7E; border:1px solid #128C7E; margin-bottom:6px;" onclick="compartilharFotoDaninha()">📤 Compartilhar pra identificar</button>
     <div class="muted" style="font-size:11px; margin-bottom:6px;">Não sabe o nome? Compartilhe a foto com o Google Lens, o app Pl@ntNet ou o Claude, descubra o nome e digite acima. (A identificação por foto ajuda, mas confirme com o agrônomo.)</div>` : ""}
     ${renderSugestaoManejoHTML(nd.grupo, nd.tamanho, setor)}
@@ -7864,7 +7877,7 @@ function renderMonitoramentoDaninhaHTML() {
         </div>
         <div style="display:flex; gap:4px;"><button class="x-btn" onclick="editarDaninha('${d.id}')">✏️</button><button class="x-btn" onclick="removerDaninha('${d.id}','${esc(d.fotoFileId || "")}')">✕</button></div>
       </div>
-      ${d.fotoUrl ? `<div class="foto-item" style="width:90px; height:90px; margin-top:8px;"><img src="${esc(d.fotoUrl)}" loading="lazy" onclick="window.open('${esc(d.fotoUrl)}','_blank')"/></div>` : (enviando ? `<div class="muted" style="margin-top:8px;">⏳ enviando foto…</div>` : "")}
+      ${renderFotoDaninhaHTML(d, enviando)}
       <details style="margin-top:8px;"><summary style="font-size:12.5px; font-weight:700; cursor:pointer; color:#166534;">💡 O que aplicar</summary>${renderSugestaoManejoHTML(d.grupo, d.tamanho, d.setor)}</details>
     </div>`;
   });
@@ -7951,7 +7964,20 @@ window.daninhaAltura = function (v) {
 };
 
 // Foto: usa o mesmo menu câmera/galeria das outras abas
+window.anexarFotoDaninha = function (id) {
+  S._daninhaFotoAlvoId = id;
+  S._fotoEscolhaAlvo = "daninha";
+  document.getElementById("fotoEscolhaOverlay").style.display = "block";
+  document.getElementById("fotoEscolhaMenu").style.display = "flex";
+};
+window.reenviarFotoDaninha = function (id) {
+  const blob = S._fotosDaninhaMemoria && S._fotosDaninhaMemoria[id];
+  const d = S.daninhas.find((x) => x.id === id);
+  if (!blob) { window.anexarFotoDaninha(id); return; }
+  enviarFotoDaninha(id, blob, d ? d.fotoFileId : "");
+};
 window.selecionarFotoDaninha = function () {
+  S._daninhaFotoAlvoId = null;
   S._fotoEscolhaAlvo = "daninha";
   document.getElementById("fotoEscolhaOverlay").style.display = "block";
   document.getElementById("fotoEscolhaMenu").style.display = "flex";
@@ -7961,6 +7987,12 @@ window.onFotoDaninhaSelecionada = async function (input) {
   input.value = "";
   if (!file) return;
   const blob = await comprimirImagem(file);
+  if (S._daninhaFotoAlvoId) { // foto anexada direto num registro que já existe na lista
+    const id = S._daninhaFotoAlvoId; S._daninhaFotoAlvoId = null;
+    const d = S.daninhas.find((x) => x.id === id);
+    enviarFotoDaninha(id, blob, d ? d.fotoFileId : "");
+    return;
+  }
   if (S._novaDaninha.fotoPreview) { try { URL.revokeObjectURL(S._novaDaninha.fotoPreview); } catch (e) {} }
   S._novaDaninha.fotoFile = blob;
   S._novaDaninha.fotoPreview = URL.createObjectURL(blob);
@@ -7984,25 +8016,32 @@ window.compartilharFotoDaninha = async function () {
   }
 };
 
+S._fotosDaninhaMemoria = {}; // guarda a foto na memória pra dar pra "tentar de novo" sem tirar outra
+function atualizarDaninhaLocal(id, patch) { S.daninhas = S.daninhas.map((d) => (d.id === id ? { ...d, ...patch } : d)); }
 async function enviarFotoDaninha(id, blob, fileIdAntigo) {
   S._daninhaFotoEnviando = id;
+  S._fotosDaninhaMemoria[id] = blob;
+  atualizarDaninhaLocal(id, { fotoStatus: "enviando" });
+  updateDoc(doc(db, "daninhas", id), { fotoStatus: "enviando" }).catch(() => {});
   renderDaninhasSeAtivo();
   try {
-    if (!navigator.onLine) throw new Error("sem-internet");
+    if (!navigator.onLine) throw new Error("sem internet");
     const base64 = await blobParaBase64(blob);
     const res = await comTimeout(fetch(BACKUP_SHEETS_URL, {
       method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" },
       body: JSON.stringify({ action: "uploadFoto", pasta: "daninha_" + id, base64, nomeArquivo: `${Date.now()}.jpg`, mimeType: "image/jpeg" }),
     }), 30000, "envio-demorou");
     const data = await res.json();
-    if (!data || !data.ok) throw new Error((data && data.erro) || "falha desconhecida no envio");
-    await updateDoc(doc(db, "daninhas", id), { fotoUrl: data.url, fotoFileId: data.fileId });
+    if (!data || !data.ok) throw new Error((data && data.erro) || "o Drive não aceitou o envio");
+    atualizarDaninhaLocal(id, { fotoUrl: data.url, fotoFileId: data.fileId, fotoStatus: "ok" });
+    await updateDoc(doc(db, "daninhas", id), { fotoUrl: data.url, fotoFileId: data.fileId, fotoStatus: "ok" });
+    delete S._fotosDaninhaMemoria[id];
     if (fileIdAntigo) fetch(BACKUP_SHEETS_URL, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ action: "excluirFoto", fileId: fileIdAntigo }) }).catch(() => {});
   } catch (e) {
     console.error("Falha ao enviar foto da daninha:", e);
-    alert(!navigator.onLine
-      ? "Sem internet no momento — o registro foi salvo, mas a foto não subiu. Use ✏️ pra anexar a foto de novo quando tiver sinal."
-      : "O registro foi salvo, mas não consegui enviar a foto agora. Use ✏️ pra tentar de novo.");
+    atualizarDaninhaLocal(id, { fotoStatus: "falhou" });
+    updateDoc(doc(db, "daninhas", id), { fotoStatus: "falhou" }).catch(() => {});
+    alert((!navigator.onLine ? "Sem internet no momento." : "Não consegui enviar a foto.") + " O registro foi salvo; a foto fica marcada com ⚠️ na lista, e dá pra tocar em 🔄 Tentar de novo.\n\nMotivo: " + String((e && e.message) || e).slice(0, 120));
   } finally {
     S._daninhaFotoEnviando = null;
     renderDaninhasSeAtivo();
@@ -8029,6 +8068,7 @@ window.criarDaninha = function () {
     id = ref.id;
     dados.criadoEm = new Date().toISOString();
     setDoc(ref, dados).then(() => { if (navigator.onLine) setSaveStatus("daninhas", "saved"); }).catch((e) => tratarErroSalvamento("daninhas", e));
+    S.daninhas = [...S.daninhas.filter((x) => x.id !== id), { id, ...dados }]; // aparece na lista já, sem esperar o servidor
   }
   const foto = nd.fotoFile, fileAntigo = nd.fotoFileIdAtual;
   if (nd.fotoPreview) { try { URL.revokeObjectURL(nd.fotoPreview); } catch (e) {} }

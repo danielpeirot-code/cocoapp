@@ -265,7 +265,7 @@
       <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
     </div>
     <div class="header-linha2">
-      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v146</span>
+      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v147</span>
       <div class="spacer"></div>
       <span id="backupPill" class="backup-pill"></span>
       <button class="btn-export" onclick="exportarExcel()">⬇️ Excel</button>
@@ -7728,6 +7728,78 @@ function renderSugestaoManejoHTML(grupo, tamanho, setor) {
 window.mudarDaninhasView = function (v) { S._daninhasView = v; renderDaninhas(); };
 function renderDaninhasSeAtivo() { if (S.currentTab === "daninhas") renderDaninhas(); }
 
+// ---- Banco de dados por setor: o que apareceu em cada setor, quantas vezes e em que tamanho ----
+// "Vistoria" = um dia de monitoramento num setor. Cada daninha achada é um registro; aqui eles são
+// juntados por setor e por erva (mesmo nome, ignorando maiúscula/acento/hífen).
+const ORDEM_TAM_DANINHA = { P: 1, M: 2, G: 3 };
+function bancoDaninhas() {
+  const porSetor = new Map();
+  S.daninhas.forEach((d) => { if (!d.setor) return; if (!porSetor.has(d.setor)) porSetor.set(d.setor, []); porSetor.get(d.setor).push(d); });
+  const maior = (arr) => arr.reduce((m, t) => ((ORDEM_TAM_DANINHA[t] || 0) > (ORDEM_TAM_DANINHA[m] || 0) ? t : m), "");
+  const setores = [];
+  TALHOES.concat([...porSetor.keys()].filter((k) => !TALHOES.includes(k))).forEach((setor) => {
+    const regs = porSetor.get(setor);
+    if (!regs) return;
+    const datas = [...new Set(regs.map((r) => r.data).filter(Boolean))].sort();
+    const mapa = new Map();
+    regs.forEach((r) => {
+      const chave = r.identificada === false ? "__nao_identificada__" : normTxt(r.nome);
+      if (!mapa.has(chave)) mapa.set(chave, { nome: r.identificada === false ? "Não identificada" : r.nome, regs: [] });
+      mapa.get(chave).regs.push(r);
+    });
+    const especies = [...mapa.values()].map((e) => {
+      const datasE = [...new Set(e.regs.map((r) => r.data).filter(Boolean))].sort();
+      const ultima = datasE[datasE.length - 1] || "";
+      const dosUltima = e.regs.filter((r) => r.data === ultima);
+      const comGrupo = e.regs.filter((r) => r.grupo).sort((a, b) => (a.data || "").localeCompare(b.data || ""));
+      return {
+        nome: e.nome, grupo: comGrupo.length ? comGrupo[comGrupo.length - 1].grupo : "",
+        vezes: datasE.length, pct: datas.length ? datasE.length / datas.length : 0, ultima,
+        ultimoTam: maior(dosUltima.map((r) => r.tamanho)), maiorTam: maior(e.regs.map((r) => r.tamanho)),
+      };
+    }).sort((a, b) => b.vezes - a.vezes || (ORDEM_TAM_DANINHA[b.maiorTam] || 0) - (ORDEM_TAM_DANINHA[a.maiorTam] || 0) || String(a.nome).localeCompare(String(b.nome), "pt-BR"));
+    const ultimaVistoria = datas[datas.length - 1] || "";
+    const vistoriasDetalhe = datas.slice().reverse().map((dt) => ({ data: dt, itens: regs.filter((r) => r.data === dt) }));
+    setores.push({
+      setor, datas, vistorias: datas.length, ultimaVistoria, especies, vistoriasDetalhe,
+      grandesNaUltima: regs.filter((r) => r.data === ultimaVistoria && r.tamanho === "G").length,
+    });
+  });
+  return setores;
+}
+window.escolherSetorBancoDaninha = function (setor) { S._setorRelDaninha = setor; renderDaninhas(); };
+
+function renderBancoDaninhasHTML() {
+  const banco = bancoDaninhas();
+  if (!banco.length) return "";
+  if (!S._setorRelDaninha || !banco.some((b) => b.setor === S._setorRelDaninha)) S._setorRelDaninha = banco.slice().sort((a, b) => b.vistorias - a.vistorias)[0].setor;
+  const sel = banco.find((b) => b.setor === S._setorRelDaninha);
+  const corTam = { P: "#16a34a", M: "#f59e0b", G: "#dc2626" };
+  const tam = (t) => t ? `<b style="color:${corTam[t]};">${esc(t)}</b>` : "—";
+  let html = `<div class="card"><h3 style="margin-bottom:2px;">📍 Banco de dados por setor</h3>
+    <div class="muted" style="font-size:11px; margin-bottom:8px;">Cada daninha lançada fica guardada. Aqui elas aparecem juntadas por setor. Toque num setor pra ver o detalhe.</div>
+    <div class="tbl-wrap"><table class="tbl" style="min-width:330px;"><thead><tr><th style="text-align:left;">Setor</th><th>Vistorias</th><th>Última</th><th>Ervas</th><th>G na última</th></tr></thead><tbody>
+      ${banco.map((b) => `<tr onclick="escolherSetorBancoDaninha('${esc(b.setor)}')" style="cursor:pointer; ${b.setor === sel.setor ? "background:#ecfdf5;" : ""}">
+        <td style="text-align:left; font-weight:700;">${esc(b.setor)}</td><td>${b.vistorias}</td><td>${b.ultimaVistoria ? brDate(b.ultimaVistoria).slice(0, 5) : "—"}</td><td>${b.especies.length}</td><td>${b.grandesNaUltima || "—"}</td></tr>`).join("")}
+    </tbody></table></div>
+    <div style="display:flex; flex-wrap:wrap; gap:6px; margin:12px 0 8px;">
+      ${banco.map((b) => `<button type="button" onclick="escolherSetorBancoDaninha('${esc(b.setor)}')" style="padding:7px 14px; border-radius:20px; border:2px solid ${b.setor === sel.setor ? "#16a34a" : "#d6d3d1"}; background:${b.setor === sel.setor ? "#dcfce7" : "#fff"}; color:${b.setor === sel.setor ? "#166534" : "#44403c"}; font-weight:${b.setor === sel.setor ? 800 : 600}; font-size:13.5px; cursor:pointer;">${esc(b.setor)}</button>`).join("")}
+    </div>
+    <div style="font-size:13px; font-weight:800; margin-bottom:4px;">${esc(sel.setor)} — ${sel.especies.length} erva${sel.especies.length > 1 ? "s" : ""} em ${sel.vistorias} vistoria${sel.vistorias > 1 ? "s" : ""}</div>
+    <div class="tbl-wrap"><table class="tbl" style="min-width:360px;"><thead><tr><th style="text-align:left;">Erva daninha</th><th>Apareceu</th><th>Última</th><th>Tam. agora</th><th>Maior</th></tr></thead><tbody>
+      ${sel.especies.map((e) => `<tr><td style="text-align:left; font-weight:600;">${esc(e.nome)}${e.grupo ? `<div class="muted" style="font-size:10px; font-weight:400;">${esc(e.grupo)}</div>` : ""}</td><td>${e.vezes}/${sel.vistorias} <span class="muted" style="font-size:10px;">(${Math.round(e.pct * 100)}%)</span></td><td>${e.ultima ? brDate(e.ultima).slice(0, 5) : "—"}</td><td>${tam(e.ultimoTam)}</td><td>${tam(e.maiorTam)}</td></tr>`).join("")}
+    </tbody></table></div>
+    <details style="margin-top:10px;"><summary style="font-size:12.5px; font-weight:700; cursor:pointer;">🗓️ Vistorias do ${esc(sel.setor)} (${sel.vistorias})</summary>
+      ${sel.vistoriasDetalhe.map((v) => `<div style="padding:6px 0; border-top:1px dashed #e7e5e4; font-size:13px;"><b>${brDate(v.data)}</b><div>${v.itens.map((i) => `${esc(i.nome)}${i.tamanho ? ` <b style="color:${corTam[i.tamanho]};">(${esc(i.tamanho)})</b>` : ""}`).join(" · ")}</div></div>`).join("")}
+    </details>
+    <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:12px;">
+      <button class="btn ghost" style="width:auto; color:#166534; border:1px solid #16a34a;" onclick="exportarDaninhasExcel('${esc(sel.setor)}')">⬇️ Excel só do ${esc(sel.setor)}</button>
+      <button class="btn ghost" style="width:auto; color:#166534; border:1px solid #16a34a;" onclick="exportarDaninhasExcel()">⬇️ Excel de todos os setores</button>
+    </div>
+  </div>`;
+  return html;
+}
+
 function renderMonitoramentoDaninhaHTML() {
   const nd = S._novaDaninha;
   const data = nd.data || todayISO();
@@ -7771,19 +7843,7 @@ function renderMonitoramentoDaninhaHTML() {
     <div class="muted" style="font-size:10.5px; margin-top:8px;">P = 0–10 cm · M = 10–50 cm · G = mais de 50 cm. Depois de registrar, data e setor ficam — é só lançar a próxima daninha.</div>
   </div>`;
 
-  // resumo por setor
-  const porSetor = {};
-  S.daninhas.forEach((d) => { (porSetor[d.setor] = porSetor[d.setor] || []).push(d); });
-  const setoresComDados = TALHOES.filter((t) => porSetor[t]);
-  if (setoresComDados.length) {
-    html += `<div class="card"><h3 style="margin-bottom:8px;">📍 Resumo por setor <span class="muted" style="font-weight:400; font-size:11px;">(última vistoria)</span></h3>
-      ${setoresComDados.map((t) => {
-        const arr = porSetor[t]; const ult = arr.reduce((m, d) => ((d.data || "") > m ? d.data : m), "");
-        const dodia = arr.filter((d) => d.data === ult);
-        return `<div style="padding:6px 0; border-top:1px dashed #e7e5e4; font-size:13px;"><b>${esc(t)}</b> <span class="muted">${ult ? brDate(ult) : ""}</span><div>${dodia.map((d) => `${esc(d.nome)}${d.tamanho ? ` <b>(${esc(d.tamanho)})</b>` : ""}`).join(" · ")}</div></div>`;
-      }).join("")}
-    </div>`;
-  }
+  html += renderBancoDaninhasHTML();
 
   // lista
   const lista = S.daninhas.filter((d) => !S._filtroSetorDaninha || d.setor === S._filtroSetorDaninha)
@@ -8035,24 +8095,47 @@ window.removerHerbicida = function (id) {
 };
 
 // ---- Excel do monitoramento (colunas do modelo da planilha + data, tipo da folha e observação) ----
-function montarLinhasDaninhas() {
+function montarLinhasDaninhas(setorFiltro) {
   const faixa = (t) => { const x = TAMANHOS_DANINHA.find((y) => y.key === t); return x ? x.faixa : ""; };
-  return S.daninhas.slice().sort((a, b) => (a.data || "").localeCompare(b.data || "") || String(a.setor).localeCompare(String(b.setor))).map((d) => ({
+  return S.daninhas.filter((d) => !setorFiltro || d.setor === setorFiltro)
+    .sort((a, b) => (a.data || "").localeCompare(b.data || "") || String(a.setor).localeCompare(String(b.setor))).map((d) => ({
     "Setor": d.setor, "Ervas Daninhas": d.nome,
     "Tamanho ou altura": d.tamanho ? `${d.tamanho} (${faixa(d.tamanho)})${d.alturaCm !== "" && d.alturaCm !== undefined ? ` · ${d.alturaCm} cm` : ""}` : "",
     "Data": d.data, "Tipo da folha": d.grupo || "", "Observação": d.obs || "", "Foto (link)": d.fotoUrl || "",
   }));
 }
-window.exportarDaninhasExcel = function () {
+// Excel com 3 abas: os registros (como na planilha), o resumo setor × erva e o resumo por setor.
+window.exportarDaninhasExcel = function (setorFiltro) {
   if (typeof XLSX === "undefined") { alert("A biblioteca de Excel ainda não carregou — abre o app com internet uma vez e tenta de novo."); return; }
-  if (!S.daninhas.length) { alert("Ainda não tem monitoramento registrado."); return; }
-  const ws = XLSX.utils.json_to_sheet(montarLinhasDaninhas());
-  ws["!cols"] = [{ wch: 10 }, { wch: 26 }, { wch: 28 }, { wch: 12 }, { wch: 22 }, { wch: 30 }, { wch: 40 }];
+  const setorUsado = typeof setorFiltro === "string" ? setorFiltro : "";
+  const registros = montarLinhasDaninhas(setorUsado);
+  if (!registros.length) { alert("Ainda não tem monitoramento registrado" + (setorUsado ? " nesse setor." : ".")); return; }
+  const banco = bancoDaninhas().filter((b) => !setorUsado || b.setor === setorUsado);
+  const nomeTam = (t) => { const x = TAMANHOS_DANINHA.find((y) => y.key === t); return t ? `${t} (${x ? x.faixa : ""})` : ""; };
+  const resumoErvas = [];
+  banco.forEach((b) => b.especies.forEach((e) => resumoErvas.push({
+    "Setor": b.setor, "Erva daninha": e.nome, "Tipo da folha": e.grupo || "",
+    "Vistorias em que apareceu": e.vezes, "Vistorias do setor": b.vistorias, "% das vistorias": e.pct,
+    "Última vez": e.ultima, "Tamanho na última vez": nomeTam(e.ultimoTam), "Maior tamanho já visto": nomeTam(e.maiorTam),
+  })));
+  const resumoSetores = banco.map((b) => ({
+    "Setor": b.setor, "Vistorias": b.vistorias, "Primeira vistoria": b.datas[0] || "", "Última vistoria": b.ultimaVistoria,
+    "Ervas diferentes": b.especies.length, "Registros G (grandes) na última vistoria": b.grandesNaUltima,
+  }));
+  const ws1 = XLSX.utils.json_to_sheet(registros);
+  ws1["!cols"] = [{ wch: 10 }, { wch: 26 }, { wch: 28 }, { wch: 12 }, { wch: 22 }, { wch: 30 }, { wch: 40 }];
+  const ws2 = XLSX.utils.json_to_sheet(resumoErvas);
+  ws2["!cols"] = [{ wch: 10 }, { wch: 26 }, { wch: 22 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 12 }, { wch: 22 }, { wch: 24 }];
+  const rg = XLSX.utils.decode_range(ws2["!ref"]);
+  for (let r = 1; r <= rg.e.r; r++) { const cel = ws2[XLSX.utils.encode_cell({ r, c: 5 })]; if (cel && typeof cel.v === "number") cel.z = "0%"; }
+  const ws3 = XLSX.utils.json_to_sheet(resumoSetores);
+  ws3["!cols"] = [{ wch: 10 }, { wch: 11 }, { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 36 }];
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "Monitoramento daninhas");
-  XLSX.writeFile(wb, `monitoramento_daninhas_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  XLSX.utils.book_append_sheet(wb, ws1, "Monitoramento");
+  XLSX.utils.book_append_sheet(wb, ws2, "Resumo setor x erva");
+  XLSX.utils.book_append_sheet(wb, ws3, "Resumo por setor");
+  XLSX.writeFile(wb, `monitoramento_daninhas${setorUsado ? "_" + setorUsado : ""}_${new Date().toISOString().slice(0, 10)}.xlsx`);
 };
-
 
 /* =========================================================================
    ABA OCORRÊNCIAS

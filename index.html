@@ -265,7 +265,7 @@
       <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
     </div>
     <div class="header-linha2">
-      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v149</span>
+      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v150</span>
       <div class="spacer"></div>
       <span id="backupPill" class="backup-pill"></span>
       <button class="btn-export" onclick="exportarExcel()">⬇️ Excel</button>
@@ -1527,12 +1527,14 @@ window.confirmarAcaoOk = function () {
 
 window.escolherFotoCamera = function () {
   window.fecharEscolhaFoto();
+  if (S._fotoEscolhaAlvo === "daninha") logDaninha("camera-do-celular-aberta");
   const id = S._fotoEscolhaAlvo === "carga" ? "inputFotoCargaCamera" : (S._fotoEscolhaAlvo === "daninha" ? "inputFotoDaninhaCamera" : "inputFotoOcorrenciaCamera");
   const input = document.getElementById(id);
   if (input) input.click();
 };
 window.escolherFotoGaleria = function () {
   window.fecharEscolhaFoto();
+  if (S._fotoEscolhaAlvo === "daninha") logDaninha("galeria-aberta");
   const id = S._fotoEscolhaAlvo === "carga" ? "inputFotoCarga" : (S._fotoEscolhaAlvo === "daninha" ? "inputFotoDaninha" : "inputFotoOcorrencia");
   const input = document.getElementById(id);
   if (input) input.click();
@@ -7638,6 +7640,56 @@ S._daninhasView = "monitorar";
 S._filtroSetorDaninha = "";
 S._daninhaFotoEnviando = null;
 
+// ---- Registro técnico das fotos + rascunho do formulário (sobrevivem se o celular fechar o app) ----
+// Alguns celulares fecham o app quando abre a câmera. O rascunho guarda o que foi digitado, e o
+// registro técnico guarda cada passo da foto (escolheu, comprimiu, guardou, enviou, erro) pra dar
+// pra ver exatamente onde ela falhou — dá pra copiar e mandar.
+const LOG_DANINHAS_KEY = "cocoCampoLogDaninhas";
+const RASCUNHO_DANINHA_KEY = "cocoCampoRascunhoDaninha";
+function logDaninha(evento, detalhe) {
+  try {
+    const l = JSON.parse(localStorage.getItem(LOG_DANINHAS_KEY) || "[]");
+    l.push({ t: new Date().toISOString(), e: evento, d: detalhe === undefined ? "" : String(detalhe).slice(0, 160) });
+    while (l.length > 80) l.shift();
+    localStorage.setItem(LOG_DANINHAS_KEY, JSON.stringify(l));
+  } catch (e) { /* sem localStorage: segue sem registrar */ }
+}
+function salvarRascunhoDaninha() {
+  try {
+    const nd = S._novaDaninha;
+    if (!nd || nd.editId) return;
+    if (!(nd.nome || nd.tamanho || nd.obs || nd.alturaCm || S._aguardandoFotoDesde)) { localStorage.removeItem(RASCUNHO_DANINHA_KEY); return; } // nada digitado: não guarda rascunho vazio
+    localStorage.setItem(RASCUNHO_DANINHA_KEY, JSON.stringify({ data: nd.data, setor: nd.setor, nome: nd.nome, grupo: nd.grupo, tamanho: nd.tamanho, alturaCm: nd.alturaCm, obs: nd.obs, aguardandoFoto: S._aguardandoFotoDesde || 0, em: Date.now() }));
+  } catch (e) {}
+}
+function limparRascunhoDaninha() { try { localStorage.removeItem(RASCUNHO_DANINHA_KEY); } catch (e) {} S._aguardandoFotoDesde = 0; S._avisoFotoPerdida = false; }
+function restaurarRascunhoDaninha() {
+  try {
+    const r = JSON.parse(localStorage.getItem(RASCUNHO_DANINHA_KEY) || "null");
+    if (!r || !r.em || Date.now() - r.em > 12 * 3600 * 1000) return;
+    if (!(r.nome || r.tamanho || r.obs || r.alturaCm || r.aguardandoFoto)) return;
+    S._novaDaninha = { ...daninhaVazia({ data: r.data, setor: r.setor }), nome: r.nome || "", grupo: r.grupo || "", tamanho: r.tamanho || "", alturaCm: r.alturaCm === undefined ? "" : r.alturaCm, obs: r.obs || "" };
+    S._avisoFotoPerdida = !!(r.aguardandoFoto && Date.now() - r.aguardandoFoto < 15 * 60 * 1000);
+    logDaninha("rascunho-restaurado", S._avisoFotoPerdida ? "o app tinha fechado ao abrir a câmera" : "");
+  } catch (e) {}
+}
+window.copiarLogDaninhas = async function () {
+  let texto = "";
+  try { texto = JSON.parse(localStorage.getItem(LOG_DANINHAS_KEY) || "[]").map((x) => `${x.t} ${x.e}${x.d ? " — " + x.d : ""}`).join("\n"); } catch (e) {}
+  texto = `Coco Campo — registro técnico das fotos\n${texto || "(vazio)"}`;
+  try { await navigator.clipboard.writeText(texto); alert("Copiado! Cole numa conversa e me mande."); }
+  catch (e) { prompt("Copie o texto abaixo e me mande:", texto); }
+};
+window.limparLogDaninhas = function () { try { localStorage.removeItem(LOG_DANINHAS_KEY); } catch (e) {} renderDaninhasSeAtivo(); };
+function renderLogDaninhasHTML() {
+  let l = [];
+  try { l = JSON.parse(localStorage.getItem(LOG_DANINHAS_KEY) || "[]"); } catch (e) {}
+  const linhas = l.slice(-40).map((x) => `${new Date(x.t).toLocaleTimeString("pt-BR")} ${x.e}${x.d ? " — " + x.d : ""}`).join("\n");
+  return `<details style="margin:8px 0;"><summary style="font-size:12px; color:#78716c; cursor:pointer;">🔧 Registro técnico das fotos (pra suporte)</summary>
+    <div style="margin:6px 0; display:flex; gap:6px;"><button class="btn ghost" style="width:auto; padding:6px 10px; font-size:12px;" onclick="copiarLogDaninhas()">📋 Copiar</button><button class="btn ghost" style="width:auto; padding:6px 10px; font-size:12px;" onclick="limparLogDaninhas()">🗑️ Limpar</button></div>
+    <pre style="font-size:10.5px; white-space:pre-wrap; word-break:break-word; background:#f5f5f4; padding:8px; border-radius:8px; max-height:260px; overflow:auto;">${esc(linhas || "(vazio)")}</pre></details>`;
+}
+
 function daninhaVazia(manter) {
   return { data: (manter && manter.data) || "", setor: (manter && manter.setor) || "", nome: "", grupo: "", tamanho: "", alturaCm: "", obs: "", fotoFile: null, fotoPreview: "", editId: null, fotoUrlAtual: "", fotoFileIdAtual: "" };
 }
@@ -7646,6 +7698,8 @@ function herbicidaVazio() {
 }
 S._novaDaninha = daninhaVazia();
 S._novoHerbicida = herbicidaVazio();
+logDaninha("app-iniciado", `online=${navigator.onLine}`);
+restaurarRascunhoDaninha();
 
 function tamanhoPorAltura(cm) {
   if (!Number.isFinite(cm) || cm <= 0) return "";
@@ -7807,7 +7861,7 @@ function renderFotoDaninhaHTML(d, enviando) {
   if (d.fotoStatus === "falhou" || d.fotoStatus === "enviando") {
     const guardada = !!((S._fotosDaninhaMemoria && S._fotosDaninhaMemoria[d.id]) || (S._fotosPendentesIds && S._fotosPendentesIds.has(d.id)));
     if (guardada && !navigator.onLine) return `<div style="margin-top:8px; background:#eff6ff; border:1px solid #bfdbfe; border-radius:8px; padding:8px 10px; font-size:12.5px; color:#1e3a8a;">📶 Sem internet — a foto está guardada no celular e <b>sobe sozinha</b> quando o sinal voltar.</div>`;
-    return `<div style="margin-top:8px; background:#fff7ed; border:1px solid #fdba74; border-radius:8px; padding:8px 10px; font-size:12.5px;">⚠️ ${d.fotoStatus === "falhou" ? "A foto não subiu." : "O envio da foto foi interrompido."}${guardada ? " Ela está guardada no celular." : ""}
+    return `<div style="margin-top:8px; background:#fff7ed; border:1px solid #fdba74; border-radius:8px; padding:8px 10px; font-size:12.5px;">⚠️ ${d.fotoStatus === "falhou" ? "A foto não subiu." : "O envio da foto foi interrompido."}${guardada ? " Ela está guardada no celular." : ""}${d.fotoErro ? `<div class="muted" style="font-size:11px; margin-top:3px;">Motivo: ${esc(d.fotoErro)}</div>` : ""}
       <div style="margin-top:6px; display:flex; gap:6px; flex-wrap:wrap;">${guardada ? `<button class="btn ghost" style="width:auto; padding:6px 10px; font-size:12px;" onclick="reenviarFotoDaninha('${d.id}')">🔄 Tentar agora</button>` : ""}<button class="btn ghost" style="width:auto; padding:6px 10px; font-size:12px;" onclick="anexarFotoDaninha('${d.id}')">📷 Tirar outra foto</button></div></div>`;
   }
   return `<div style="margin-top:8px;"><button class="btn ghost" style="width:auto; padding:6px 10px; font-size:12px;" onclick="anexarFotoDaninha('${d.id}')">📷 Anexar foto</button></div>`;
@@ -7815,11 +7869,14 @@ function renderFotoDaninhaHTML(d, enviando) {
 
 function renderMonitoramentoDaninhaHTML() {
   const nd = S._novaDaninha;
+  salvarRascunhoDaninha();
   const data = nd.data || todayISO();
   const setor = nd.setor || TALHOES[0];
   const editando = !!nd.editId;
-  let html = `<div class="card" style="${editando ? "border:2px solid #f59e0b;" : ""}">
+  let html = (S._fotosPendentesIds && S._fotosPendentesIds.size) ? `<div class="card" style="background:#eff6ff; border:1px solid #bfdbfe;"><div style="font-size:13px;">📤 <b>${S._fotosPendentesIds.size} foto${S._fotosPendentesIds.size > 1 ? "s" : ""} aguardando envio</b> — ficam guardadas no celular e sobem sozinhas quando houver internet.</div><button class="btn ghost" style="width:auto; margin-top:8px;" onclick="reenviarFotosPendentesDaninha()">🔄 Enviar agora</button></div>` : "";
+  html += `<div class="card" style="${editando ? "border:2px solid #f59e0b;" : ""}">
     <h3 style="margin-bottom:8px;">${editando ? "✏️ Editando monitoramento" : "🌿 Novo monitoramento"}</h3>
+    ${S._avisoFotoPerdida ? `<div style="background:#fff7ed; border:1px solid #fdba74; border-radius:8px; padding:8px 10px; margin-bottom:10px; font-size:12.5px;">⚠️ O celular <b>fechou o app enquanto você tirava a foto</b> (acontece em alguns aparelhos quando abre a câmera). O que você tinha digitado foi recuperado — a foto é que precisa ser tirada de novo. Use <b>📸 Câmera dentro do app</b>: ela não tira você da tela.</div>` : ""}
     <div class="grid grid-2" style="margin-bottom:10px;">
       <label class="field"><span>Data</span><input type="date" value="${esc(data)}" oninput="daninhaCampo('data', this.value)"/></label>
       <label class="field"><span>Setor</span>
@@ -7845,7 +7902,8 @@ function renderMonitoramentoDaninhaHTML() {
     <label class="field" style="margin-bottom:10px;"><span>Observação (opcional)</span><input type="text" value="${esc(nd.obs)}" oninput="daninhaCampo('obs', this.value)"/></label>
     <div style="margin-bottom:6px; font-size:12px; font-weight:700;">Foto ${nd.fotoUrlAtual && !nd.fotoPreview ? '<span class="muted" style="font-weight:400;">(já tem uma foto salva)</span>' : ""}</div>
     <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:6px;">
-      <button class="btn ghost" style="width:auto;" onclick="selecionarFotoDaninha()">📷 ${nd.fotoPreview ? "Trocar foto" : "Tirar / escolher foto"}</button>
+      <button class="btn ghost" style="width:auto;" onclick="abrirCameraInternaDaninha()">📸 Câmera dentro do app</button>
+      <button class="btn ghost" style="width:auto;" onclick="selecionarFotoDaninha()">📷 ${nd.fotoPreview ? "Trocar foto" : "Câmera do celular / galeria"}</button>
       ${nd.fotoPreview ? `<button class="x-btn" onclick="removerFotoNovaDaninha()">✕ tirar foto</button>` : ""}
     </div>
     ${nd.fotoPreview ? `<div style="margin-bottom:8px;"><img src="${esc(nd.fotoPreview)}" onclick="window.open('${esc(nd.fotoPreview)}','_blank')" style="width:100%; max-width:260px; max-height:220px; object-fit:cover; border-radius:10px; border:2px solid #16a34a;"/><div style="font-size:12px; color:#166534; font-weight:700; margin-top:4px;">✅ Foto pronta — ela sobe pro Drive quando você tocar em ${nd.editId ? "Salvar alterações" : "Registrar"}.</div></div>` : ""}
@@ -7885,6 +7943,7 @@ function renderMonitoramentoDaninhaHTML() {
     </div>`;
   });
   html += `</div>`;
+  html += renderLogDaninhasHTML();
   return html;
 }
 
@@ -7948,7 +8007,7 @@ function renderDaninhas() {
 }
 
 // ---- Formulário do monitoramento ----
-window.daninhaCampo = function (campo, valor) { S._novaDaninha[campo] = valor; };
+window.daninhaCampo = function (campo, valor) { S._novaDaninha[campo] = valor; salvarRascunhoDaninha(); };
 window.daninhaSetor = function (v) { S._novaDaninha.setor = v; renderDaninhas(); };
 // ---- Autocompletar o nome da erva (tudo local: funciona no campo, sem internet) ----
 // Mostra opções conforme digita ("c" → Capim-colchão, Caruru, Corda-de-viola…): primeiro as que
@@ -8005,6 +8064,7 @@ window.daninhaDigitando = function (v) {
   if (b && nd.grupo !== b.grupo) { nd.grupo = b.grupo; nd.grupoAuto = true; mudouGrupo = true; }
   else if (!b && nd.grupoAuto && nd.grupo) { nd.grupo = ""; nd.grupoAuto = false; mudouGrupo = true; }
   if (mudouGrupo) { const sel = document.getElementById("selGrupoDaninha"); if (sel) sel.value = nd.grupo; atualizarBoxManejoDaninha(); }
+  salvarRascunhoDaninha();
   mostrarSugestoesDaninha(v); // só mexe na caixinha de opções (não redesenha a tela, então não perde o foco)
 };
 window.daninhaSugestoesFoco = function (v) { mostrarSugestoesDaninha(v); };
@@ -8039,6 +8099,7 @@ window.daninhaAltura = function (v) {
 
 // Foto: usa o mesmo menu câmera/galeria das outras abas
 window.anexarFotoDaninha = function (id) {
+  logDaninha("anexar-foto-menu-aberto", id);
   S._daninhaFotoAlvoId = id;
   S._fotoEscolhaAlvo = "daninha";
   document.getElementById("fotoEscolhaOverlay").style.display = "block";
@@ -8054,14 +8115,12 @@ window.reenviarFotoDaninha = async function (id) {
 window.selecionarFotoDaninha = function () {
   S._daninhaFotoAlvoId = null;
   S._fotoEscolhaAlvo = "daninha";
+  S._aguardandoFotoDesde = Date.now(); salvarRascunhoDaninha(); logDaninha("menu-foto-aberto");
   document.getElementById("fotoEscolhaOverlay").style.display = "block";
   document.getElementById("fotoEscolhaMenu").style.display = "flex";
 };
-window.onFotoDaninhaSelecionada = async function (input) {
-  const file = (input.files || [])[0];
-  input.value = "";
-  if (!file) return;
-  const blob = await comprimirImagem(file);
+function aplicarFotoDaninha(blob) {
+  S._aguardandoFotoDesde = 0; S._avisoFotoPerdida = false;
   if (S._daninhaFotoAlvoId) { // foto anexada direto num registro que já existe na lista
     const id = S._daninhaFotoAlvoId; S._daninhaFotoAlvoId = null;
     const d = S.daninhas.find((x) => x.id === id);
@@ -8071,7 +8130,64 @@ window.onFotoDaninhaSelecionada = async function (input) {
   if (S._novaDaninha.fotoPreview) { try { URL.revokeObjectURL(S._novaDaninha.fotoPreview); } catch (e) {} }
   S._novaDaninha.fotoFile = blob;
   S._novaDaninha.fotoPreview = URL.createObjectURL(blob);
+  salvarRascunhoDaninha();
+  logDaninha("foto-pronta-no-formulario");
   renderDaninhasSeAtivo();
+}
+window.onFotoDaninhaSelecionada = async function (input) {
+  const file = (input.files || [])[0];
+  input.value = "";
+  logDaninha("foto-recebida", file ? `${Math.round(file.size / 1024)} KB ${file.type || ""}` : "nenhum arquivo");
+  if (!file) return;
+  const blob = await comprimirImagem(file);
+  logDaninha("foto-comprimida", `${Math.round(blob.size / 1024)} KB`);
+  aplicarFotoDaninha(blob);
+};
+// Câmera DENTRO do app: não tira você da tela (alguns celulares fecham o app quando abrem a câmera deles).
+window.abrirCameraInternaDaninha = async function () {
+  S._daninhaFotoAlvoId = null;
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { alert("Esse navegador não abre a câmera dentro do app. Use o botão 📷 Tirar / escolher foto."); return; }
+  logDaninha("camera-interna-abrindo");
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 } }, audio: false });
+    S._streamCameraDaninha = stream;
+    let ov = document.getElementById("cameraDaninhaOverlay");
+    if (!ov) { ov = document.createElement("div"); ov.id = "cameraDaninhaOverlay"; ov.style.cssText = "position:fixed; inset:0; background:#000; z-index:9999; display:none; flex-direction:column;"; document.body.appendChild(ov); }
+    ov.innerHTML = `<video id="videoCameraDaninha" autoplay playsinline muted style="flex:1; width:100%; min-height:0; object-fit:contain; background:#000;"></video>
+      <div style="display:flex; gap:12px; padding:14px; padding-bottom:calc(14px + env(safe-area-inset-bottom,0px)); justify-content:center; background:#111;">
+        <button onclick="fecharCameraInternaDaninha()" style="padding:14px 20px; border-radius:30px; border:none; font-size:16px; background:#e7e5e4;">✕ Cancelar</button>
+        <button onclick="tirarFotoCameraInternaDaninha()" style="padding:14px 28px; border-radius:30px; border:none; font-size:18px; font-weight:800; background:#16a34a; color:#fff;">📸 Tirar foto</button>
+      </div>`;
+    ov.style.display = "flex";
+    const v = document.getElementById("videoCameraDaninha");
+    v.srcObject = stream;
+    try { await v.play(); } catch (e) {}
+  } catch (e) {
+    logDaninha("camera-interna-erro", `${e && e.name}: ${e && e.message}`);
+    alert("Não consegui abrir a câmera dentro do app" + (e && e.name === "NotAllowedError" ? " — a permissão da câmera foi negada. Libere a câmera para este site nas configurações do navegador." : ` (${(e && e.message) || e}).`) + "\nUse o botão 📷 Tirar / escolher foto.");
+    window.fecharCameraInternaDaninha();
+  }
+};
+window.fecharCameraInternaDaninha = function () {
+  try { if (S._streamCameraDaninha) S._streamCameraDaninha.getTracks().forEach((t) => t.stop()); } catch (e) {}
+  S._streamCameraDaninha = null;
+  const ov = document.getElementById("cameraDaninhaOverlay");
+  if (ov) { ov.style.display = "none"; ov.innerHTML = ""; }
+};
+window.tirarFotoCameraInternaDaninha = async function () {
+  const v = document.getElementById("videoCameraDaninha");
+  if (!v || !v.videoWidth) { alert("A câmera ainda está abrindo — espere a imagem aparecer e toque de novo."); return; }
+  let w = v.videoWidth, h = v.videoHeight;
+  const maxDim = 1600;
+  if (Math.max(w, h) > maxDim) { const e = maxDim / Math.max(w, h); w = Math.round(w * e); h = Math.round(h * e); }
+  const c = document.createElement("canvas");
+  c.width = w; c.height = h;
+  c.getContext("2d").drawImage(v, 0, 0, w, h);
+  const blob = await new Promise((res) => c.toBlob(res, "image/jpeg", 0.8));
+  window.fecharCameraInternaDaninha();
+  if (!blob) { logDaninha("camera-interna-erro", "não gerou a imagem"); alert("Não consegui gerar a foto. Tente de novo."); return; }
+  logDaninha("foto-camera-interna", `${Math.round(blob.size / 1024)} KB`);
+  aplicarFotoDaninha(blob);
 };
 window.removerFotoNovaDaninha = function () {
   if (S._novaDaninha.fotoPreview) { try { URL.revokeObjectURL(S._novaDaninha.fotoPreview); } catch (e) {} }
@@ -8132,15 +8248,22 @@ async function reenviarFotosPendentesDaninha() {
   } catch (e) { console.warn("Não consegui reenviar as fotos pendentes:", e); }
   finally { S._reenviandoFotosDaninha = false; }
 }
+window.reenviarFotosPendentesDaninha = reenviarFotosPendentesDaninha; // o botão "Enviar agora" chama direto do HTML
 window.addEventListener("online", () => { setTimeout(reenviarFotosPendentesDaninha, 1500); });
 setTimeout(reenviarFotosPendentesDaninha, 9000); // ao abrir o app, tenta o que ficou pendente
+// Sinal fraco: o celular se diz "online" mas a internet não anda, então o aviso de "voltou o sinal"
+// pode nunca vir. Por isso tenta de novo a cada minuto enquanto houver foto esperando, e quando
+// você volta pra tela do app.
+setInterval(() => { if (navigator.onLine && S._fotosPendentesIds.size && !S._reenviandoFotosDaninha) { logDaninha("reenvio-automatico", "a cada 1 min"); reenviarFotosPendentesDaninha(); } }, 60000);
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && S._fotosPendentesIds.size) setTimeout(reenviarFotosPendentesDaninha, 1500); });
 
 S._fotosDaninhaMemoria = {}; // guarda a foto na memória pra dar pra "tentar de novo" sem tirar outra
 function atualizarDaninhaLocal(id, patch) { S.daninhas = S.daninhas.map((d) => (d.id === id ? { ...d, ...patch } : d)); }
 async function enviarFotoDaninha(id, blob, fileIdAntigo, silencioso) {
   S._daninhaFotoEnviando = id;
   S._fotosDaninhaMemoria[id] = blob;
-  try { await FotoStore.put({ id, blob, fileIdAntigo: fileIdAntigo || "", em: Date.now() }); S._fotosPendentesIds.add(id); } catch (e) { console.warn("Não consegui guardar a foto no celular:", e); }
+  logDaninha("envio-inicio", `${Math.round(blob.size / 1024)} KB · online=${navigator.onLine}${silencioso ? " · automático" : ""}`);
+  try { await FotoStore.put({ id, blob, fileIdAntigo: fileIdAntigo || "", em: Date.now() }); S._fotosPendentesIds.add(id); logDaninha("fila-guardou"); } catch (e) { logDaninha("fila-erro", (e && e.message) || e); console.warn("Não consegui guardar a foto no celular:", e); }
   atualizarDaninhaLocal(id, { fotoStatus: "enviando" });
   updateDoc(doc(db, "daninhas", id), { fotoStatus: "enviando" }).catch(() => {});
   renderDaninhasSeAtivo();
@@ -8152,16 +8275,20 @@ async function enviarFotoDaninha(id, blob, fileIdAntigo, silencioso) {
       body: JSON.stringify({ action: "uploadFoto", pasta: "daninha_" + id, base64, nomeArquivo: `${Date.now()}.jpg`, mimeType: "image/jpeg" }),
     }), 30000, "envio-demorou");
     const data = await res.json();
+    logDaninha("envio-resposta", data ? (data.ok ? "ok" : (data.erro || "recusou")) : "vazia");
     if (!data || !data.ok) throw new Error((data && data.erro) || "o Drive não aceitou o envio");
     atualizarDaninhaLocal(id, { fotoUrl: data.url, fotoFileId: data.fileId, fotoStatus: "ok" });
     await updateDoc(doc(db, "daninhas", id), { fotoUrl: data.url, fotoFileId: data.fileId, fotoStatus: "ok" });
+    logDaninha("envio-ok");
     delete S._fotosDaninhaMemoria[id];
     FotoStore.delete(id).catch(() => {}); S._fotosPendentesIds.delete(id);
     if (fileIdAntigo) fetch(BACKUP_SHEETS_URL, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ action: "excluirFoto", fileId: fileIdAntigo }) }).catch(() => {});
   } catch (e) {
     console.error("Falha ao enviar foto da daninha:", e);
-    atualizarDaninhaLocal(id, { fotoStatus: "falhou" });
-    updateDoc(doc(db, "daninhas", id), { fotoStatus: "falhou" }).catch(() => {});
+    const motivo = String((e && e.message) || e).slice(0, 120);
+    logDaninha("envio-erro", motivo);
+    atualizarDaninhaLocal(id, { fotoStatus: "falhou", fotoErro: motivo });
+    updateDoc(doc(db, "daninhas", id), { fotoStatus: "falhou", fotoErro: motivo }).catch(() => {});
     if (!silencioso) {
       if (!navigator.onLine) alert("Sem internet no momento. O registro está salvo e a foto ficou guardada no celular — ela sobe sozinha quando o sinal voltar, você não precisa fazer nada.");
       else alert("Não consegui enviar a foto. O registro foi salvo; a foto fica marcada na lista e dá pra tocar em 🔄 Tentar agora.\n\nMotivo: " + String((e && e.message) || e).slice(0, 120));
@@ -8197,6 +8324,8 @@ window.criarDaninha = function () {
   const foto = nd.fotoFile, fileAntigo = nd.fotoFileIdAtual;
   if (nd.fotoPreview) { try { URL.revokeObjectURL(nd.fotoPreview); } catch (e) {} }
   S._novaDaninha = daninhaVazia({ data, setor });
+  limparRascunhoDaninha();
+  logDaninha("registrado", `${dados.nome} · ${setor}${foto ? " · com foto" : ""}${nd.editId ? " · edição" : ""}`);
   renderDaninhas();
   if (foto) enviarFotoDaninha(id, foto, fileAntigo);
 };

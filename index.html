@@ -265,7 +265,7 @@
       <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
     </div>
     <div class="header-linha2">
-      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v148</span>
+      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v149</span>
       <div class="spacer"></div>
       <span id="backupPill" class="backup-pill"></span>
       <button class="btn-export" onclick="exportarExcel()">⬇️ Excel</button>
@@ -7805,9 +7805,10 @@ function renderFotoDaninhaHTML(d, enviando) {
   if (d.fotoUrl) return `<div style="margin-top:8px;"><div class="foto-item" style="width:120px; height:120px;"><img src="${esc(d.fotoUrl)}" loading="lazy" onclick="window.open('${esc(d.fotoUrl)}','_blank')"/></div><div class="muted" style="font-size:11px; margin-top:3px;">📷 foto salva — toque pra abrir</div></div>`;
   if (enviando) return `<div style="margin-top:8px; font-size:13px; color:#a16207;">⏳ Enviando a foto…</div>`;
   if (d.fotoStatus === "falhou" || d.fotoStatus === "enviando") {
-    const temBlob = !!(S._fotosDaninhaMemoria && S._fotosDaninhaMemoria[d.id]);
-    return `<div style="margin-top:8px; background:#fff7ed; border:1px solid #fdba74; border-radius:8px; padding:8px 10px; font-size:12.5px;">⚠️ ${d.fotoStatus === "falhou" ? "A foto não subiu." : "O envio da foto foi interrompido."}
-      <div style="margin-top:6px; display:flex; gap:6px; flex-wrap:wrap;">${temBlob ? `<button class="btn ghost" style="width:auto; padding:6px 10px; font-size:12px;" onclick="reenviarFotoDaninha('${d.id}')">🔄 Tentar de novo</button>` : ""}<button class="btn ghost" style="width:auto; padding:6px 10px; font-size:12px;" onclick="anexarFotoDaninha('${d.id}')">📷 Tirar outra foto</button></div></div>`;
+    const guardada = !!((S._fotosDaninhaMemoria && S._fotosDaninhaMemoria[d.id]) || (S._fotosPendentesIds && S._fotosPendentesIds.has(d.id)));
+    if (guardada && !navigator.onLine) return `<div style="margin-top:8px; background:#eff6ff; border:1px solid #bfdbfe; border-radius:8px; padding:8px 10px; font-size:12.5px; color:#1e3a8a;">📶 Sem internet — a foto está guardada no celular e <b>sobe sozinha</b> quando o sinal voltar.</div>`;
+    return `<div style="margin-top:8px; background:#fff7ed; border:1px solid #fdba74; border-radius:8px; padding:8px 10px; font-size:12.5px;">⚠️ ${d.fotoStatus === "falhou" ? "A foto não subiu." : "O envio da foto foi interrompido."}${guardada ? " Ela está guardada no celular." : ""}
+      <div style="margin-top:6px; display:flex; gap:6px; flex-wrap:wrap;">${guardada ? `<button class="btn ghost" style="width:auto; padding:6px 10px; font-size:12px;" onclick="reenviarFotoDaninha('${d.id}')">🔄 Tentar agora</button>` : ""}<button class="btn ghost" style="width:auto; padding:6px 10px; font-size:12px;" onclick="anexarFotoDaninha('${d.id}')">📷 Tirar outra foto</button></div></div>`;
   }
   return `<div style="margin-top:8px;"><button class="btn ghost" style="width:auto; padding:6px 10px; font-size:12px;" onclick="anexarFotoDaninha('${d.id}')">📷 Anexar foto</button></div>`;
 }
@@ -7817,8 +7818,7 @@ function renderMonitoramentoDaninhaHTML() {
   const data = nd.data || todayISO();
   const setor = nd.setor || TALHOES[0];
   const editando = !!nd.editId;
-  let html = `<datalist id="listaDaninhasBase">${DANINHAS_BASE.map((b) => `<option value="${esc(b.nome)}">${esc(b.cientifico)}</option>`).join("")}</datalist>
-  <div class="card" style="${editando ? "border:2px solid #f59e0b;" : ""}">
+  let html = `<div class="card" style="${editando ? "border:2px solid #f59e0b;" : ""}">
     <h3 style="margin-bottom:8px;">${editando ? "✏️ Editando monitoramento" : "🌿 Novo monitoramento"}</h3>
     <div class="grid grid-2" style="margin-bottom:10px;">
       <label class="field"><span>Data</span><input type="date" value="${esc(data)}" oninput="daninhaCampo('data', this.value)"/></label>
@@ -7826,11 +7826,14 @@ function renderMonitoramentoDaninhaHTML() {
         <select onchange="daninhaSetor(this.value)">${TALHOES.map((t) => `<option value="${esc(t)}" ${t === setor ? "selected" : ""}>${esc(t)}</option>`).join("")}</select>
       </label>
     </div>
-    <label class="field" style="margin-bottom:10px;"><span>Erva daninha <span class="muted" style="font-weight:400;">(digite o nome, ou deixe vazio e tire uma foto)</span></span>
-      <input type="text" list="listaDaninhasBase" value="${esc(nd.nome)}" placeholder="Ex: Capim-colchão, Tiririca…" oninput="daninhaCampo('nome', this.value)" onchange="daninhaNomeMudou(this.value)"/>
-    </label>
+    <div style="position:relative; margin-bottom:10px;">
+      <label class="field" style="margin:0;"><span>Erva daninha <span class="muted" style="font-weight:400;">(comece a digitar e escolha — ou deixe vazio e tire uma foto)</span></span>
+        <input type="text" id="inputNomeDaninha" autocomplete="off" autocapitalize="words" value="${esc(nd.nome)}" placeholder="Ex: digite C → Capim-colchão, Caruru…" oninput="daninhaDigitando(this.value)" onfocus="daninhaSugestoesFoco(this.value)" onblur="daninhaSugestoesBlur()"/>
+      </label>
+      <div id="sugestoesDaninha" style="display:none; position:absolute; left:0; right:0; top:100%; z-index:30; background:#fff; border:1px solid #d6d3d1; border-radius:10px; box-shadow:0 8px 24px rgba(0,0,0,.18); max-height:300px; overflow:auto;"></div>
+    </div>
     <label class="field" style="margin-bottom:10px;"><span>Tipo da folha</span>
-      <select onchange="daninhaGrupo(this.value)"><option value="">Não sei</option>${GRUPOS_DANINHA.map((g) => `<option ${g === nd.grupo ? "selected" : ""}>${esc(g)}</option>`).join("")}</select>
+      <select id="selGrupoDaninha" onchange="daninhaGrupo(this.value)"><option value="">Não sei</option>${GRUPOS_DANINHA.map((g) => `<option ${g === nd.grupo ? "selected" : ""}>${esc(g)}</option>`).join("")}</select>
     </label>
     <div style="font-size:12px; font-weight:700; margin-bottom:6px;">Tamanho</div>
     <div style="display:flex; gap:8px; margin-bottom:6px;">
@@ -7848,7 +7851,7 @@ function renderMonitoramentoDaninhaHTML() {
     ${nd.fotoPreview ? `<div style="margin-bottom:8px;"><img src="${esc(nd.fotoPreview)}" onclick="window.open('${esc(nd.fotoPreview)}','_blank')" style="width:100%; max-width:260px; max-height:220px; object-fit:cover; border-radius:10px; border:2px solid #16a34a;"/><div style="font-size:12px; color:#166534; font-weight:700; margin-top:4px;">✅ Foto pronta — ela sobe pro Drive quando você tocar em ${nd.editId ? "Salvar alterações" : "Registrar"}.</div></div>` : ""}
     ${nd.fotoPreview ? `<button class="btn ghost" style="width:auto; color:#128C7E; border:1px solid #128C7E; margin-bottom:6px;" onclick="compartilharFotoDaninha()">📤 Compartilhar pra identificar</button>
     <div class="muted" style="font-size:11px; margin-bottom:6px;">Não sabe o nome? Compartilhe a foto com o Google Lens, o app Pl@ntNet ou o Claude, descubra o nome e digite acima. (A identificação por foto ajuda, mas confirme com o agrônomo.)</div>` : ""}
-    ${renderSugestaoManejoHTML(nd.grupo, nd.tamanho, setor)}
+    <div id="boxManejoDaninha">${renderSugestaoManejoHTML(nd.grupo, nd.tamanho, setor)}</div>
     <div style="display:flex; gap:8px; margin-top:12px; flex-wrap:wrap;">
       <button class="btn" onclick="criarDaninha()">${editando ? "💾 Salvar alterações" : "✅ Registrar"}</button>
       ${editando ? `<button class="btn ghost" style="width:auto;" onclick="cancelarEdicaoDaninha()">Cancelar</button>` : ""}
@@ -7947,6 +7950,77 @@ function renderDaninhas() {
 // ---- Formulário do monitoramento ----
 window.daninhaCampo = function (campo, valor) { S._novaDaninha[campo] = valor; };
 window.daninhaSetor = function (v) { S._novaDaninha.setor = v; renderDaninhas(); };
+// ---- Autocompletar o nome da erva (tudo local: funciona no campo, sem internet) ----
+// Mostra opções conforme digita ("c" → Capim-colchão, Caruru, Corda-de-viola…): primeiro as que
+// COMEÇAM com o que foi digitado, depois as que têm uma palavra começando, depois as que contêm.
+// Também aprende com o que você já lançou (nomes próprios que não estão na lista) e põe as mais
+// vistas primeiro.
+function sugestoesDaninha(texto) {
+  const q = normTxt(texto);
+  const hist = new Map(); // nome normalizado -> { nome, vezes, grupo }
+  S.daninhas.slice().sort((a, b) => (a.data || "").localeCompare(b.data || "")).forEach((d) => {
+    if (d.identificada === false || !d.nome) return;
+    const base = acharDaninhaBase(d.nome);
+    const chave = normTxt(base ? base.nome : d.nome);
+    const e = hist.get(chave) || { nome: base ? base.nome : d.nome, vezes: 0, grupo: "" };
+    e.vezes++; if (d.grupo) e.grupo = d.grupo;
+    hist.set(chave, e);
+  });
+  const lista = DANINHAS_BASE.map((b) => ({ nome: b.nome, sub: b.cientifico, grupo: b.grupo, vezes: (hist.get(normTxt(b.nome)) || {}).vezes || 0, meu: false }));
+  hist.forEach((e, chave) => { if (!DANINHAS_BASE.some((b) => normTxt(b.nome) === chave)) lista.push({ nome: e.nome, sub: "já lançada por você", grupo: e.grupo, vezes: e.vezes, meu: true }); });
+  if (!q) return lista.slice().sort((a, b) => b.vezes - a.vezes).slice(0, 8);
+  const pontua = (it) => {
+    const n = normTxt(it.nome), c = normTxt(it.sub);
+    if (n.startsWith(q)) return 0;
+    if ((" " + n).includes(" " + q)) return 1;
+    if (n.includes(q)) return 2;
+    if (c.startsWith(q) || (" " + c).includes(" " + q)) return 3;
+    return -1;
+  };
+  return lista.map((it) => ({ it, sc: pontua(it) })).filter((x) => x.sc >= 0)
+    .sort((a, b) => a.sc - b.sc || b.it.vezes - a.it.vezes || String(a.it.nome).localeCompare(String(b.it.nome), "pt-BR"))
+    .map((x) => x.it).slice(0, 8);
+}
+function mostrarSugestoesDaninha(v) {
+  const el = document.getElementById("sugestoesDaninha");
+  if (!el) return;
+  const lista = sugestoesDaninha(v);
+  S._sugestoesDaninhaAtuais = lista;
+  if (!lista.length) { el.style.display = "none"; return; }
+  el.innerHTML = lista.map((it, i) => `<div onclick="escolherDaninhaSugerida(${i})" style="padding:11px 14px; min-height:44px; border-bottom:1px solid #f0efee; cursor:pointer;">
+    <div style="font-size:15px; font-weight:700;">${it.meu ? "🕘 " : ""}${esc(it.nome)}${it.vezes ? ` <span style="font-size:11px; color:#78716c; font-weight:400;">(${it.vezes}×)</span>` : ""}</div>
+    <div style="font-size:11.5px; color:#78716c;">${esc(it.sub)}${it.grupo ? " · " + esc(it.grupo) : ""}</div></div>`).join("");
+  el.style.display = "block";
+}
+function atualizarBoxManejoDaninha() {
+  const box = document.getElementById("boxManejoDaninha");
+  const nd = S._novaDaninha;
+  if (box) box.innerHTML = renderSugestaoManejoHTML(nd.grupo, nd.tamanho, nd.setor || TALHOES[0]);
+}
+window.daninhaDigitando = function (v) {
+  const nd = S._novaDaninha;
+  nd.nome = v;
+  const b = acharDaninhaBase(v);
+  let mudouGrupo = false;
+  if (b && nd.grupo !== b.grupo) { nd.grupo = b.grupo; nd.grupoAuto = true; mudouGrupo = true; }
+  else if (!b && nd.grupoAuto && nd.grupo) { nd.grupo = ""; nd.grupoAuto = false; mudouGrupo = true; }
+  if (mudouGrupo) { const sel = document.getElementById("selGrupoDaninha"); if (sel) sel.value = nd.grupo; atualizarBoxManejoDaninha(); }
+  mostrarSugestoesDaninha(v); // só mexe na caixinha de opções (não redesenha a tela, então não perde o foco)
+};
+window.daninhaSugestoesFoco = function (v) { mostrarSugestoesDaninha(v); };
+window.daninhaSugestoesBlur = function () {
+  setTimeout(() => { const el = document.getElementById("sugestoesDaninha"); if (el) el.style.display = "none"; }, 300); // dá tempo do toque na opção valer
+};
+window.escolherDaninhaSugerida = function (i) {
+  const it = (S._sugestoesDaninhaAtuais || [])[i];
+  if (!it) return;
+  const nd = S._novaDaninha;
+  nd.nome = it.nome;
+  const b = acharDaninhaBase(it.nome);
+  const grupo = b ? b.grupo : it.grupo;
+  if (grupo) { nd.grupo = grupo; nd.grupoAuto = true; }
+  renderDaninhas();
+};
 window.daninhaNomeMudou = function (v) {
   S._novaDaninha.nome = v;
   const b = acharDaninhaBase(v);
@@ -7970,11 +8044,12 @@ window.anexarFotoDaninha = function (id) {
   document.getElementById("fotoEscolhaOverlay").style.display = "block";
   document.getElementById("fotoEscolhaMenu").style.display = "flex";
 };
-window.reenviarFotoDaninha = function (id) {
-  const blob = S._fotosDaninhaMemoria && S._fotosDaninhaMemoria[id];
-  const d = S.daninhas.find((x) => x.id === id);
+window.reenviarFotoDaninha = async function (id) {
+  let blob = S._fotosDaninhaMemoria && S._fotosDaninhaMemoria[id];
+  let fileAntigo = (S.daninhas.find((x) => x.id === id) || {}).fotoFileId || "";
+  if (!blob) { try { const it = await FotoStore.get(id); if (it) { blob = it.blob; fileAntigo = it.fileIdAntigo || fileAntigo; } } catch (e) {} }
   if (!blob) { window.anexarFotoDaninha(id); return; }
-  enviarFotoDaninha(id, blob, d ? d.fotoFileId : "");
+  enviarFotoDaninha(id, blob, fileAntigo);
 };
 window.selecionarFotoDaninha = function () {
   S._daninhaFotoAlvoId = null;
@@ -8016,11 +8091,56 @@ window.compartilharFotoDaninha = async function () {
   }
 };
 
+// ---- Fila de fotos no próprio celular (IndexedDB): sem internet a foto fica guardada e sobe sozinha ----
+const FotoStore = {
+  _abrir() {
+    return new Promise((res, rej) => {
+      if (typeof indexedDB === "undefined") return rej(new Error("sem IndexedDB"));
+      const r = indexedDB.open("cocoCampoFotosPendentes", 1);
+      r.onupgradeneeded = () => r.result.createObjectStore("fotos", { keyPath: "id" });
+      r.onsuccess = () => res(r.result);
+      r.onerror = () => rej(r.error);
+    });
+  },
+  async _tx(modo, fn) {
+    const dbx = await this._abrir();
+    return new Promise((res, rej) => {
+      const tx = dbx.transaction("fotos", modo);
+      const req = fn(tx.objectStore("fotos"));
+      tx.oncomplete = () => res(req ? req.result : undefined);
+      tx.onerror = () => rej(tx.error); tx.onabort = () => rej(tx.error);
+    });
+  },
+  put(it) { return this._tx("readwrite", (st) => st.put(it)); },
+  get(id) { return this._tx("readonly", (st) => st.get(id)); },
+  getAll() { return this._tx("readonly", (st) => st.getAll()); },
+  delete(id) { return this._tx("readwrite", (st) => st.delete(id)); },
+};
+S._fotosPendentesIds = new Set();
+FotoStore.getAll().then((l) => { S._fotosPendentesIds = new Set((l || []).map((x) => x.id)); }).catch(() => {});
+async function reenviarFotosPendentesDaninha() {
+  if (!navigator.onLine || S._reenviandoFotosDaninha || !S.daninhas.length) return;
+  S._reenviandoFotosDaninha = true;
+  try {
+    const lista = await FotoStore.getAll();
+    for (const it of lista || []) {
+      const d = S.daninhas.find((x) => x.id === it.id);
+      if (!d) { await FotoStore.delete(it.id).catch(() => {}); S._fotosPendentesIds.delete(it.id); continue; } // o registro foi apagado
+      if (d.fotoUrl && d.fotoStatus === "ok") { await FotoStore.delete(it.id).catch(() => {}); S._fotosPendentesIds.delete(it.id); continue; }
+      await enviarFotoDaninha(it.id, it.blob, it.fileIdAntigo, true);
+    }
+  } catch (e) { console.warn("Não consegui reenviar as fotos pendentes:", e); }
+  finally { S._reenviandoFotosDaninha = false; }
+}
+window.addEventListener("online", () => { setTimeout(reenviarFotosPendentesDaninha, 1500); });
+setTimeout(reenviarFotosPendentesDaninha, 9000); // ao abrir o app, tenta o que ficou pendente
+
 S._fotosDaninhaMemoria = {}; // guarda a foto na memória pra dar pra "tentar de novo" sem tirar outra
 function atualizarDaninhaLocal(id, patch) { S.daninhas = S.daninhas.map((d) => (d.id === id ? { ...d, ...patch } : d)); }
-async function enviarFotoDaninha(id, blob, fileIdAntigo) {
+async function enviarFotoDaninha(id, blob, fileIdAntigo, silencioso) {
   S._daninhaFotoEnviando = id;
   S._fotosDaninhaMemoria[id] = blob;
+  try { await FotoStore.put({ id, blob, fileIdAntigo: fileIdAntigo || "", em: Date.now() }); S._fotosPendentesIds.add(id); } catch (e) { console.warn("Não consegui guardar a foto no celular:", e); }
   atualizarDaninhaLocal(id, { fotoStatus: "enviando" });
   updateDoc(doc(db, "daninhas", id), { fotoStatus: "enviando" }).catch(() => {});
   renderDaninhasSeAtivo();
@@ -8036,12 +8156,16 @@ async function enviarFotoDaninha(id, blob, fileIdAntigo) {
     atualizarDaninhaLocal(id, { fotoUrl: data.url, fotoFileId: data.fileId, fotoStatus: "ok" });
     await updateDoc(doc(db, "daninhas", id), { fotoUrl: data.url, fotoFileId: data.fileId, fotoStatus: "ok" });
     delete S._fotosDaninhaMemoria[id];
+    FotoStore.delete(id).catch(() => {}); S._fotosPendentesIds.delete(id);
     if (fileIdAntigo) fetch(BACKUP_SHEETS_URL, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ action: "excluirFoto", fileId: fileIdAntigo }) }).catch(() => {});
   } catch (e) {
     console.error("Falha ao enviar foto da daninha:", e);
     atualizarDaninhaLocal(id, { fotoStatus: "falhou" });
     updateDoc(doc(db, "daninhas", id), { fotoStatus: "falhou" }).catch(() => {});
-    alert((!navigator.onLine ? "Sem internet no momento." : "Não consegui enviar a foto.") + " O registro foi salvo; a foto fica marcada com ⚠️ na lista, e dá pra tocar em 🔄 Tentar de novo.\n\nMotivo: " + String((e && e.message) || e).slice(0, 120));
+    if (!silencioso) {
+      if (!navigator.onLine) alert("Sem internet no momento. O registro está salvo e a foto ficou guardada no celular — ela sobe sozinha quando o sinal voltar, você não precisa fazer nada.");
+      else alert("Não consegui enviar a foto. O registro foi salvo; a foto fica marcada na lista e dá pra tocar em 🔄 Tentar agora.\n\nMotivo: " + String((e && e.message) || e).slice(0, 120));
+    }
   } finally {
     S._daninhaFotoEnviando = null;
     renderDaninhasSeAtivo();

@@ -265,7 +265,7 @@
       <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
     </div>
     <div class="header-linha2">
-      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v151</span>
+      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v152</span>
       <div class="spacer"></div>
       <span id="backupPill" class="backup-pill"></span>
       <button class="btn-export" onclick="exportarExcel()">⬇️ Excel</button>
@@ -566,26 +566,26 @@ onAuthStateChanged(auth, (user) => {
     S.cargas = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     setSaveStatus("romaneio", "saved");
     if (snap.metadata.hasPendingWrites) return;
-    if (S.currentTab === "romaneio" || S.currentTab === "dashboard") renderTab();
+    if (S.currentTab === "romaneio" || S.currentTab === "dashboard") agendarRender();
   }, (err) => console.error(err));
 
   onSnapshot(collection(db, "cargasVerde"), (snap) => {
     S.cargasVerde = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     setSaveStatus("romaneioVerde", "saved");
     if (snap.metadata.hasPendingWrites) return;
-    if (S.currentTab === "romaneioVerde") renderTab();
+    if (S.currentTab === "romaneioVerde") agendarRender();
   }, (err) => console.error(err));
 
   onSnapshot(collection(db, "bags"), (snap) => {
     S.bags = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     if (snap.metadata.hasPendingWrites) return;
-    if (S.currentTab === "romaneio" || S.currentTab === "dashboard") renderTab();
+    if (S.currentTab === "romaneio" || S.currentTab === "dashboard") agendarRender();
   }, (err) => console.error(err));
 
   onSnapshot(collection(db, "cargaFotos"), (snap) => {
     S.cargaFotos = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     if (snap.metadata.hasPendingWrites) return;
-    if (S.currentTab === "romaneio" || S.currentTab === "romaneioVerde") renderTab();
+    if (S.currentTab === "romaneio" || S.currentTab === "romaneioVerde") agendarRender();
   }, (err) => console.error(err));
 
   onSnapshot(collection(db, "descartes"), (snap) => {
@@ -599,14 +599,14 @@ onAuthStateChanged(auth, (user) => {
     });
     setSaveStatus("descartes", "saved");
     if (snap.metadata.hasPendingWrites) return;
-    if (S.currentTab === "romaneio" || S.currentTab === "dashboard") renderTab(); // Descartes agora vive dentro da aba Romaneio
+    if (S.currentTab === "romaneio" || S.currentTab === "dashboard") agendarRender(); // Descartes agora vive dentro da aba Romaneio
   }, (err) => console.error(err));
 
   onSnapshot(collection(db, "contagemLinhas"), (snap) => {
     S.contagemLinhas = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     setSaveStatus("contagem", "saved");
     if (snap.metadata.hasPendingWrites) return;
-    if (S.currentTab === "contagem" || S.currentTab === "dashboard" || S.currentTab === "colheita") renderTab();
+    if (S.currentTab === "contagem" || S.currentTab === "dashboard" || S.currentTab === "colheita") agendarRender();
   }, (err) => console.error(err));
 
   onSnapshot(collection(db, "aplicacoes"), (snap) => {
@@ -617,7 +617,7 @@ onAuthStateChanged(auth, (user) => {
     if (snap.metadata.hasPendingWrites) return;
     // A aba de Estoque mostra previsão de consumo calculada a partir das aplicações/adubações,
     // então também precisa re-renderizar quando esses dados mudam (ex: outro tablet lançou algo).
-    if (S.currentTab === "aplicacoes" || S.currentTab === "estoque" || S.currentTab === "dashboard") renderTab();
+    if (S.currentTab === "aplicacoes" || S.currentTab === "estoque" || S.currentTab === "dashboard") agendarRender();
   }, (err) => console.error(err));
 
   onSnapshot(collection(db, "setoresInfo"), (snap) => {
@@ -626,27 +626,27 @@ onAuthStateChanged(auth, (user) => {
     S.setoresInfo = obj;
     setSaveStatus("setores", "saved");
     if (snap.metadata.hasPendingWrites) return;
-    if (S.currentTab === "setores") renderTab();
+    if (S.currentTab === "setores") agendarRender();
   }, (err) => console.error(err));
 
   onSnapshot(collection(db, "ocorrencias"), (snap) => {
     S.ocorrencias = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     setSaveStatus("ocorrencias", "saved");
     if (snap.metadata.hasPendingWrites) return;
-    if (S.currentTab === "ocorrencias" || S.currentTab === "dashboard") renderTab();
+    if (S.currentTab === "ocorrencias" || S.currentTab === "dashboard") agendarRender();
   }, (err) => console.error(err));
 
   onSnapshot(collection(db, "daninhas"), (snap) => {
     S.daninhas = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     setSaveStatus("daninhas", "saved");
     if (snap.metadata.hasPendingWrites) return;
-    if (S.currentTab === "daninhas") renderTab();
+    if (S.currentTab === "daninhas") agendarRender();
   }, (err) => console.error(err));
 
   onSnapshot(collection(db, "herbicidasDaninhas"), (snap) => {
     S.herbicidasDaninhas = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     if (snap.metadata.hasPendingWrites) return;
-    if (S.currentTab === "daninhas") renderTab();
+    if (S.currentTab === "daninhas") agendarRender();
   }, (err) => console.error(err));
 
   onSnapshot(collection(db, "atividadesPadrao"), (snap) => {
@@ -655,7 +655,7 @@ onAuthStateChanged(auth, (user) => {
     S.atividadesPadrao = obj;
     setSaveStatus("rendimento", "saved");
     if (snap.metadata.hasPendingWrites) return;
-    if (S.currentTab === "rendimento") renderTab();
+    if (S.currentTab === "rendimento") agendarRender();
   }, (err) => console.error(err));
 
   onSnapshot(doc(db, "configuracoes", "seguranca"), (d) => {
@@ -664,19 +664,19 @@ onAuthStateChanged(auth, (user) => {
 
   onSnapshot(doc(db, "configuracoes", "pagamentoDescasca"), (d) => {
     S.configPagamento = d.exists() ? d.data() : {};
-    if (S.currentTab === "romaneio") renderTab();
+    if (S.currentTab === "romaneio") agendarRender();
   }, (err) => console.error(err));
 
   onSnapshot(collection(db, "colaboradores"), (snap) => {
     S.colaboradores = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     if (snap.metadata.hasPendingWrites) return;
-    if (S.currentTab === "programacao" || S.currentTab === "configuracoes") renderTab();
+    if (S.currentTab === "programacao" || S.currentTab === "configuracoes") agendarRender();
   }, (err) => console.error(err));
 
   onSnapshot(collection(db, "receitas"), (snap) => {
     S.receitas = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     if (snap.metadata.hasPendingWrites) return;
-    if (S.currentTab === "receitas") renderTab();
+    if (S.currentTab === "receitas") agendarRender();
   }, (err) => console.error(err));
 
   onSnapshot(collection(db, "metasColheita"), (snap) => {
@@ -684,40 +684,70 @@ onAuthStateChanged(auth, (user) => {
     snap.docs.forEach((d) => { obj[d.id] = d.data(); });
     S.metasColheita = obj;
     if (snap.metadata.hasPendingWrites) return;
-    if (S.currentTab === "colheita") renderTab();
+    if (S.currentTab === "colheita") agendarRender();
   }, (err) => console.error(err));
 
   onSnapshot(collection(db, "programacao"), (snap) => {
     S.programacao = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     setSaveStatus("programacao", "saved");
     if (snap.metadata.hasPendingWrites) return;
-    if (S.currentTab === "programacao" || S.currentTab === "dashboard") renderTab();
+    if (S.currentTab === "programacao" || S.currentTab === "dashboard") agendarRender();
   }, (err) => console.error(err));
 
   onSnapshot(collection(db, "insumos"), (snap) => {
     S.insumos = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     setSaveStatus("estoque", "saved");
     if (snap.metadata.hasPendingWrites) return;
-    if (S.currentTab === "estoque" || S.currentTab === "dashboard") renderTab();
+    if (S.currentTab === "estoque" || S.currentTab === "dashboard") agendarRender();
   }, (err) => console.error(err));
 
   onSnapshot(collection(db, "estoqueMovs"), (snap) => {
     S.estoqueMovs = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     if (snap.metadata.hasPendingWrites) return;
-    if (S.currentTab === "estoque" || S.currentTab === "dashboard") renderTab();
+    if (S.currentTab === "estoque" || S.currentTab === "dashboard") agendarRender();
   }, (err) => console.error(err));
 
   onSnapshot(collection(db, "solicitacoes"), (snap) => {
     S.solicitacoes = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     if (snap.metadata.hasPendingWrites) return;
-    if (S.currentTab === "estoque") renderTab();
+    if (S.currentTab === "estoque") agendarRender();
   }, (err) => console.error(err));
 
   // Backup automático: espera os dados carregarem, manda um backup, e repete a cada 15 minutos
   // enquanto o app ficar aberto (só quando tiver internet).
-  setTimeout(() => { if (navigator.onLine) window.enviarBackupSheets(); }, 8000);
-  setInterval(() => { if (navigator.onLine) window.enviarBackupSheets(); }, 15 * 60 * 1000);
+  // O backup monta 17 planilhas e manda ~1 MB: por isso só roda quando o aparelho está ocioso e
+  // bem depois de abrir (antes era 8 s depois de abrir, competindo com o carregamento).
+  const rodarBackupQuandoOcioso = () => {
+    if (!navigator.onLine) return;
+    if (typeof requestIdleCallback === "function") requestIdleCallback(() => window.enviarBackupSheets(), { timeout: 20000 });
+    else setTimeout(() => window.enviarBackupSheets(), 0);
+  };
+  setTimeout(rodarBackupQuandoOcioso, 30000);
+  setInterval(rodarBackupQuandoOcioso, 15 * 60 * 1000);
 });
+
+// ---- Redesenho agrupado ----
+// Ao abrir o app, cada coleção do Firestore chega uma de cada vez, e cada uma redesenhava a tela
+// inteira (de 2 a 9 redesenhos seguidos = o travamento). Agora os avisos dos listeners só marcam
+// "precisa redesenhar" e a tela é refeita UMA vez, logo depois que o grupo de dados terminou de chegar.
+// Também espera se a pessoa estiver digitando num campo (redesenhar fecha o teclado e perde o foco)
+// e não gasta bateria redesenhando com o app em segundo plano.
+let _renderAgendado = null, _renderTentativas = 0, _renderPendenteOculto = false;
+function agendarRender() {
+  if (_renderAgendado) return;
+  _renderAgendado = setTimeout(executarRenderAgendado, 150);
+}
+function executarRenderAgendado() {
+  _renderAgendado = null;
+  if (document.hidden) { _renderPendenteOculto = true; return; }
+  const el = document.activeElement;
+  const digitando = !!(el && el.closest && el.closest("#tabContent") && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)
+    && !["checkbox", "radio", "button", "submit"].includes(el.type));
+  if (digitando && _renderTentativas < 8) { _renderTentativas++; _renderAgendado = setTimeout(executarRenderAgendado, 1000); return; }
+  _renderTentativas = 0;
+  renderTab();
+}
+document.addEventListener("visibilitychange", () => { if (!document.hidden && _renderPendenteOculto) { _renderPendenteOculto = false; renderTab(); } });
 
 function setSaveStatus(area, status) {
   S.saveStatus[area] = status;
@@ -7732,7 +7762,18 @@ function totalLegivel(total, unidade) {
 // mostra a dose da bula pra ela. Herbicida cadastrado sem alvos (modo antigo) segue pelo tipo da
 // folha e pela dose por tamanho. O app só repete o que foi cadastrado — não inventa dose.
 const ORDEM_TAM = { P: 1, M: 2, G: 3 };
-function chaveErva(nome) { const b = acharDaninhaBase(nome); return normTxt(b ? b.nome : nome); }
+const _cacheChaveErva = new Map();
+function chaveErva(nome) {
+  const k = String(nome == null ? "" : nome);
+  let v = _cacheChaveErva.get(k);
+  if (v === undefined) {
+    const b = acharDaninhaBase(k);
+    v = normTxt(b ? b.nome : k);
+    if (_cacheChaveErva.size > 3000) _cacheChaveErva.clear();
+    _cacheChaveErva.set(k, v);
+  }
+  return v;
+}
 function mesmaErva(a, b) {
   const ka = chaveErva(a), kb = chaveErva(b);
   if (!ka || !kb) return false;
@@ -7851,6 +7892,15 @@ function renderSugestaoManejoHTML(grupo, tamanho, setor, nomeErva) {
 }
 
 // ---- Tela ----
+window.mostrarMaisDaninhas = function () { S._daninhasVisiveis = (S._daninhasVisiveis || 20) + 20; renderDaninhas(); };
+// A sugestão de cada registro só é montada quando a pessoa abre o "💡 O que aplicar" daquele registro
+// (antes era montada pra todos de uma vez, mesmo fechada — 321 KB de HTML com 200 registros).
+window.abrirSugestaoDaninha = function (id, el) {
+  if (!el.open) return;
+  const box = el.querySelector(".sug-lazy");
+  const d = S.daninhas.find((x) => x.id === id);
+  if (box && d) box.innerHTML = renderSugestaoManejoHTML(d.grupo, d.tamanho, d.setor, d.identificada === false ? "" : d.nome);
+};
 window.mudarDaninhasView = function (v) { S._daninhasView = v; renderDaninhas(); };
 function renderDaninhasSeAtivo() { if (S.currentTab === "daninhas") renderDaninhas(); }
 
@@ -7999,7 +8049,8 @@ function renderMonitoramentoDaninhaHTML() {
     <button class="btn ghost" style="width:auto; margin-bottom:10px; color:#166534; border:1px solid #16a34a;" onclick="exportarDaninhasExcel()">⬇️ Excel do monitoramento</button>`;
   if (!lista.length) html += `<div class="empty">Nenhum monitoramento registrado ainda.</div>`;
   const corTam = { P: "#16a34a", M: "#f59e0b", G: "#dc2626" };
-  lista.forEach((d) => {
+  const limiteDan = S._daninhasVisiveis || 20;
+  lista.slice(0, limiteDan).forEach((d) => {
     const enviando = S._daninhaFotoEnviando === d.id;
     html += `<div style="border:1px solid #e7e5e4; border-left:5px solid ${corTam[d.tamanho] || "#a8a29e"}; border-radius:10px; padding:10px 12px; margin-bottom:8px;">
       <div class="row-flex" style="align-items:flex-start;">
@@ -8011,9 +8062,10 @@ function renderMonitoramentoDaninhaHTML() {
         <div style="display:flex; gap:4px;"><button class="x-btn" onclick="editarDaninha('${d.id}')">✏️</button><button class="x-btn" onclick="removerDaninha('${d.id}','${esc(d.fotoFileId || "")}')">✕</button></div>
       </div>
       ${renderFotoDaninhaHTML(d, enviando)}
-      <details style="margin-top:8px;"><summary style="font-size:12.5px; font-weight:700; cursor:pointer; color:#166534;">💡 O que aplicar</summary>${renderSugestaoManejoHTML(d.grupo, d.tamanho, d.setor, d.identificada === false ? "" : d.nome)}</details>
+      <details style="margin-top:8px;" ontoggle="abrirSugestaoDaninha('${d.id}', this)"><summary style="font-size:12.5px; font-weight:700; cursor:pointer; color:#166534;">💡 O que aplicar</summary><div class="sug-lazy"></div></details>
     </div>`;
   });
+  if (lista.length > limiteDan) html += `<button class="btn ghost" style="margin-top:4px;" onclick="mostrarMaisDaninhas()">Mostrar mais (${lista.length - limiteDan} restantes)</button>`;
   html += `</div>`;
   html += renderLogDaninhasHTML();
   return html;
@@ -8735,6 +8787,7 @@ window.onFotoOcorrenciaSelecionada = async function (input) {
   }
 };
 
+window.mostrarMaisOcorrencias = function () { S._ocorrenciasVisiveis = (S._ocorrenciasVisiveis || 30) + 30; renderOcorrencias(); };
 function renderOcorrencias() {
   const oc = S._novaOcorrencia;
   let html = `<div class="card">
@@ -8769,7 +8822,8 @@ function renderOcorrencias() {
   }
 
   const iconesOcorrencia = { "Incêndio": "🔥", "Praga": "🐛", "Doença": "🦠", "Falha de irrigação": "💧", "Quebra de equipamento": "🔧", "Falta de funcionário": "👤", "Problema de aplicação": "🧴", "Problema de balança": "⚖️", "Planta morta": "🥀", "Danos climáticos": "🌪️", "Outros": "⚠️" };
-  lista.forEach((o) => {
+  const limiteOco = S._ocorrenciasVisiveis || 30;
+  lista.slice(0, limiteOco).forEach((o) => {
     const enviandoFoto = S._ocorrenciaFotoEnviando === o.id;
     html += `<div class="card acento vermelho" style="margin-bottom:10px;">
       <div class="row-flex" style="align-items:flex-start;">
@@ -8795,6 +8849,7 @@ function renderOcorrencias() {
       </div>
     </div>`;
   });
+  if (lista.length > limiteOco) html += `<button class="btn ghost" onclick="mostrarMaisOcorrencias()">Mostrar mais (${lista.length - limiteOco} restantes)</button>`;
 
   document.getElementById("tabContent").innerHTML = html;
   setSaveStatus("ocorrencias", S.saveStatus.ocorrencias);

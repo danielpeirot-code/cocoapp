@@ -265,7 +265,7 @@
       <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
     </div>
     <div class="header-linha2">
-      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v150</span>
+      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v151</span>
       <div class="spacer"></div>
       <span id="backupPill" class="backup-pill"></span>
       <button class="btn-export" onclick="exportarExcel()">⬇️ Excel</button>
@@ -7694,7 +7694,7 @@ function daninhaVazia(manter) {
   return { data: (manter && manter.data) || "", setor: (manter && manter.setor) || "", nome: "", grupo: "", tamanho: "", alturaCm: "", obs: "", fotoFile: null, fotoPreview: "", editId: null, fotoUrlAtual: "", fotoFileIdAtual: "" };
 }
 function herbicidaVazio() {
-  return { nome: "", ativo: "", modo: MODOS_HERBICIDA[0], controla: [], volumeCalda: "", unidade: UNIDADES_DOSE[0], dose: { P: "", M: "", G: "" }, obs: "", editId: null };
+  return { nome: "", ativo: "", modo: MODOS_HERBICIDA[0], controla: [], volumeCalda: "", unidade: UNIDADES_DOSE[0], dose: { P: "", M: "", G: "" }, adjuvante: "", fonteBula: "", alvos: [], obs: "", editId: null };
 }
 S._novaDaninha = daninhaVazia();
 S._novoHerbicida = herbicidaVazio();
@@ -7715,66 +7715,138 @@ function areaDoSetorHa(setor) {
   const n = info ? Number(String(info.area || "").replace(",", ".")) : NaN;
   return n > 0 ? n : null;
 }
-function numDaninha(v) { const n = Number(String(v == null ? "" : v).replace(",", ".")); return Number.isFinite(n) ? n : NaN; }
+function numDaninha(v) {
+  const t = String(v == null ? "" : v).replace(",", ".").trim();
+  if (t === "") return NaN; // campo vazio é "sem valor", não zero
+  const n = Number(t);
+  return Number.isFinite(n) ? n : NaN;
+}
 function totalLegivel(total, unidade) {
   const base = String(unidade).split("/")[0];
   if ((base === "mL" || base === "g") && total >= 1000) return `${(total / 1000).toFixed(2).replace(".", ",")} ${base === "mL" ? "L" : "kg"}`;
   return `${(Math.round(total * 100) / 100).toString().replace(".", ",")} ${base}`;
 }
 
-// ---- Sugestão de manejo: só repete o que a pessoa cadastrou em "Meus herbicidas" ----
-function sugestaoManejoDaninha(grupo, tamanho, setor) {
+// ---- Sugestão de manejo POR ERVA: espécie + tamanho, a partir do que está em "Meus herbicidas" ----
+// O que manda é controlar a erva: o app procura, em cada herbicida, a linha daquela erva ("alvo") e
+// mostra a dose da bula pra ela. Herbicida cadastrado sem alvos (modo antigo) segue pelo tipo da
+// folha e pela dose por tamanho. O app só repete o que foi cadastrado — não inventa dose.
+const ORDEM_TAM = { P: 1, M: 2, G: 3 };
+function chaveErva(nome) { const b = acharDaninhaBase(nome); return normTxt(b ? b.nome : nome); }
+function mesmaErva(a, b) {
+  const ka = chaveErva(a), kb = chaveErva(b);
+  if (!ka || !kb) return false;
+  if (ka === kb) return true;
+  return ka.length >= 5 && kb.length >= 5 && (ka.startsWith(kb) || kb.startsWith(ka));
+}
+function arred2(v) { return Math.round(v * 100) / 100; }
+function fmtDose(v) { return String(arred2(v)).replace(".", ","); }
+// Dose do alvo conforme o tamanho: se a bula diz "menor dose pra erva pequena, maior pra grande"
+// (regra "tamanho"), P = mínima, G = máxima e M = meio da faixa. Se a bula só dá faixa que varia por
+// cultura/estádio (regra "faixa"), mostra a faixa e deixa a escolha pro agrônomo.
+function doseDoAlvo(alvo, tamanho) {
+  const min = numDaninha(alvo.doseMin);
+  let max = numDaninha(alvo.doseMax);
+  if (!Number.isFinite(min)) return null;
+  if (!Number.isFinite(max)) max = min;
+  const unico = max === min;
+  const porTamanho = !unico && (alvo.regra || "tamanho") === "tamanho";
+  const valores = (unico || porTamanho) ? { P: min, M: unico ? min : arred2((min + max) / 2), G: max } : null;
+  return { min, max, unico, porTamanho, valores, valor: (valores && tamanho) ? valores[tamanho] : null };
+}
+function sugestaoManejoDaninha(grupo, tamanho, setor, nomeErva) {
   const hs = S.herbicidasDaninhas || [];
+  const temNome = !!String(nomeErva || "").trim();
+  const base = temNome ? acharDaninhaBase(nomeErva) : null;
+  if (!grupo && base) grupo = base.grupo;
   let orient = "";
   if (grupo === "Ciperácea (tiririca)") orient = "Tiririca e outras ciperáceas rebrotam pelos tubérculos — herbicida de contato só queima a parte de cima; em geral pede sistêmico.";
   else if (tamanho === "G") orient = "Daninha grande (mais de 50 cm): em geral pede herbicida sistêmico, que chega até a raiz.";
   else if (tamanho === "P") orient = "Daninha pequena: muitas vezes dá pra controlar com herbicida de contato; sistêmico também serve.";
   else if (tamanho === "M") orient = "Tamanho médio: sistêmico costuma ser mais seguro; contato funciona se a calda cobrir bem a planta.";
-  if (!hs.length) return { semHerbicidas: true, orient, itens: [] };
-  let cands = hs.filter((h) => !grupo || (h.controla || []).includes(grupo));
-  const nenhumParaGrupo = !!grupo && cands.length === 0;
-  const preferirSistemico = grupo === "Ciperácea (tiririca)" || tamanho === "G" || tamanho === "M";
-  const ordem = (h) => { const sist = h.modo === "Sistêmico"; return preferirSistemico ? (sist ? 0 : 1) : (sist ? 1 : 0); };
-  cands = cands.slice().sort((a, b) => ordem(a) - ordem(b) || String(a.nome).localeCompare(String(b.nome), "pt-BR"));
+  if (!hs.length) return { semHerbicidas: true, orient, itens: [], semBula: [] };
   const ha = areaDoSetorHa(setor);
-  const itens = cands.map((h) => {
+  const itens = [], semBula = [];
+  hs.forEach((h) => {
+    const alvos = h.alvos || [];
+    const alvo = temNome ? alvos.find((a) => mesmaErva(a.erva, nomeErva)) : null;
+    if (alvo) {
+      const d = doseDoAlvo(alvo, tamanho);
+      if (!d) return;
+      const unidade = alvo.unidade || h.unidade || "L/ha";
+      const foraEstadio = !!(tamanho && alvo.tamMax && ORDEM_TAM[tamanho] > ORDEM_TAM[alvo.tamMax]);
+      itens.push({
+        h, alvo, d, unidade, foraEstadio,
+        total: (d.valor !== null && ha) ? d.valor * ha : null,
+        totalMin: (!d.unico && !d.porTamanho && ha) ? d.min * ha : null,
+        totalMax: (!d.unico && !d.porTamanho && ha) ? d.max * ha : null,
+        volumeCalda: numDaninha(h.volumeCalda) > 0 ? numDaninha(h.volumeCalda) : null,
+      });
+      return;
+    }
+    if (alvos.length && temNome) { semBula.push(h.nome); return; } // a bula desse herbicida não cita essa erva
+    if (grupo && !(h.controla || []).includes(grupo)) return;       // cadastro antigo / erva sem nome: vai pelo tipo da folha
     const dose = tamanho ? numDaninha(h.dose && h.dose[tamanho]) : NaN;
     const temDose = Number.isFinite(dose) && dose > 0;
-    const vol = numDaninha(h.volumeCalda);
-    return {
-      h, tamanho, dose: temDose ? dose : null, unidade: h.unidade || "L/ha",
-      total: (temDose && ha) ? dose * ha : null,
-      volumeCalda: vol > 0 ? vol : null, caldaTotal: (vol > 0 && ha) ? vol * ha : null,
-    };
+    itens.push({
+      h, alvo: null, unidade: h.unidade || "L/ha", foraEstadio: false,
+      d: temDose ? { min: dose, max: dose, unico: true, porTamanho: false, valores: null, valor: dose } : null,
+      total: (temDose && ha) ? dose * ha : null, totalMin: null, totalMax: null,
+      volumeCalda: numDaninha(h.volumeCalda) > 0 ? numDaninha(h.volumeCalda) : null,
+    });
   });
-  return { orient, itens, nenhumParaGrupo, ha, semHerbicidas: false };
+  const preferirSistemico = grupo === "Ciperácea (tiririca)" || tamanho === "G" || tamanho === "M";
+  const ordemModo = (it) => { const sist = it.h.modo === "Sistêmico"; return preferirSistemico ? (sist ? 0 : 1) : (sist ? 1 : 0); };
+  itens.sort((a, b) => (b.alvo ? 1 : 0) - (a.alvo ? 1 : 0) || (a.foraEstadio ? 1 : 0) - (b.foraEstadio ? 1 : 0)
+    || ordemModo(a) - ordemModo(b) || String(a.h.nome).localeCompare(String(b.h.nome), "pt-BR"));
+  return { orient, itens, semBula, ha, semHerbicidas: false, temNome, nenhumParaGrupo: !!grupo && !itens.length && !semBula.length };
 }
-function renderSugestaoManejoHTML(grupo, tamanho, setor) {
-  const sug = sugestaoManejoDaninha(grupo, tamanho, setor);
+function renderSugestaoManejoHTML(grupo, tamanho, setor, nomeErva) {
+  const sug = sugestaoManejoDaninha(grupo, tamanho, setor, nomeErva);
+  const setorTxt = setor || (S._novaDaninha && S._novaDaninha.setor) || "";
   let html = `<div style="background:#f0fdf4; border:1px solid #bbf7d0; border-radius:10px; padding:10px 12px; margin-top:10px;">
-    <div style="font-size:12.5px; font-weight:800; color:#166534; margin-bottom:4px;">💡 O que aplicar</div>`;
+    <div style="font-size:12.5px; font-weight:800; color:#166534; margin-bottom:4px;">💡 O que aplicar${sug.temNome ? ` <span style="font-weight:600;">— ${esc(String(nomeErva).trim())}</span>` : ""}</div>`;
   if (sug.orient) html += `<div style="font-size:12px; color:#3f6212; margin-bottom:6px;">${esc(sug.orient)}</div>`;
   if (sug.semHerbicidas) {
-    html += `<div style="font-size:12.5px;">Você ainda não cadastrou os herbicidas que usa. Toque em <b>🧪 Meus herbicidas</b> pra cadastrar (nome, o que controla e a dose da bula por tamanho) — aí o app já mostra a dose aqui.</div></div>`;
+    html += `<div style="font-size:12.5px;">Você ainda não cadastrou os herbicidas que usa. Toque em <b>🧪 Meus herbicidas</b> pra cadastrar (ou carregar das bulas) — aí o app já mostra a dose aqui.</div></div>`;
     return html;
   }
   if (!tamanho) html += `<div style="font-size:12px; color:#78716c; margin-bottom:6px;">Escolha o tamanho (P, M ou G) pra ver a dose de cada herbicida.</div>`;
-  if (!grupo) html += `<div style="font-size:12px; color:#78716c; margin-bottom:6px;">Escolha o tipo da folha pra mostrar só os herbicidas que controlam essa daninha.</div>`;
-  if (sug.nenhumParaGrupo) html += `<div style="font-size:12.5px;">Nenhum herbicida cadastrado marca <b>${esc(grupo)}</b> em "controla". Confira o cadastro em <b>🧪 Meus herbicidas</b>.</div>`;
+  if (!sug.temNome && !grupo) html += `<div style="font-size:12px; color:#78716c; margin-bottom:6px;">Digite o nome da erva (ou escolha o tipo da folha) pra ver a dose da bula pra ela.</div>`;
+  if (sug.temNome && !sug.itens.length && sug.semBula.length) html += `<div style="font-size:12.5px;">Nenhum dos herbicidas cadastrados traz <b>${esc(String(nomeErva).trim())}</b> na bula: ${esc(sug.semBula.join(", "))}. Confira o cadastro de alvos em <b>🧪 Meus herbicidas</b>.</div>`;
+  else if (sug.nenhumParaGrupo) html += `<div style="font-size:12.5px;">Nenhum herbicida cadastrado marca <b>${esc(grupo)}</b> em "controla". Confira o cadastro em <b>🧪 Meus herbicidas</b>.</div>`;
   sug.itens.forEach((it) => {
-    html += `<div style="border-top:1px dashed #bbf7d0; padding:7px 0; font-size:13px;">
-      <b>${esc(it.h.nome)}</b> <span class="muted" style="font-size:11px;">${esc(it.h.modo || "")}${it.h.ativo ? " · " + esc(it.h.ativo) : ""}</span>`;
-    if (tamanho) {
-      if (it.dose !== null) {
-        html += `<div>Dose p/ tamanho ${esc(tamanho)}: <b>${esc(String(it.dose).replace(".", ","))} ${esc(it.unidade)}</b>${it.total !== null ? ` &nbsp;→ <b>${esc(totalLegivel(it.total, it.unidade))}</b> no ${esc(S._novaDaninha && S._novaDaninha.setor ? S._novaDaninha.setor : setor)} (${esc(String(sug.ha).replace(".", ","))} ha)` : ""}</div>`;
-      } else {
-        html += `<div style="color:#c2410c;">Dose p/ tamanho ${esc(tamanho)} ainda não cadastrada — complete em Meus herbicidas.</div>`;
+    const h = it.h;
+    html += `<div style="border-top:1px dashed #bbf7d0; padding:8px 0; font-size:13px;">
+      <b>${esc(h.nome)}</b> <span class="muted" style="font-size:11px;">${esc(h.modo || "")}${h.ativo ? " · " + esc(h.ativo) : ""}</span>`;
+    if (it.alvo) {
+      const d = it.d, a = it.alvo;
+      const faixaTxt = d.unico ? fmtDose(d.min) : `${fmtDose(d.min)}–${fmtDose(d.max)}`;
+      html += `<div>Bula pra <b>${esc(a.erva)}</b>: <b>${faixaTxt} ${esc(it.unidade)}</b>${d.unico ? " (dose única)" : ""}</div>`;
+      if (d.valores && !d.unico) {
+        const partes = ["P", "M", "G"].map((k) => { const t = `${k} ${fmtDose(d.valores[k])}`; return k === tamanho ? `<b style="color:#166534;">${t}</b>` : t; }).join(" · ");
+        html += `<div>${partes} ${esc(it.unidade)} <span class="muted" style="font-size:11px;">(dose menor pra erva pequena, maior pra grande — regra da bula)</span></div>`;
+      } else if (!d.unico) {
+        html += `<div class="muted" style="font-size:12px;">A bula varia a dose conforme a cultura e o estádio — escolher com o agrônomo.</div>`;
       }
+      if (it.total !== null) html += `<div>→ <b>${esc(totalLegivel(it.total, it.unidade))}</b> no ${esc(setorTxt)} (${esc(String(sug.ha).replace(".", ","))} ha)</div>`;
+      else if (it.totalMin !== null) html += `<div>→ de ${esc(totalLegivel(it.totalMin, it.unidade))} a ${esc(totalLegivel(it.totalMax, it.unidade))} no ${esc(setorTxt)} (${esc(String(sug.ha).replace(".", ","))} ha)</div>`;
+      if (it.foraEstadio) { const tm = TAMANHOS_DANINHA.find((t) => t.key === a.tamMax); html += `<div style="color:#c2410c; font-weight:700; font-size:12.5px;">⚠️ A bula só vale pra erva ${a.tamMax === "P" ? "pequena" : "até o tamanho " + esc(a.tamMax)}${tm ? " (" + esc(tm.faixa) + ")" : ""}${a.estagio ? " — " + esc(a.estagio) : ""}. Essa está maior — o controle pode falhar; prefira um sistêmico.</div>`; }
+      if (a.alerta) html += `<div style="color:#b91c1c; font-size:12px;">⚠️ ${esc(a.alerta)}</div>`;
+      if (a.nota) html += `<div class="muted" style="font-size:11.5px;">${esc(a.nota)}</div>`;
+      if (a.estagio) html += `<div class="muted" style="font-size:11.5px;">Estádio da bula: ${esc(a.estagio)}</div>`;
+      if (a.fonte) html += `<div class="muted" style="font-size:11px;">Fonte: ${esc(a.fonte)}</div>`;
+    } else if (it.d) {
+      html += `<div>Dose p/ tamanho ${esc(tamanho)}: <b>${esc(fmtDose(it.d.valor))} ${esc(it.unidade)}</b>${it.total !== null ? ` &nbsp;→ <b>${esc(totalLegivel(it.total, it.unidade))}</b> no ${esc(setorTxt)} (${esc(String(sug.ha).replace(".", ","))} ha)` : ""}</div>`;
+    } else if (tamanho) {
+      html += `<div style="color:#c2410c;">Sem dose cadastrada pra essa erva/tamanho — complete em Meus herbicidas.</div>`;
     }
-    if (it.volumeCalda !== null) html += `<div class="muted" style="font-size:12px;">Calda: ${esc(String(it.volumeCalda).replace(".", ","))} L/ha${it.caldaTotal !== null ? ` → ${esc(String(Math.round(it.caldaTotal)).replace(/\B(?=(\d{3})+(?!\d))/g, "."))} L` : ""}</div>`;
+    if (h.adjuvante) html += `<div class="muted" style="font-size:11.5px;">Adjuvante: ${esc(h.adjuvante)}</div>`;
+    if (it.volumeCalda !== null) html += `<div class="muted" style="font-size:12px;">Calda: ${esc(String(it.volumeCalda).replace(".", ","))} L/ha${(sug.ha) ? ` → ${esc(String(Math.round(it.volumeCalda * sug.ha)).replace(/\B(?=(\d{3})+(?!\d))/g, "."))} L` : ""}</div>`;
     html += `</div>`;
   });
-  html += `<div style="font-size:10.5px; color:#78716c; margin-top:6px;">As doses são as que você cadastrou (bula / receituário). Confira com o agrônomo antes de aplicar.</div></div>`;
+  if (sug.temNome && sug.itens.length && sug.semBula.length) html += `<div class="muted" style="font-size:11.5px; border-top:1px dashed #bbf7d0; padding-top:6px;">Sem dose na bula pra essa erva: ${esc(sug.semBula.join(", "))}.</div>`;
+  html += `<div style="font-size:10.5px; color:#78716c; margin-top:6px;">As doses são as que estão cadastradas (bulas). Confira com o agrônomo antes de aplicar.</div></div>`;
   return html;
 }
 
@@ -7909,7 +7981,7 @@ function renderMonitoramentoDaninhaHTML() {
     ${nd.fotoPreview ? `<div style="margin-bottom:8px;"><img src="${esc(nd.fotoPreview)}" onclick="window.open('${esc(nd.fotoPreview)}','_blank')" style="width:100%; max-width:260px; max-height:220px; object-fit:cover; border-radius:10px; border:2px solid #16a34a;"/><div style="font-size:12px; color:#166534; font-weight:700; margin-top:4px;">✅ Foto pronta — ela sobe pro Drive quando você tocar em ${nd.editId ? "Salvar alterações" : "Registrar"}.</div></div>` : ""}
     ${nd.fotoPreview ? `<button class="btn ghost" style="width:auto; color:#128C7E; border:1px solid #128C7E; margin-bottom:6px;" onclick="compartilharFotoDaninha()">📤 Compartilhar pra identificar</button>
     <div class="muted" style="font-size:11px; margin-bottom:6px;">Não sabe o nome? Compartilhe a foto com o Google Lens, o app Pl@ntNet ou o Claude, descubra o nome e digite acima. (A identificação por foto ajuda, mas confirme com o agrônomo.)</div>` : ""}
-    <div id="boxManejoDaninha">${renderSugestaoManejoHTML(nd.grupo, nd.tamanho, setor)}</div>
+    <div id="boxManejoDaninha">${renderSugestaoManejoHTML(nd.grupo, nd.tamanho, setor, nd.nome)}</div>
     <div style="display:flex; gap:8px; margin-top:12px; flex-wrap:wrap;">
       <button class="btn" onclick="criarDaninha()">${editando ? "💾 Salvar alterações" : "✅ Registrar"}</button>
       ${editando ? `<button class="btn ghost" style="width:auto;" onclick="cancelarEdicaoDaninha()">Cancelar</button>` : ""}
@@ -7939,7 +8011,7 @@ function renderMonitoramentoDaninhaHTML() {
         <div style="display:flex; gap:4px;"><button class="x-btn" onclick="editarDaninha('${d.id}')">✏️</button><button class="x-btn" onclick="removerDaninha('${d.id}','${esc(d.fotoFileId || "")}')">✕</button></div>
       </div>
       ${renderFotoDaninhaHTML(d, enviando)}
-      <details style="margin-top:8px;"><summary style="font-size:12.5px; font-weight:700; cursor:pointer; color:#166534;">💡 O que aplicar</summary>${renderSugestaoManejoHTML(d.grupo, d.tamanho, d.setor)}</details>
+      <details style="margin-top:8px;"><summary style="font-size:12.5px; font-weight:700; cursor:pointer; color:#166534;">💡 O que aplicar</summary>${renderSugestaoManejoHTML(d.grupo, d.tamanho, d.setor, d.identificada === false ? "" : d.nome)}</details>
     </div>`;
   });
   html += `</div>`;
@@ -7947,26 +8019,127 @@ function renderMonitoramentoDaninhaHTML() {
   return html;
 }
 
+// ---- Herbicidas das bulas (por erva) ----
+// Dose por ERVA, lida das bulas enviadas. Aqui o que manda é o controle da erva, então cada alvo traz a
+// faixa da bula pra aquela erva e de qual quadro/cultura ela veio ("fonte"). Roundup e Select dizem que
+// a dose menor é pra erva pequena e a maior pra erva grande (regra "tamanho"); Off Road e Aurora só dão
+// faixas que variam por cultura e valem pra erva PEQUENA (regra "faixa", bula vale até P).
+const HERBICIDAS_BULAS = [
+  {
+    nome: "Roundup Original Mais", ativo: "Glifosato 480 g/L e.a. (577 g/L sal diamônio)", modo: "Sistêmico",
+    controla: ["Folha larga", "Folha estreita (capim)", "Ciperácea (tiririca)"], unidade: "L/ha", volumeCalda: "", adjuvante: "",
+    fonteBula: "Bula Roundup Original Mais (BROMCOMP/2508-00) — quadros 1, 2, 3 e 6/7",
+    obs: "Bula: jato dirigido; calda 100–200 L/ha; chuva em 4 h reduz o efeito; evitar UR abaixo de 55% e calor acima de 30 °C; vento até 10 km/h; água limpa; não roçar/capinar antes ou logo depois; sem efeito residual; efeito visível em 7–14 dias; reentrada ≥ 24 h. Coco: máx. 3 aplicações/ano, intervalo de segurança 15 dias.",
+    alvos: [
+      { erva: "Capim-carrapicho", doseMin: 1.0, doseMax: 2.0, regra: "tamanho", tamMax: "G", estagio: "menor dose p/ fase inicial; maior p/ adulta", fonte: "quadro 3 (coco e outras perenes)" },
+      { erva: "Capim-braquiária", doseMin: 2.0, doseMax: 4.0, regra: "tamanho", tamMax: "G", estagio: "menor dose p/ fase inicial; maior p/ adulta", fonte: "quadro 3 (coco e outras perenes)" },
+      { erva: "Capim-colchão", doseMin: 2.0, doseMax: 4.0, regra: "tamanho", tamMax: "G", estagio: "menor dose p/ fase inicial; maior p/ adulta", fonte: "quadro 3 (coco e outras perenes)" },
+      { erva: "Capim-pé-de-galinha", doseMin: 2.0, doseMax: 4.0, regra: "tamanho", tamMax: "G", estagio: "menor dose p/ fase inicial; maior p/ adulta", alerta: "A bula avisa: já há biótipos resistentes ao glifosato no Brasil — pode não controlar.", fonte: "quadro 3 (coco e outras perenes)" },
+      { erva: "Capim-amargoso", doseMin: 3.0, doseMax: 4.0, regra: "tamanho", tamMax: "G", estagio: "menor dose p/ fase inicial; maior p/ adulta", alerta: "A bula avisa: já há biótipos resistentes ao glifosato no Brasil — pode não controlar (a bula do Select indica cletodim pra amargoso resistente).", fonte: "quadro 3 (coco e outras perenes)" },
+      { erva: "Caruru / Bredo", doseMin: 1.0, doseMax: 4.0, regra: "tamanho", tamMax: "G", estagio: "menor dose p/ fase inicial; maior p/ adulta", nota: "Caruru-de-mancha (A. viridis) 1,0–2,0; caruru-branco (A. hybridus) 2,0–4,0.", alerta: "Caruru-branco: biótipos resistentes ao glifosato relatados na bula.", fonte: "quadro 3 (coco e outras perenes)" },
+      { erva: "Picão-preto", doseMin: 1.0, doseMax: 3.0, regra: "tamanho", tamMax: "G", estagio: "menor dose p/ fase inicial; maior p/ adulta", fonte: "quadro 3 (coco e outras perenes)" },
+      { erva: "Guanxuma / Malva", doseMin: 2.0, doseMax: 4.0, regra: "tamanho", tamMax: "G", estagio: "menor dose p/ fase inicial; maior p/ adulta", nota: "Sida rhombifolia; Sida cordifolia e Malvastrum: 3,0–4,5 (quadro 1).", fonte: "quadro 3 (coco e outras perenes)" },
+      { erva: "Corda-de-viola", doseMin: 3.0, doseMax: 4.0, regra: "tamanho", tamMax: "G", estagio: "menor dose p/ fase inicial; maior p/ adulta", nota: "Ipomoea grandifolia. I. purpurea: 4,5 (quadro 1).", fonte: "quadro 3 (coco e outras perenes)" },
+      { erva: "Leiteiro", doseMin: 3.0, doseMax: 4.0, regra: "tamanho", tamMax: "G", estagio: "menor dose p/ fase inicial; maior p/ adulta", alerta: "A bula avisa: já há biótipos resistentes ao glifosato no Brasil — pode não controlar.", fonte: "quadro 3 (coco e outras perenes)" },
+      { erva: "Erva-de-santa-luzia", doseMin: 2.0, doseMax: 3.0, regra: "tamanho", tamMax: "G", estagio: "menor dose p/ fase inicial; maior p/ adulta", fonte: "quadro 3 (coco e outras perenes)" },
+      { erva: "Trapoeraba", doseMin: 4.0, doseMax: 4.0, regra: "tamanho", tamMax: "G", estagio: "dose única no quadro do coco", nota: "No quadro 1 (cana/citros/eucalipto) a bula indica 4,5.", fonte: "quadro 3 (coco e outras perenes)" },
+      { erva: "Tiririca", doseMin: 2.0, doseMax: 4.5, regra: "tamanho", tamMax: "G", estagio: "menor dose p/ fase inicial; maior p/ adulta", nota: "A tiririca não está no quadro do coco; a dose vem do quadro 1.", fonte: "quadro 1 (cana, citros, eucalipto, pinus)" },
+      { erva: "Beldroega", doseMin: 3.0, doseMax: 4.5, regra: "tamanho", tamMax: "G", estagio: "menor dose p/ fase inicial; maior p/ adulta", fonte: "quadro 1 (cana, citros, eucalipto, pinus); café 3,0" },
+      { erva: "Maria-pretinha", doseMin: 2.0, doseMax: 3.0, regra: "tamanho", tamMax: "G", estagio: "menor dose p/ fase inicial; maior p/ adulta", nota: "Maria-preta (Solanum americanum).", fonte: "quadros 1 e 2 (cana, citros, café)" },
+      { erva: "Mata-pasto / Fedegoso", doseMin: 3.0, doseMax: 3.0, regra: "tamanho", tamMax: "G", estagio: "dose única", nota: "Senna obtusifolia/occidentalis, área total em algodão e milho tolerantes.", fonte: "quadros 6 e 7 (algodão/milho GM)" },
+    ],
+  },
+  {
+    nome: "Off Road", ativo: "Glufosinato-sal de amônio 200 g/L", modo: "Contato",
+    controla: ["Folha larga", "Folha estreita (capim)"], unidade: "L/ha", volumeCalda: "",
+    adjuvante: "Óleo vegetal ou mineral 0,2–0,25% v/v (café: 0,4%) — a bula exige",
+    fonteBula: "Bula Off Road (v.05 de 17/04/2025) — tabelas de citros, banana, café, uva, algodão e milho (jato dirigido)",
+    obs: "Bula: herbicida de ação total, não seletivo (a bula não classifica como contato/sistêmico; sintomas a partir do 2º dia). Só planta pequena, em crescimento ativo. Calda: citros/café 350 L/ha, café capins/guanxuma 450, banana 500. 6 h sem chuva; temp. 10–30 °C, UR > 55%, vento até 10 km/h. Altamente móvel no solo (águas subterrâneas). Reentrada ≥ 24 h. Intervalo de segurança: citros 40 d, banana 10 d, café 20 d.",
+    alvos: [
+      { erva: "Capim-colchão", doseMin: 2.0, doseMax: 2.5, regra: "faixa", tamMax: "P", estagio: "até 2 perfilhos", fonte: "citros (2,0), café (2,5); banana: até 1 perfilho" },
+      { erva: "Capim-pé-de-galinha", doseMin: 2.0, doseMax: 2.0, regra: "faixa", tamMax: "P", estagio: "até 1 perfilho", fonte: "citros, banana, algodão (jato dirigido)" },
+      { erva: "Capim-amargoso", doseMin: 2.0, doseMax: 2.0, regra: "faixa", tamMax: "P", estagio: "até 1 perfilho", fonte: "citros" },
+      { erva: "Capim-carrapicho", doseMin: 2.0, doseMax: 2.0, regra: "faixa", tamMax: "P", estagio: "até 1 perfilho", fonte: "citros" },
+      { erva: "Trapoeraba", doseMin: 2.0, doseMax: 2.5, regra: "faixa", tamMax: "P", estagio: "até 4 folhas", fonte: "citros, café, algodão (2,0); soja (2,5)" },
+      { erva: "Beldroega", doseMin: 2.0, doseMax: 2.5, regra: "faixa", tamMax: "P", estagio: "até 4 folhas", fonte: "café, batata (2,0); soja (2,5, até 6 folhas)" },
+      { erva: "Caruru / Bredo", doseMin: 2.0, doseMax: 2.0, regra: "faixa", tamMax: "P", estagio: "até 4 folhas", fonte: "café, uva, algodão" },
+      { erva: "Corda-de-viola", doseMin: 1.5, doseMax: 2.0, regra: "faixa", tamMax: "P", estagio: "2 a 4 folhas", fonte: "milho (jato dirigido)" },
+      { erva: "Picão-preto", doseMin: 1.5, doseMax: 2.0, regra: "faixa", tamMax: "P", estagio: "até 4 folhas", fonte: "citros, café, uva (2,0); milho (1,5–2,0)" },
+      { erva: "Guanxuma / Malva", doseMin: 2.0, doseMax: 3.0, regra: "faixa", tamMax: "P", estagio: "até 4 folhas (guanxuma no café: até 6 folhas, 3,0)", fonte: "citros (2,0), café (3,0)" },
+      { erva: "Buva", doseMin: 2.0, doseMax: 3.0, regra: "faixa", tamMax: "P", estagio: "até 4 folhas (café) / até 12 cm (soja)", fonte: "café (2,0); soja (2,5–3,0)" },
+      { erva: "Leiteiro", doseMin: 1.5, doseMax: 2.0, regra: "faixa", tamMax: "P", estagio: "até 4 folhas", nota: "Amendoim-bravo na bula.", fonte: "citros (2,0); milho (1,5–2,0)" },
+      { erva: "Carrapicho-de-carneiro", doseMin: 1.5, doseMax: 2.0, regra: "faixa", tamMax: "P", estagio: "até 4 folhas", fonte: "citros, algodão (2,0); milho (1,5–2,0)" },
+    ],
+  },
+  {
+    nome: "Aurora 400 EC", ativo: "Carfentrazona-etílica 400 g/L", modo: "Contato",
+    controla: ["Folha larga"], unidade: "mL/ha", volumeCalda: "", adjuvante: "Óleo mineral 0,5% v/v — a bula exige",
+    fonteBula: "Bula Aurora 400 EC (06/11/2024) — cana, citros, café, mandioca, algodão",
+    obs: "Bula: pós-emergente de ação NÃO sistêmica; só folha larga (nenhum capim); aplicar com a erva em 3 a 4 folhas; calda 200–400 L/ha; chuva em até 2 h interfere; aplicar depois de secar o orvalho; reentrada ≥ 24 h; temp. abaixo de 30 °C e UR acima de 50%. Muito perigoso ao meio ambiente (classe II), altamente tóxico para algas. Intervalo de segurança: café e citros 15 d.",
+    alvos: [
+      { erva: "Trapoeraba", doseMin: 50, doseMax: 125, regra: "faixa", tamMax: "P", estagio: "3 a 4 folhas", unidade: "mL/ha", fonte: "cana e algodão (50–75); café, citros e cana em jato dirigido (75–125)" },
+      { erva: "Corda-de-viola", doseMin: 50, doseMax: 125, regra: "faixa", tamMax: "P", estagio: "3 a 4 folhas", unidade: "mL/ha", fonte: "cana e mandioca (50–75); citros (100–125)" },
+      { erva: "Caruru / Bredo", doseMin: 50, doseMax: 75, regra: "faixa", tamMax: "P", estagio: "3 a 4 folhas", unidade: "mL/ha", nota: "Amaranthus retroflexus.", fonte: "cana e mandioca" },
+      { erva: "Beldroega", doseMin: 50, doseMax: 125, regra: "faixa", tamMax: "P", estagio: "3 a 4 folhas", unidade: "mL/ha", fonte: "mandioca (50–75); cana em jato dirigido (75–125)" },
+    ],
+  },
+  {
+    nome: "Select 240 EC", ativo: "Cletodim 240 g/L", modo: "Sistêmico",
+    controla: ["Folha estreita (capim)"], unidade: "L/ha", volumeCalda: "",
+    adjuvante: "Óleo mineral emulsionável ou alquil éster etoxilado do ácido fosfórico 0,5% v/v — essencial",
+    fonteBula: "Bula Select 240 EC (UPL, versão 2020) — pós-emergência e programas de manejo",
+    obs: "Bula: graminicida sistêmico, só capins (pouca ou nenhuma ação em folha larga e tiririca); calda 100–250 L/ha; temp. 20–35 °C e UR acima de 60%; reentrada ≥ 24 h. TOXICIDADE CLASSE I (extremamente tóxico, faixa vermelha) e inflamável. Intervalo de segurança: café e citros 20 d. Programa pra capim-amargoso (citros e soja): 0,6–1,0 L/ha em 2 aplicações com 21 dias de intervalo.",
+    alvos: [
+      { erva: "Capim-colchão", doseMin: 0.25, doseMax: 0.45, regra: "tamanho", tamMax: "G", estagio: "4 folhas–2 perfilhos 0,35; 2–3 perfilhos 0,40; 4 ou mais 0,45 (1–4 perfilhos: 0,25–0,35)", fonte: "pós-emergência (quadro geral e obs. 1)" },
+      { erva: "Capim-pé-de-galinha", doseMin: 0.25, doseMax: 0.45, regra: "tamanho", tamMax: "G", estagio: "4 folhas–2 perfilhos 0,35; 2–3 perfilhos 0,40; 4 ou mais 0,45 (1–4 perfilhos: 0,25–0,35)", fonte: "pós-emergência (quadro geral e obs. 1)" },
+      { erva: "Capim-carrapicho", doseMin: 0.25, doseMax: 0.45, regra: "tamanho", tamMax: "G", estagio: "até 1–2 perfilhos 0,25; até 1–4 perfilhos 0,35; 4 ou mais 0,45", fonte: "pós-emergência (quadro geral e obs. 1)" },
+      { erva: "Capim-amargoso", doseMin: 0.40, doseMax: 0.45, regra: "tamanho", tamMax: "G", estagio: "capim perene com 20–40 cm", nota: "Indicado também pra amargoso resistente ao glifosato; programa de 2 aplicações de 0,6–1,0 L/ha (21 dias) em citros e soja.", fonte: "pós-emergência (perenes) e programas de manejo" },
+    ],
+  },
+];
+
 function renderHerbicidasDaninhaHTML() {
   const nh = S._novoHerbicida;
   const editando = !!nh.editId;
-  let html = `<div class="card" style="background:#fffbeb; border:1px solid #fde68a;"><div style="font-size:12.5px; line-height:1.5;">⚠️ Cadastre aqui os herbicidas que você usa e as <b>doses da bula ou do receituário do agrônomo</b> (por tamanho da daninha). O app <b>só repete o que você cadastrar</b> — ele não sugere dose por conta própria.</div></div>
-  <div class="card" style="${editando ? "border:2px solid #f59e0b;" : ""}">
+  const faltam = HERBICIDAS_BULAS.filter((sd) => !S.herbicidasDaninhas.some((h) => normTxt(h.nome) === normTxt(sd.nome)));
+  const dosesTxt = (a, unidade) => `${fmtDose(numDaninha(a.doseMin))}${numDaninha(a.doseMax) > numDaninha(a.doseMin) ? "–" + fmtDose(numDaninha(a.doseMax)) : ""} ${unidade}`;
+  let html = `<div class="card" style="background:#fffbeb; border:1px solid #fde68a;"><div style="font-size:12.5px; line-height:1.5;">⚠️ O que manda aqui é o <b>controle da erva</b>: cada herbicida guarda a <b>dose por erva</b> que está na bula, e o app mostra a dose da erva que você lançou no monitoramento. O app <b>só repete o que está cadastrado</b> — confira com o agrônomo (receituário) antes de aplicar.</div></div>`;
+  if (faltam.length) {
+    html += `<div class="card" style="background:#f0fdf4; border:1px solid #bbf7d0;">
+      <div style="font-size:13px; margin-bottom:8px;">📥 Dá pra carregar das bulas que você enviou: <b>${faltam.map((f) => esc(f.nome)).join(", ")}</b> — já com a dose por erva e a fonte de cada uma. Depois você pode editar.</div>
+      <button class="btn" onclick="carregarHerbicidasDasBulas()">📥 Carregar ${faltam.length} herbicida${faltam.length > 1 ? "s" : ""} das bulas</button></div>`;
+  }
+  html += `<div class="card" style="${editando ? "border:2px solid #f59e0b;" : ""}">
     <h3 style="margin-bottom:8px;">${editando ? "✏️ Editando herbicida" : "🧪 Novo herbicida"}</h3>
     <div class="grid grid-2" style="margin-bottom:10px;">
       <label class="field"><span>Nome comercial</span><input type="text" value="${esc(nh.nome)}" oninput="herbCampo('nome', this.value)"/></label>
       <label class="field"><span>Princípio ativo (opcional)</span><input type="text" value="${esc(nh.ativo)}" placeholder="Ex: glifosato" oninput="herbCampo('ativo', this.value)"/></label>
       <label class="field"><span>Modo de ação</span><select onchange="herbCampo('modo', this.value)">${MODOS_HERBICIDA.map((m) => `<option ${m === nh.modo ? "selected" : ""}>${esc(m)}</option>`).join("")}</select></label>
       <label class="field"><span>Volume de calda (L/ha)</span><input type="number" inputmode="decimal" value="${esc(nh.volumeCalda)}" placeholder="Ex: 260" oninput="herbCampo('volumeCalda', this.value)"/></label>
+      <label class="field"><span>Unidade da dose</span><select onchange="herbCampo('unidade', this.value)">${UNIDADES_DOSE.map((u) => `<option ${u === nh.unidade ? "selected" : ""}>${esc(u)}</option>`).join("")}</select></label>
+      <label class="field"><span>Adjuvante que a bula exige</span><input type="text" value="${esc(nh.adjuvante)}" placeholder="Ex: óleo mineral 0,5% v/v" oninput="herbCampo('adjuvante', this.value)"/></label>
     </div>
-    <div style="font-size:12px; font-weight:700; margin-bottom:6px;">Controla</div>
+    <div style="font-size:12px; font-weight:700; margin-bottom:6px;">Controla (tipo da folha)</div>
     <div style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px;">
       ${GRUPOS_DANINHA.map((g) => { const sel = nh.controla.includes(g); return `<button type="button" onclick="herbToggleGrupo('${esc(g)}')" style="padding:8px 12px; border-radius:20px; border:2px solid ${sel ? "#16a34a" : "#d6d3d1"}; background:${sel ? "#dcfce7" : "#fff"}; color:${sel ? "#166534" : "#44403c"}; font-weight:${sel ? 800 : 600}; font-size:13px; cursor:pointer;">${sel ? "✔ " : ""}${esc(g)}</button>`; }).join("")}
     </div>
-    <div style="font-size:12px; font-weight:700; margin-bottom:6px;">Dose por tamanho da daninha</div>
+    <div style="font-size:12px; font-weight:700; margin:12px 0 4px;">🎯 Dose por erva <span class="muted" style="font-weight:400;">(da bula — é o que o app usa de preferência)</span></div>
+    ${nh.alvos.map((a, i) => `<div style="border:1px solid #e7e5e4; border-radius:10px; padding:8px 10px; margin-bottom:8px;">
+      <div class="row-flex" style="margin-bottom:4px;"><b style="font-size:12px;">Erva ${i + 1}</b><button class="x-btn" onclick="herbRemoveAlvo(${i})">✕</button></div>
+      <label class="field" style="margin-bottom:6px;"><span>Erva daninha</span><input type="text" value="${esc(a.erva)}" placeholder="Ex: Capim-colchão" oninput="herbAlvoCampo(${i}, 'erva', this.value)"/></label>
+      <div class="grid grid-2">
+        <label class="field"><span>Dose mínima</span><input type="number" inputmode="decimal" value="${esc(a.doseMin)}" oninput="herbAlvoCampo(${i}, 'doseMin', this.value)"/></label>
+        <label class="field"><span>Dose máxima</span><input type="number" inputmode="decimal" value="${esc(a.doseMax)}" oninput="herbAlvoCampo(${i}, 'doseMax', this.value)"/></label>
+        <label class="field"><span>Como escolher a dose</span><select onchange="herbAlvoCampo(${i}, 'regra', this.value)"><option value="tamanho" ${a.regra !== "faixa" ? "selected" : ""}>Menor p/ erva pequena, maior p/ grande</option><option value="faixa" ${a.regra === "faixa" ? "selected" : ""}>Só mostrar a faixa da bula</option></select></label>
+        <label class="field"><span>Bula vale até o tamanho</span><select onchange="herbAlvoCampo(${i}, 'tamMax', this.value)"><option value="">não limita</option>${["P", "M", "G"].map((t) => `<option value="${t}" ${a.tamMax === t ? "selected" : ""}>${t}</option>`).join("")}</select></label>
+      </div>
+      <label class="field" style="margin-top:6px;"><span>Estádio da bula (texto)</span><input type="text" value="${esc(a.estagio)}" placeholder="Ex: até 4 folhas" oninput="herbAlvoCampo(${i}, 'estagio', this.value)"/></label>
+      <label class="field" style="margin-top:6px;"><span>Fonte</span><input type="text" value="${esc(a.fonte)}" placeholder="Ex: bula, quadro 3" oninput="herbAlvoCampo(${i}, 'fonte', this.value)"/></label>
+    </div>`).join("")}
+    <button class="btn ghost" style="width:auto; margin-bottom:12px;" onclick="herbAddAlvo()">➕ Adicionar erva</button>
+    <div style="font-size:12px; font-weight:700; margin-bottom:6px;">Dose por tamanho — sem erva específica <span class="muted" style="font-weight:400;">(opcional)</span></div>
     <div style="display:flex; gap:8px; align-items:flex-end; margin-bottom:10px;">
       ${TAMANHOS_DANINHA.map((t) => `<label class="field" style="flex:1;"><span>${t.key} <span class="muted" style="font-weight:400;">${t.faixa}</span></span><input type="number" inputmode="decimal" value="${esc(nh.dose[t.key])}" oninput="herbDose('${t.key}', this.value)"/></label>`).join("")}
-      <label class="field" style="width:92px;"><span>Unidade</span><select onchange="herbCampo('unidade', this.value)">${UNIDADES_DOSE.map((u) => `<option ${u === nh.unidade ? "selected" : ""}>${esc(u)}</option>`).join("")}</select></label>
     </div>
     <label class="field" style="margin-bottom:10px;"><span>Observações (carência, mistura, cuidados…)</span><input type="text" value="${esc(nh.obs)}" oninput="herbCampo('obs', this.value)"/></label>
     <div style="display:flex; gap:8px; flex-wrap:wrap;">
@@ -7978,16 +8151,25 @@ function renderHerbicidasDaninhaHTML() {
   html += `<div class="card"><h3 style="margin-bottom:8px;">Herbicidas cadastrados (${lista.length})</h3>`;
   if (!lista.length) html += `<div class="empty">Nenhum herbicida cadastrado ainda.</div>`;
   lista.forEach((h) => {
-    const doses = TAMANHOS_DANINHA.map((t) => `${t.key}: ${h.dose && h.dose[t.key] !== "" && h.dose[t.key] !== undefined ? esc(String(h.dose[t.key]).replace(".", ",")) + " " + esc(h.unidade) : "—"}`).join(" · ");
+    const unid = h.unidade || "L/ha";
+    const alvos = h.alvos || [];
+    const doses = TAMANHOS_DANINHA.map((t) => `${t.key}: ${h.dose && h.dose[t.key] !== "" && h.dose[t.key] !== undefined ? esc(String(h.dose[t.key]).replace(".", ",")) + " " + esc(unid) : "—"}`).join(" · ");
     html += `<div style="border:1px solid #e7e5e4; border-radius:10px; padding:10px 12px; margin-bottom:8px;">
       <div class="row-flex" style="align-items:flex-start;"><div>
         <div style="font-size:15px; font-weight:800;">${esc(h.nome)} <span class="status-pill" style="font-size:10px;">${esc(h.modo)}</span></div>
         ${h.ativo ? `<div class="muted" style="font-size:12px;">${esc(h.ativo)}</div>` : ""}
         <div style="font-size:12.5px; margin-top:4px;">Controla: ${(h.controla || []).length ? esc(h.controla.join(", ")) : '<span style="color:#c2410c;">nada marcado</span>'}</div>
-        <div style="font-size:12.5px;">Doses — ${doses}</div>
+        ${alvos.length ? "" : `<div style="font-size:12.5px;">Doses — ${doses}</div>`}
         ${h.volumeCalda !== "" && h.volumeCalda !== undefined ? `<div class="muted" style="font-size:12px;">Calda: ${esc(String(h.volumeCalda).replace(".", ","))} L/ha</div>` : ""}
-        ${h.obs ? `<div class="muted" style="font-size:12px;">${esc(h.obs)}</div>` : ""}
-      </div><div style="display:flex; gap:4px;"><button class="x-btn" onclick="editarHerbicida('${h.id}')">✏️</button><button class="x-btn" onclick="removerHerbicida('${h.id}')">✕</button></div></div></div>`;
+        ${h.adjuvante ? `<div class="muted" style="font-size:12px;">Adjuvante: ${esc(h.adjuvante)}</div>` : ""}
+        ${h.fonteBula ? `<div class="muted" style="font-size:11.5px;">📄 ${esc(h.fonteBula)}</div>` : ""}
+        ${h.obs ? `<div class="muted" style="font-size:11.5px; margin-top:2px;">${esc(h.obs)}</div>` : ""}
+      </div><div style="display:flex; gap:4px;"><button class="x-btn" onclick="editarHerbicida('${h.id}')">✏️</button><button class="x-btn" onclick="removerHerbicida('${h.id}')">✕</button></div></div>
+      ${alvos.length ? `<details style="margin-top:6px;"><summary style="font-size:12.5px; font-weight:700; cursor:pointer; color:#166534;">🎯 Dose por erva (${alvos.length})</summary>
+        <div class="tbl-wrap" style="margin-top:6px;"><table class="tbl" style="min-width:330px;"><thead><tr><th style="text-align:left;">Erva</th><th>Dose da bula</th><th>Bula até</th></tr></thead><tbody>
+        ${alvos.map((a) => `<tr><td style="text-align:left; font-weight:600;">${esc(a.erva)}${a.alerta ? " ⚠️" : ""}${a.fonte ? `<div class="muted" style="font-size:10px; font-weight:400;">${esc(a.fonte)}</div>` : ""}</td><td>${dosesTxt(a, a.unidade || unid)}</td><td>${esc(a.tamMax || "—")}</td></tr>`).join("")}
+        </tbody></table></div></details>` : ""}
+    </div>`;
   });
   html += `</div>`;
   return html;
@@ -8054,7 +8236,7 @@ function mostrarSugestoesDaninha(v) {
 function atualizarBoxManejoDaninha() {
   const box = document.getElementById("boxManejoDaninha");
   const nd = S._novaDaninha;
-  if (box) box.innerHTML = renderSugestaoManejoHTML(nd.grupo, nd.tamanho, nd.setor || TALHOES[0]);
+  if (box) box.innerHTML = renderSugestaoManejoHTML(nd.grupo, nd.tamanho, nd.setor || TALHOES[0], nd.nome);
 }
 window.daninhaDigitando = function (v) {
   const nd = S._novaDaninha;
@@ -8065,6 +8247,7 @@ window.daninhaDigitando = function (v) {
   else if (!b && nd.grupoAuto && nd.grupo) { nd.grupo = ""; nd.grupoAuto = false; mudouGrupo = true; }
   if (mudouGrupo) { const sel = document.getElementById("selGrupoDaninha"); if (sel) sel.value = nd.grupo; atualizarBoxManejoDaninha(); }
   salvarRascunhoDaninha();
+  atualizarBoxManejoDaninha(); // a dose depende da erva digitada
   mostrarSugestoesDaninha(v); // só mexe na caixinha de opções (não redesenha a tela, então não perde o foco)
 };
 window.daninhaSugestoesFoco = function (v) { mostrarSugestoesDaninha(v); };
@@ -8358,11 +8541,38 @@ window.herbToggleGrupo = function (g) {
   S._novoHerbicida.controla = arr.includes(g) ? arr.filter((x) => x !== g) : [...arr, g];
   renderDaninhas();
 };
+window.herbAddAlvo = function () {
+  S._novoHerbicida.alvos.push({ erva: "", doseMin: "", doseMax: "", regra: "tamanho", tamMax: "", estagio: "", fonte: "" });
+  renderDaninhas();
+};
+window.herbAlvoCampo = function (i, campo, valor) { if (S._novoHerbicida.alvos[i]) S._novoHerbicida.alvos[i][campo] = valor; };
+window.herbRemoveAlvo = function (i) { S._novoHerbicida.alvos.splice(i, 1); renderDaninhas(); };
+// Só guarda alvo com nome da erva e dose mínima; a máxima vazia vira igual à mínima.
+function limparAlvos(alvos) {
+  return (alvos || []).map((a) => {
+    const min = numDaninha(a.doseMin);
+    let max = numDaninha(a.doseMax);
+    if (!String(a.erva || "").trim() || !Number.isFinite(min)) return null;
+    if (!Number.isFinite(max) || max < min) max = min;
+    const o = { erva: String(a.erva).trim(), doseMin: min, doseMax: max, regra: a.regra === "faixa" ? "faixa" : "tamanho", tamMax: a.tamMax || "", estagio: String(a.estagio || "").trim(), fonte: String(a.fonte || "").trim() };
+    if (a.unidade) o.unidade = a.unidade;
+    if (a.alerta) o.alerta = a.alerta;
+    if (a.nota) o.nota = a.nota;
+    return o;
+  }).filter(Boolean);
+}
 window.salvarHerbicida = function () {
   const nh = S._novoHerbicida;
   if (!String(nh.nome || "").trim()) { alert("Digite o nome do herbicida."); return; }
-  if (!nh.controla.length) { alert("Marque o que ele controla (folha larga, folha estreita ou ciperácea) — é com isso que o app escolhe o herbicida certo."); return; }
-  const dados = { nome: String(nh.nome).trim(), ativo: String(nh.ativo || "").trim(), modo: nh.modo, controla: [...nh.controla], volumeCalda: nh.volumeCalda, unidade: nh.unidade, dose: { P: nh.dose.P, M: nh.dose.M, G: nh.dose.G }, obs: String(nh.obs || "").trim(), atualizadoEm: new Date().toISOString() };
+  const alvos = limparAlvos(nh.alvos);
+  if (!nh.controla.length && !alvos.length) { alert("Marque o que ele controla (folha larga, folha estreita ou ciperácea) ou cadastre a dose por erva — é com isso que o app escolhe o herbicida certo."); return; }
+  if ((nh.alvos || []).length > alvos.length) { alert("Alguma erva ficou sem nome ou sem dose mínima — preencha ou toque no ✕ pra tirar."); return; }
+  const dados = {
+    nome: String(nh.nome).trim(), ativo: String(nh.ativo || "").trim(), modo: nh.modo, controla: [...nh.controla],
+    volumeCalda: nh.volumeCalda, unidade: nh.unidade, dose: { P: nh.dose.P, M: nh.dose.M, G: nh.dose.G },
+    adjuvante: String(nh.adjuvante || "").trim(), fonteBula: nh.fonteBula || "", alvos,
+    obs: String(nh.obs || "").trim(), atualizadoEm: new Date().toISOString(),
+  };
   marcarSalvando("daninhas");
   const ok = () => { if (navigator.onLine) setSaveStatus("daninhas", "saved"); };
   if (nh.editId) {
@@ -8378,13 +8588,33 @@ window.editarHerbicida = function (id) {
   const h = S.herbicidasDaninhas.find((x) => x.id === id);
   if (!h) return;
   S._daninhasView = "herbicidas";
-  S._novoHerbicida = { nome: h.nome || "", ativo: h.ativo || "", modo: h.modo || MODOS_HERBICIDA[0], controla: [...(h.controla || [])], volumeCalda: h.volumeCalda === undefined ? "" : h.volumeCalda, unidade: h.unidade || UNIDADES_DOSE[0], dose: { P: (h.dose || {}).P || "", M: (h.dose || {}).M || "", G: (h.dose || {}).G || "" }, obs: h.obs || "", editId: id };
+  S._novoHerbicida = {
+    nome: h.nome || "", ativo: h.ativo || "", modo: h.modo || MODOS_HERBICIDA[0], controla: [...(h.controla || [])],
+    volumeCalda: h.volumeCalda === undefined ? "" : h.volumeCalda, unidade: h.unidade || UNIDADES_DOSE[0],
+    dose: { P: (h.dose || {}).P || "", M: (h.dose || {}).M || "", G: (h.dose || {}).G || "" },
+    adjuvante: h.adjuvante || "", fonteBula: h.fonteBula || "",
+    alvos: (h.alvos || []).map((a) => ({ ...a })), obs: h.obs || "", editId: id,
+  };
   renderDaninhas();
   window.scrollTo(0, 0);
 };
 window.cancelarEdicaoHerbicida = function () { S._novoHerbicida = herbicidaVazio(); renderDaninhas(); };
 window.removerHerbicida = function (id) {
   pedirSenha(() => { deleteDoc(doc(db, "herbicidasDaninhas", id)).catch((e) => console.error(e)); });
+};
+// Carrega os herbicidas das bulas que ainda não estão cadastrados (não mexe nos que já existem).
+window.carregarHerbicidasDasBulas = function () {
+  const faltam = HERBICIDAS_BULAS.filter((sd) => !S.herbicidasDaninhas.some((h) => normTxt(h.nome) === normTxt(sd.nome)));
+  if (!faltam.length) { avisar("Os herbicidas das bulas já estão cadastrados."); return; }
+  confirmarAcao(`Carregar ${faltam.length} herbicida${faltam.length > 1 ? "s" : ""} (${faltam.map((f) => f.nome).join(", ")}) com a dose por erva lida das bulas? Você pode editar depois.`, () => {
+    marcarSalvando("daninhas");
+    faltam.forEach((sd) => {
+      const dados = { ...JSON.parse(JSON.stringify(sd)), dose: { P: "", M: "", G: "" }, criadoEm: new Date().toISOString(), atualizadoEm: new Date().toISOString() };
+      addDoc(collection(db, "herbicidasDaninhas"), dados).then(() => { if (navigator.onLine) setSaveStatus("daninhas", "saved"); }).catch((e) => tratarErroSalvamento("daninhas", e));
+      S.herbicidasDaninhas = [...S.herbicidasDaninhas, { id: "novo_" + normTxt(sd.nome).replace(/\s+/g, "_"), ...dados }];
+    });
+    renderDaninhas();
+  });
 };
 
 // ---- Excel do monitoramento (colunas do modelo da planilha + data, tipo da folha e observação) ----

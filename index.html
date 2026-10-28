@@ -265,7 +265,7 @@
       <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
     </div>
     <div class="header-linha2">
-      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v152</span>
+      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v153</span>
       <div class="spacer"></div>
       <span id="backupPill" class="backup-pill"></span>
       <button class="btn-export" onclick="exportarExcel()">⬇️ Excel</button>
@@ -935,6 +935,53 @@ const CATEGORIAS_NAV = [
   ] },
 ];
 
+// ---- Funções opcionais ----
+// Estoque, Aplicações/Adubações e Receitas ficam DESLIGADAS por padrão (ainda não são usadas). Desligar só
+// ESCONDE a função (menu, painel, alertas, Excel); nada é apagado e os dados continuam sincronizando e
+// entrando no backup, então ao ligar de novo está tudo lá. Liga/desliga em Configurações → Funções do app
+// (vale pro aparelho).
+const FUNCOES_OPCIONAIS = [
+  { id: "estoque", icone: "📦", label: "Estoque (insumos)", desc: "Produtos, entradas e saídas, estoque mínimo e pedidos de compra.", abas: ["estoque"] },
+  { id: "aplicacoes", icone: "🧴", label: "Aplicações e adubações", desc: "Controle de aplicações e adubações por setor, com atrasos e próximas datas.", abas: ["aplicacoes"] },
+  { id: "receitas", icone: "🧪", label: "Receitas (caldas)", desc: "Receitas de calda e de adubação, com os produtos e as doses.", abas: ["receitas"] },
+];
+const LS_FUNCOES_KEY = "cocoCampoFuncoesDesligadas";
+const CATEGORIAS_NAV_COMPLETA = CATEGORIAS_NAV.map((c) => ({ ...c, tabs: [...c.tabs] }));
+function carregarFuncoesDesligadas() {
+  try {
+    const v = localStorage.getItem(LS_FUNCOES_KEY);
+    if (v !== null) return new Set(JSON.parse(v));
+  } catch (e) { /* sem storage: usa o padrão */ }
+  return new Set(FUNCOES_OPCIONAIS.map((f) => f.id));
+}
+S._funcoesDesligadas = carregarFuncoesDesligadas();
+function funcaoLigada(id) { return !S._funcoesDesligadas.has(id); }
+function funcaoDaAba(tabId) { const f = FUNCOES_OPCIONAIS.find((x) => x.abas.includes(tabId)); return f ? f.id : null; }
+function aplicarFuncoesNoMenu() {
+  CATEGORIAS_NAV.forEach((cat, i) => {
+    cat.tabs = CATEGORIAS_NAV_COMPLETA[i].tabs.filter((t) => { const f = funcaoDaAba(t.id); return !f || funcaoLigada(f); });
+  });
+  const f = funcaoDaAba(S.currentTab);
+  if (f && !funcaoLigada(f)) S.currentTab = "dashboard"; // estava numa aba que acabou de ser desligada
+}
+aplicarFuncoesNoMenu();
+window.alternarFuncao = function (id) {
+  if (S._funcoesDesligadas.has(id)) S._funcoesDesligadas.delete(id); else S._funcoesDesligadas.add(id);
+  try { localStorage.setItem(LS_FUNCOES_KEY, JSON.stringify([...S._funcoesDesligadas])); } catch (e) {}
+  aplicarFuncoesNoMenu();
+  renderNav();
+  renderTab();
+};
+function renderCartaoFuncoes() {
+  return `<div class="card">
+    <h3 style="margin-bottom:6px; font-size:13px;">🧩 Funções do app</h3>
+    <div class="muted" style="font-size:11.5px; margin-bottom:8px;">Ligue só o que você usa. Desligar apenas <b>esconde</b> a função do menu e do painel — nada é apagado, e os dados continuam guardados pra quando você ligar de novo. Vale pra este aparelho.</div>
+    ${FUNCOES_OPCIONAIS.map((f) => { const lig = funcaoLigada(f.id); return `<div style="display:flex; align-items:center; justify-content:space-between; gap:10px; padding:9px 0; border-top:1px dashed #e7e5e4;">
+      <div><div style="font-size:13px; font-weight:700;">${f.icone} ${esc(f.label)}</div><div class="muted" style="font-size:11px;">${esc(f.desc)}</div></div>
+      <button class="btn ${lig ? "" : "ghost"}" style="width:auto; min-width:96px; padding:8px 12px;" onclick="alternarFuncao('${f.id}')">${lig ? "✅ Ligada" : "Desligada"}</button></div>`; }).join("")}
+  </div>`;
+}
+
 function categoriaDaAba(tab) {
   return CATEGORIAS_NAV.find((c) => c.tabs.some((t) => t.id === tab)) || CATEGORIAS_NAV[0];
 }
@@ -976,6 +1023,7 @@ window.mudarCategoria = function (categoriaId) {
 S._sessaoDesbloqueada = false;
 
 window.mudarAba = function (tab) {
+  { const f = funcaoDaAba(tab); if (f && !funcaoLigada(f)) tab = "dashboard"; } // função desligada: não abre
   if (abaProtegida(tab) && !S._sessaoDesbloqueada) {
     pedirSenha(() => {
       S._sessaoDesbloqueada = true;
@@ -4222,7 +4270,7 @@ function montarAlertas() {
   const alertas = [];
 
   // Estoque baixo ou previsto pra acabar logo
-  S.insumos.forEach((ins) => {
+  if (funcaoLigada("estoque")) S.insumos.forEach((ins) => {
     const atual = estoqueAtual(ins.nome);
     const minimo = Number(ins.estoqueMinimo) || 0;
     if (minimo > 0 && atual <= minimo) {
@@ -4236,7 +4284,7 @@ function montarAlertas() {
   });
 
   // Aplicações/Adubações atrasadas em algum setor
-  TALHOES.forEach((talhao) => {
+  if (funcaoLigada("aplicacoes")) TALHOES.forEach((talhao) => {
     [...TIPOS_APLICACAO, ...TIPOS_ADUBACAO].forEach(({ tipo }) => {
       const reg = S.aplicacoesDados[chaveAplic(talhao, tipo)];
       const calc = calcAplicacao(reg, tipo);
@@ -4509,14 +4557,14 @@ function renderDashboard() {
         <div style="font-size:10px; opacity:.8;">🚛 Romaneio hoje</div>
         <div style="font-size:16px; font-weight:800;">${cargasHojeCount} carga${cargasHojeCount===1?"":"s"} <span style="font-size:11px; font-weight:400; opacity:.8;">— ${fmt(kgCarregadoHoje,0)}kg carregado</span></div>
       </div>
-      <div style="background:rgba(255,255,255,.14); border-radius:10px; padding:8px 10px;">
+      ${funcaoLigada("estoque") ? `<div style="background:rgba(255,255,255,.14); border-radius:10px; padding:8px 10px;">
         <div style="font-size:10px; opacity:.8;">📦 Estoque</div>
         <div style="font-size:16px; font-weight:800;">${baixos} <span style="font-size:11px; font-weight:400; opacity:.8;">item${baixos===1?"":"s"} baixo${baixos===1?"":"s"}</span></div>
-      </div>
-      <div style="background:rgba(255,255,255,.14); border-radius:10px; padding:8px 10px;">
+      </div>` : ""}
+      ${funcaoLigada("aplicacoes") ? `<div style="background:rgba(255,255,255,.14); border-radius:10px; padding:8px 10px;">
         <div style="font-size:10px; opacity:.8;">🧴 Aplicações</div>
         <div style="font-size:16px; font-weight:800;">${aplicacoesHojeCount} hoje <span style="font-size:11px; font-weight:400; opacity:.8;">${aplicacoesAtrasadasCount>0?`— ${aplicacoesAtrasadasCount} atrasada${aplicacoesAtrasadasCount===1?"":"s"}`:""}</span></div>
-      </div>
+      </div>` : ""}
     </div>
     <div style="margin-top:8px; font-size:11px; opacity:.8;">📋 ${cargasAbertas} carga${cargasAbertas===1?"":"s"} em andamento no Romaneio · ⚠️ ${ocorrenciasHojeCount} ocorrência${ocorrenciasHojeCount===1?"":"s"} registrada${ocorrenciasHojeCount===1?"":"s"} hoje</div>
     <button onclick="enviarResumoDiaWhatsApp()" style="margin-top:10px; width:100%; padding:9px; border:none; border-radius:10px; background:#fff; color:#065f46; font-weight:800; font-size:13px; cursor:pointer;">📤 Enviar resumo do dia no WhatsApp</button>
@@ -4558,12 +4606,12 @@ function renderDashboard() {
       <div class="stat-box ico" style="margin-bottom:6px;"><div class="stat-ic">🌱</div><div><div class="lbl">Plantas avaliadas</div><div class="val">${fmt(totalPlantasContadas,0)}</div></div></div>
       <div class="stat-box ico"><div class="stat-ic">🥥</div><div><div class="lbl">Frutas contadas</div><div class="val">${fmt(totalFrutasContadas,0)}</div></div></div>
     </div>
-    <div class="card">
+    ${funcaoLigada("estoque") ? `<div class="card">
       <h3 style="margin-bottom:8px;">📦 Estoque</h3>
       <div class="stat-box ico green" style="margin-bottom:6px;"><div class="stat-ic">✅</div><div><div class="lbl">Produtos normais</div><div class="val">${normais}</div></div></div>
       <div class="stat-box ico ${baixos>0?'vermelho':''}"><div class="stat-ic ${baixos>0?'vermelho':''}">⚠️</div><div><div class="lbl">Estoque baixo</div><div class="val" style="color:${baixos>0?"#dc2626":"#292524"};">${baixos}</div></div></div>
     </div>
-    <div class="card">
+` : ""}    <div class="card">
       <h3 style="margin-bottom:8px;">🚛 Romaneio</h3>
       <div class="stat-box ico"><div class="stat-ic azul">📦</div><div><div class="lbl">Estocado aguardando carregamento</div><div class="val">${fmt(estoqueEmEspera,0)} kg</div></div></div>
     </div>
@@ -4592,6 +4640,8 @@ function renderConfiguracoes() {
       <button class="btn ghost" style="width:auto;" onclick="trocarSenhaSupervisor()">Salvar nova senha</button>
     </div>
   </div>`;
+
+  html += renderCartaoFuncoes();
 
   html += `<div class="card">
     <h3 style="margin-bottom:8px; font-size:13px;">🔒 Abas protegidas por senha</h3>
@@ -4661,11 +4711,11 @@ function renderConfiguracoes() {
         <span style="font-size:12.5px; font-weight:700;">Setores / talhões</span>
         <span class="chev">›</span>
       </button>
-      <button class="list-row" style="cursor:pointer; background:none; border:none; text-align:left; width:100%;" onclick="mudarAba('estoque')">
+      ${funcaoLigada("estoque") ? `<button class="list-row" style="cursor:pointer; background:none; border:none; text-align:left; width:100%;" onclick="mudarAba('estoque')">
         <span class="stat-ic" style="width:28px; height:28px; font-size:13px;">📦</span>
         <span style="font-size:12.5px; font-weight:700;">Insumos (estoque mínimo, unidade)</span>
         <span class="chev">›</span>
-      </button>
+      </button>` : ""}
     </div>
   </div>`;
 
@@ -9168,13 +9218,13 @@ window.exportarExcel = function () {
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(montarLinhasDescascaManual()), "Descasca Manual");
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(montarLinhasDescartes()), "Descartes");
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(montarLinhasContagem()), "Contagem");
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(montarLinhasAplic(TIPOS_APLICACAO)), "Aplicações");
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(montarLinhasAplic(TIPOS_ADUBACAO)), "Adubações");
+  if (funcaoLigada("aplicacoes")) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(montarLinhasAplic(TIPOS_APLICACAO)), "Aplicações");
+  if (funcaoLigada("aplicacoes")) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(montarLinhasAplic(TIPOS_ADUBACAO)), "Adubações");
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(montarLinhasIndicadores()), "Indicadores");
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(montarLinhasProgramacao()), "Programação");
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(montarLinhasInsumos()), "Insumos");
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(montarLinhasEstoqueMovs()), "Estoque Movimentações");
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(montarLinhasSolicitacoes()), "Solicitações");
+  if (funcaoLigada("estoque")) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(montarLinhasInsumos()), "Insumos");
+  if (funcaoLigada("estoque")) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(montarLinhasEstoqueMovs()), "Estoque Movimentações");
+  if (funcaoLigada("estoque")) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(montarLinhasSolicitacoes()), "Solicitações");
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(montarLinhasSetores()), "Setores");
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(montarLinhasFotos()), "Fotos");
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(montarLinhasOcorrencias()), "Ocorrências");

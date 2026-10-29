@@ -1,4 +1,4 @@
-const CACHE_NAME = "coco-campo-v153";
+const CACHE_NAME = "coco-campo-v154";
 // Bibliotecas de CDN com versão fixa na URL (Firebase, Chart.js, XLSX, jsPDF). Ficam num cache à parte,
 // que NÃO é apagado a cada versão do app: depois da 1ª vez, o app abre sem esperar baixar tudo de novo
 // e abre até sem internet.

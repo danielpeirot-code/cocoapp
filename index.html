@@ -265,7 +265,7 @@
       <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
     </div>
     <div class="header-linha2">
-      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v153</span>
+      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v154</span>
       <div class="spacer"></div>
       <span id="backupPill" class="backup-pill"></span>
       <button class="btn-export" onclick="exportarExcel()">⬇️ Excel</button>
@@ -408,6 +408,7 @@ const S = window.__state;
 window.S = S; // necessário para os campos de formulário (oninput="S...") funcionarem
 
 const TALHOES = ["A3A4", "B3B4", "C1C2", "C3C4", "D1", "D2", "D3", "D4"];
+const SETORES_ORIGEM_VERDE = [...TALHOES, "D1D2", "D3D4"]; // origem da carga verde: setores soltos (cargas antigas) e os pares atuais
 
 const TIPOS_OCORRENCIA = [
   "Incêndio", "Praga", "Doença", "Falha de irrigação", "Quebra de equipamento",
@@ -424,7 +425,10 @@ const TIPOS_CONTAGEM = {
   // "censoCompleto": no Anão Verde não se faz amostragem — todas as 52 linhas são contadas de
   // verdade, uma por vez (uma atrás da outra). Por isso o resumo mostra soma real + progresso,
   // em vez da média×linhas que faz sentido só quando é estimativa por amostra.
-  "Anão Verde": { setores: ["D1", "D2", "D3", "D4"], linhasPorSetor: 52, plantasPadrao: 45, censoCompleto: true },
+  // Anão Verde agora é colhido em PARES (D1D2 e D3D4), como o Híbrido: cada linha cruza os dois setores,
+  // então tem o dobro de plantas (45 de cada setor = 90). O número ainda dá pra mudar na tela da contagem.
+  // As contagens antigas feitas em D1, D2, D3 e D4 continuam guardadas (Excel, totais, indicadores).
+  "Anão Verde": { setores: ["D1D2", "D3D4"], linhasPorSetor: 52, plantasPadrao: 90, censoCompleto: true },
 };
 const CATS_DESCARTES = [
   { key: "brotos", label: "Brotos" },
@@ -488,6 +492,21 @@ function carregarProgressoContagemLocal() {
   } catch (e) {}
 }
 carregarProgressoContagemLocal();
+// Se o que estava salvo aponta pra um tipo/setor que não existe mais (ex: Anão Verde em "D1", agora é
+// "D1D2"), a tela mostraria o primeiro setor da lista mas o dado seria gravado no setor antigo. Então
+// volta pro primeiro setor do tipo, com a linha em branco (e o número de plantas padrão do setor).
+(function validarProgressoContagem() {
+  const c = S.contagem;
+  if (!TIPOS_CONTAGEM[c.tipo]) { c.tipo = "Híbrido"; c.setor = ""; }
+  const cfg = TIPOS_CONTAGEM[c.tipo];
+  if (!cfg.setores.includes(c.setor)) {
+    c.setor = cfg.setores[0];
+    c.qtdPlantas = cfg.plantasPadrao;
+    c.numLinha = ""; c.numLinhaB = "";
+    c.valores = Array.from({ length: c.qtdPlantas }, () => "");
+    c.valoresB = Array.from({ length: c.qtdPlantas }, () => "");
+  }
+})();
 const fmt = (n, casas = 1) => (n === null || n === undefined || Number.isNaN(n)) ? "—" :
   n.toLocaleString("pt-BR", { minimumFractionDigits: casas, maximumFractionDigits: casas });
 const fmtPct = (n) => (n === null || n === undefined || Number.isNaN(n)) ? "—" : (n * 100).toFixed(1) + "%";
@@ -2257,7 +2276,7 @@ window.toggleSetorCargaVerde = function (cargaId, setor) {
   if (!carga) return;
   const atuais = new Set(setoresDaCargaVerde(carga));
   if (atuais.has(setor)) atuais.delete(setor); else atuais.add(setor);
-  const lista = TALHOES.filter((t) => atuais.has(t));
+  const lista = SETORES_ORIGEM_VERDE.filter((t) => atuais.has(t));
   atualizarCargaVerde(cargaId, "setores", lista);
   atualizarCargaVerde(cargaId, "setor", lista.join(" + "));
   renderRomaneioVerde();
@@ -2418,7 +2437,7 @@ function renderCargaVerdeCard(carga) {
       </div>
       <div style="font-size:11px; font-weight:700; color:#78716c; margin-bottom:6px;">Setores de origem <span style="font-weight:400;">(toque em todos que entraram na carga)</span></div>
       <div style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:14px;">
-        ${TALHOES.map((t) => { const sel = setoresDaCargaVerde(carga).includes(t); return `<button type="button" onclick="toggleSetorCargaVerde('${carga.id}','${t}')" style="padding:9px 14px; border-radius:20px; border:2px solid ${sel ? "#16a34a" : "#d6d3d1"}; background:${sel ? "#dcfce7" : "#fff"}; color:${sel ? "#166534" : "#44403c"}; font-weight:${sel ? 800 : 600}; font-size:14px; cursor:pointer;">${sel ? "✔ " : ""}${t}</button>`; }).join("")}
+        ${SETORES_ORIGEM_VERDE.map((t) => { const sel = setoresDaCargaVerde(carga).includes(t); return `<button type="button" onclick="toggleSetorCargaVerde('${carga.id}','${t}')" style="padding:9px 14px; border-radius:20px; border:2px solid ${sel ? "#16a34a" : "#d6d3d1"}; background:${sel ? "#dcfce7" : "#fff"}; color:${sel ? "#166534" : "#44403c"}; font-weight:${sel ? 800 : 600}; font-size:14px; cursor:pointer;">${sel ? "✔ " : ""}${t}</button>`; }).join("")}
       </div>`;
 
     html += `<div style="font-size:11px; font-weight:700; text-transform:uppercase; color:#78716c; margin-bottom:6px;">🥥 Coco seco junto na carga <span style="font-weight:400; text-transform:none;">(só se o cliente pediu)</span></div>

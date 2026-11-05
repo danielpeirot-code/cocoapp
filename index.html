@@ -265,7 +265,7 @@
       <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
     </div>
     <div class="header-linha2">
-      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v154</span>
+      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v155</span>
       <div class="spacer"></div>
       <span id="backupPill" class="backup-pill"></span>
       <button class="btn-export" onclick="exportarExcel()">⬇️ Excel</button>
@@ -2816,8 +2816,10 @@ function compararComUltimaContagem(tipo, setor) {
   const grupoAtual = registros.filter((l) => l.data === datas[0]);
   const grupoAnterior = registros.filter((l) => l.data === datas[1]);
   const resumir = (grupo) => {
-    const soma = grupo.reduce((s, l) => s + (Number(l.total) || 0), 0);
-    const linhas = grupo.length;
+    const porLinha = new Map(); // se a mesma linha foi salva 2x no dia, vale uma só
+    grupo.forEach((l) => { const k = String(l.numero); if (contagemMaisRecente(l, porLinha.get(k))) porLinha.set(k, l); });
+    const soma = [...porLinha.values()].reduce((s, l) => s + (Number(l.total) || 0), 0);
+    const linhas = porLinha.size;
     return { soma, linhas, media: linhas ? soma / linhas : 0 };
   };
   return { dataAtual: datas[0], dataAnterior: datas[1], atual: resumir(grupoAtual), anterior: resumir(grupoAnterior) };
@@ -2958,7 +2960,7 @@ function renderContagemInner() {
   registrosSetor.forEach((l) => {
     const chaveL = String(l.numero);
     const atualL = ultimaPorLinhaMap.get(chaveL);
-    if (!atualL || l.data > atualL.data) ultimaPorLinhaMap.set(chaveL, l);
+    if (contagemMaisRecente(l, atualL)) ultimaPorLinhaMap.set(chaveL, l);
   });
   const linhasNoCicloAtual = [...ultimaPorLinhaMap.values()]
     .filter((l) => !statusCicloLinhaComMapa(mapaCicloTabela, ctg.tipo, ctg.setor, l.numero).disponivel)
@@ -3015,11 +3017,12 @@ function renderContagemInner() {
       html += `<tr>
         <td style="text-align:left; font-weight:600;">${esc(l.numero)}</td>
         <td>${l.valores.length}</td>
-        <td style="font-weight:700;">${fmt(l.total,0)}</td>
+        <td style="font-weight:700;${(Number(l.total) || 0) === 0 ? " color:#c2410c;" : ""}">${fmt(l.total,0)}${(Number(l.total) || 0) === 0 ? " ⚠️" : ""}</td>
         <td><button class="x-btn" onclick="removerLinhaContagem('${l.id}')">✕</button></td>
       </tr>`;
     });
     html += `</tbody></table>`;
+    if (linhasNoCicloAtual.some((l) => (Number(l.total) || 0) === 0)) html += `<div style="background:#fff7ed; border:1px solid #fdba74; border-radius:8px; padding:8px 10px; margin-top:8px; font-size:12px;">⚠️ Tem linha salva com <b>0 frutas</b>. Se a linha realmente não tinha fruto, tudo certo. Se foi toque a mais no Salvar, apague com o ✕ pra ela voltar a ficar livre e não puxar a estimativa pra baixo.</div>`;
   }
   html += `</div>`;
 
@@ -3241,9 +3244,19 @@ function liberarColheitaAntecipada(linhasEmDescanso) {
   return liberado;
 }
 
-window.salvarLinhaContagem = function () {
+window.salvarLinhaContagem = function (forcarSemNumeros) {
   const ctg = S.contagem;
   if (!ctg.numLinha) return;
+  // Toque duplo no "Salvar": o app já avançou pra próxima linha (em branco) e o 2º toque gravava essa
+  // linha com 0 frutas sem querer — foi o que "zerou" as linhas 20, 25, 30, 35. Ignora toques em
+  // menos de 1 segundo depois de um salvamento.
+  if (S._contagemTravaAte && Date.now() < S._contagemTravaAte) return;
+  // Nenhuma célula preenchida: antes salvava a linha com 0 frutas sem avisar. Agora pergunta.
+  const algumaCelula = ctg.valores.some((v) => v !== "" && v !== null && v !== undefined);
+  if (!algumaCelula && forcarSemNumeros !== true) {
+    confirmarAcao(`Nenhum número foi digitado na linha ${ctg.numLinha}. Salvar mesmo assim, como 0 frutas?\n\n(Se foi sem querer, toque em Cancelar.)`, () => window.salvarLinhaContagem(true));
+    return;
+  }
 
   const maxLinhas = TIPOS_CONTAGEM[ctg.tipo].linhasPorSetor;
   if (Number(ctg.numLinha) > maxLinhas || Number(ctg.numLinha) < 1) {
@@ -3255,8 +3268,9 @@ window.salvarLinhaContagem = function () {
   const antecipada = !status.disponivel;
   if (antecipada && !liberarColheitaAntecipada([{ linha: ctg.numLinha, faltam: status.diasFaltam }])) return;
 
+  S._contagemTravaAte = Date.now() + 1000;
   const total = ctg.valores.reduce((s, v) => s + (Number(v) || 0), 0);
-  const payload = { tipo: ctg.tipo, setor: ctg.setor, numero: ctg.numLinha, valores: [...ctg.valores], total, data: ctg.dataContagem || todayISO(), ...(antecipada ? { antecipada: true, diasAntecipados: status.diasFaltam } : {}) };
+  const payload = { tipo: ctg.tipo, setor: ctg.setor, numero: ctg.numLinha, valores: [...ctg.valores], total, data: ctg.dataContagem || todayISO(), criadoEm: new Date().toISOString(), ...(antecipada ? { antecipada: true, diasAntecipados: status.diasFaltam } : {}) };
   // Avança pra próxima linha sozinho (se o número for numérico). No Híbrido e Anão Seco a
   // contagem é por amostra de 5 em 5 (5, 10, 15...) — então avança de 5 em 5, não linha a linha.
   const configAtual = TIPOS_CONTAGEM[ctg.tipo];
@@ -3296,6 +3310,7 @@ window.salvarLinhaContagem = function () {
 // a linha B inteira, e salva as duas juntas de uma vez (sem precisar apertar salvar duas vezes).
 window.salvarDuasLinhasContagem = function () {
   const ctg = S.contagem;
+  if (S._contagemTravaAte && Date.now() < S._contagemTravaAte) return; // toque duplo no Salvar: ignora
   // Não basta o campo do número ter um valor — depois que o formulário avança sozinho pro
   // próximo par, o número da linha B fica preenchido mesmo que a pessoa não tenha contado nada
   // nela ainda. Por isso checa se tem alguma CÉLULA preenchida de verdade (mesmo que seja "0"),
@@ -3343,18 +3358,19 @@ window.salvarDuasLinhasContagem = function () {
   }
 
   const dataEscolhida = ctg.dataContagem || todayISO();
+  S._contagemTravaAte = Date.now() + 1000;
   marcarSalvando("contagem");
   const novosRegistros = [];
 
   if (temA) {
     const totalA = ctg.valores.reduce((s, v) => s + (Number(v) || 0), 0);
-    const payloadA = { tipo: ctg.tipo, setor: ctg.setor, numero: ctg.numLinha, valores: [...ctg.valores], total: totalA, data: dataEscolhida, ...(aDescanso ? { antecipada: true, diasAntecipados: statusA.diasFaltam } : {}) };
+    const payloadA = { tipo: ctg.tipo, setor: ctg.setor, numero: ctg.numLinha, valores: [...ctg.valores], total: totalA, data: dataEscolhida, criadoEm: new Date().toISOString(), ...(aDescanso ? { antecipada: true, diasAntecipados: statusA.diasFaltam } : {}) };
     const refA = doc(collection(db, "contagemLinhas"));
     novosRegistros.push([refA, payloadA]);
   }
   if (temB) {
     const totalB = ctg.valoresB.reduce((s, v) => s + (Number(v) || 0), 0);
-    const payloadB = { tipo: ctg.tipo, setor: ctg.setor, numero: ctg.numLinhaB, valores: [...ctg.valoresB], total: totalB, data: dataEscolhida, ...(bDescanso ? { antecipada: true, diasAntecipados: statusB.diasFaltam } : {}) };
+    const payloadB = { tipo: ctg.tipo, setor: ctg.setor, numero: ctg.numLinhaB, valores: [...ctg.valoresB], total: totalB, data: dataEscolhida, criadoEm: new Date().toISOString(), ...(bDescanso ? { antecipada: true, diasAntecipados: statusB.diasFaltam } : {}) };
     const refB = doc(collection(db, "contagemLinhas"));
     novosRegistros.push([refB, payloadB]);
   }
@@ -3440,6 +3456,19 @@ function diasDesde(dataISO) {
 // Construído como um mapa único (varre a lista de contagens uma vez só) em vez de vasculhar tudo
 // de novo pra cada uma das até 52 linhas — sem isso, abrir a Colheita ficava pesado/travava
 // conforme foi acumulando mais contagens.
+// Duas contagens da MESMA linha no MESMO dia: vale a mais recente. Os registros novos têm "criadoEm"
+// (hora do salvamento). Nos antigos (sem hora), uma contagem COM frutos vale mais que uma "zerada" — que
+// em geral é um toque a mais no Salvar, já que o app avança sozinho pra próxima linha — e, se ainda
+// empatar, vale a que foi gravada por último. (Antes valia sempre a PRIMEIRA, e uma linha "zerada"
+// escondia a contagem de verdade e puxava a estimativa do setor pra baixo.)
+function contagemMaisRecente(nova, atual) {
+  if (!atual) return true;
+  if ((nova.data || "") !== (atual.data || "")) return (nova.data || "") > (atual.data || "");
+  if (nova.criadoEm && atual.criadoEm) return nova.criadoEm >= atual.criadoEm;
+  const tn = Number(nova.total) || 0, ta = Number(atual.total) || 0;
+  if ((tn > 0) !== (ta > 0)) return tn > 0;
+  return true;
+}
 function construirMapaUltimasContagens() {
   const mapa = new Map();
   S.contagemLinhas.forEach((l) => {
@@ -4758,7 +4787,7 @@ function calcEstimativaSetor(tipo, setor) {
   regs.filter((l) => l.data >= inicioJanela).forEach((l) => {
     const k = String(l.numero);
     const a = ultimaPorLinha.get(k);
-    if (!a || l.data > a.data) ultimaPorLinha.set(k, l);
+    if (contagemMaisRecente(l, a)) ultimaPorLinha.set(k, l);
   });
   const lista = [...ultimaPorLinha.values()];
   const soma = lista.reduce((x, l) => x + (Number(l.total) || 0), 0);
@@ -4834,11 +4863,11 @@ function calcPrevisaoLiberacao(tipo) {
   const linhasTipo = cfg.linhasAmostradas || Array.from({ length: cfg.linhasPorSetor }, (_, i) => i + 1);
   const peso = cfg.linhasAmostradas ? cfg.linhasPorSetor / cfg.linhasAmostradas.length : 1;
   const ultimos = new Map(); // chave -> { data, total }
+  const ultimosReg = new Map(); // chave -> registro inteiro (pra desempatar quando tem 2 no mesmo dia)
   S.contagemLinhas.forEach((l) => {
     if (l.tipo !== tipo || !l.data) return;
     const chave = l.setor + "__" + String(l.numero);
-    const atual = ultimos.get(chave);
-    if (!atual || l.data > atual.data) ultimos.set(chave, { data: l.data, total: Number(l.total) || 0 });
+    if (contagemMaisRecente(l, ultimosReg.get(chave))) { ultimosReg.set(chave, l); ultimos.set(chave, { data: l.data, total: Number(l.total) || 0 }); }
   });
   const faixas = [
     { chave: "ja", rotulo: "Já liberado", max: 0 },

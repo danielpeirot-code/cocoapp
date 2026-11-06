@@ -265,7 +265,7 @@
       <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
     </div>
     <div class="header-linha2">
-      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v155</span>
+      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v156</span>
       <div class="spacer"></div>
       <span id="backupPill" class="backup-pill"></span>
       <button class="btn-export" onclick="exportarExcel()">⬇️ Excel</button>
@@ -389,6 +389,7 @@ window.__state = {
   metasColheita: {},
   cargasVerde: [],
   configSeguranca: {},
+  configColheita: {},
   configPagamento: {},
   currentTab: "romaneio",
   contagem: { tipo: "Híbrido", setor: "A3A4", numLinha: "", qtdPlantas: 78, valores: [], numLinhaB: "", valoresB: [], dataContagem: "" },
@@ -679,6 +680,11 @@ onAuthStateChanged(auth, (user) => {
 
   onSnapshot(doc(db, "configuracoes", "seguranca"), (d) => {
     S.configSeguranca = d.exists() ? d.data() : {};
+  }, (err) => console.error(err));
+
+  onSnapshot(doc(db, "configuracoes", "colheita"), (d) => {
+    S.configColheita = d.exists() ? d.data() : {};
+    if (["colheita", "contagem", "configuracoes"].includes(S.currentTab)) agendarRender();
   }, (err) => console.error(err));
 
   onSnapshot(doc(db, "configuracoes", "pagamentoDescasca"), (d) => {
@@ -990,6 +996,32 @@ window.alternarFuncao = function (id) {
   aplicarFuncoesNoMenu();
   renderNav();
   renderTab();
+};
+function renderCartaoCicloColheita() {
+  const tipos = Object.keys(TIPOS_CONTAGEM);
+  return `<div class="card">
+    <h3 style="margin-bottom:6px; font-size:13px;">🔁 Ciclo de colheita (dias de descanso)</h3>
+    <div class="muted" style="font-size:11.5px; margin-bottom:8px;">Quantos dias a mesma linha descansa antes de ser colhida de novo. Entrar antes disso <b>não precisa de senha</b>: a contagem salva normal e fica registrado ⚡ quantos dias depois da anterior você entrou. Se você entra antes com frequência, o ciclo certo talvez seja mais curto — veja a média real de cada tipo.</div>
+    ${tipos.map((tipo, i) => { const m = mediaIntervaloReal(tipo); return `<div style="display:flex; align-items:center; justify-content:space-between; gap:10px; padding:9px 0; border-top:1px dashed #e7e5e4;">
+      <div><div style="font-size:13px; font-weight:700;">${esc(tipo)}</div>
+        <div class="muted" style="font-size:11px;">${m ? `Na prática: <b>${m.media.toFixed(1).replace(".", ",")} dias</b> entre colheitas da mesma linha (${m.n} intervalo${m.n > 1 ? "s" : ""}) — ${Math.round(m.pctAntes * 100)}% foram antes do ciclo atual.` : "Ainda não tem 2 contagens da mesma linha pra calcular a média."}</div></div>
+      <div style="white-space:nowrap;"><input type="number" id="cicloColheita_${i}" inputmode="numeric" min="1" max="90" value="${cicloDoTipo(tipo)}" style="width:64px; padding:7px 8px; border:1px solid #d6d3d1; border-radius:8px; font-size:14px;"/> dias</div></div>`; }).join("")}
+    <button class="btn" style="margin-top:10px;" onclick="salvarCiclosColheita()">💾 Salvar ciclos</button>
+  </div>`;
+}
+window.salvarCiclosColheita = function () {
+  const ciclos = {};
+  const tipos = Object.keys(TIPOS_CONTAGEM);
+  for (let i = 0; i < tipos.length; i++) {
+    const el = document.getElementById("cicloColheita_" + i);
+    const v = Math.round(Number(el ? el.value : NaN));
+    if (!(v >= 1 && v <= 90)) { alert(`O ciclo de ${tipos[i]} precisa ser um número de 1 a 90 dias.`); return; }
+    ciclos[tipos[i]] = v;
+  }
+  S.configColheita = { ...S.configColheita, ciclos };
+  setDoc(doc(db, "configuracoes", "colheita"), { ...S.configColheita }).catch((e) => { console.error(e); alert("Não consegui salvar os ciclos agora. Tenta de novo."); });
+  renderConfiguracoes();
+  avisar("Ciclos salvos! As datas de liberação da Colheita já usam os novos valores.");
 };
 function renderCartaoFuncoes() {
   return `<div class="card">
@@ -2825,8 +2857,13 @@ function compararComUltimaContagem(tipo, setor) {
   return { dataAtual: datas[0], dataAnterior: datas[1], atual: resumir(grupoAtual), anterior: resumir(grupoAnterior) };
 }
 
+function avisoContagemHTML() {
+  const a = S._avisoContagem;
+  if (!a || Date.now() > a.ate) return "";
+  return `<div style="background:#fffbeb; border:1px solid #fcd34d; border-radius:10px; padding:9px 12px; margin-bottom:10px; font-size:12.5px; line-height:1.45;">${esc(a.texto)}</div>`;
+}
 function renderContagem() {
-  try { renderContagemInner(); }
+  try { renderContagemInner(); if (avisoContagemHTML()) { const el = document.getElementById("tabContent"); el.innerHTML = avisoContagemHTML() + el.innerHTML; } }
   catch (e) {
     console.error("Erro ao renderizar Contagem:", e);
     document.getElementById("tabContent").innerHTML = `<div class="card" style="border-color:#dc2626;">
@@ -2894,12 +2931,12 @@ function renderContagemInner() {
   const mapaCiclo = construirMapaUltimasContagens();
   const statusLinhaA = linhaDisponivelParaContar(ctg.tipo, ctg.setor, ctg.numLinha, mapaCiclo);
   html += !statusLinhaA.disponivel
-    ? `<div style="font-size:11.5px; margin-bottom:8px; color:#9a3412; background:#FFEDD5; border-radius:8px; padding:6px 10px;">🟠 Linha ${esc(ctg.numLinha)} ainda descansando — faltam ${statusLinhaA.diasFaltam} dia${statusLinhaA.diasFaltam>1?"s":""}. Se for urgência, dá pra salvar mesmo assim (pede a senha do supervisor e fica marcado como colheita antecipada).</div>`
+    ? `<div style="font-size:11.5px; margin-bottom:8px; color:#9a3412; background:#FFEDD5; border-radius:8px; padding:6px 10px;">🟠 Linha ${esc(ctg.numLinha)} ainda dentro do ciclo — faltam ${statusLinhaA.diasFaltam} dia${statusLinhaA.diasFaltam>1?"s":""}. Pode salvar: entra como colheita antecipada ⚡ e fica registrado há quantos dias foi a anterior (${statusLinhaA.diasDesdeUltima} dias).</div>`
     : "";
   if (modoDuasLinhas) {
     const statusLinhaB = linhaDisponivelParaContar(ctg.tipo, ctg.setor, ctg.numLinhaB, mapaCiclo);
     html += !statusLinhaB.disponivel
-      ? `<div style="font-size:11.5px; margin-bottom:8px; color:#9a3412; background:#FFEDD5; border-radius:8px; padding:6px 10px;">🟠 Linha ${esc(ctg.numLinhaB)} ainda descansando — faltam ${statusLinhaB.diasFaltam} dia${statusLinhaB.diasFaltam>1?"s":""}. Se for urgência, dá pra salvar mesmo assim (pede a senha do supervisor e fica marcado como colheita antecipada).</div>`
+      ? `<div style="font-size:11.5px; margin-bottom:8px; color:#9a3412; background:#FFEDD5; border-radius:8px; padding:6px 10px;">🟠 Linha ${esc(ctg.numLinhaB)} ainda dentro do ciclo — faltam ${statusLinhaB.diasFaltam} dia${statusLinhaB.diasFaltam>1?"s":""}. Pode salvar: entra como colheita antecipada ⚡ e fica registrado há quantos dias foi a anterior (${statusLinhaB.diasDesdeUltima} dias).</div>`
       : "";
   }
 
@@ -3010,14 +3047,15 @@ function renderContagemInner() {
   }
 
   if (linhasNoCicloAtual.length === 0) {
-    html += `<div class="empty">Nenhuma linha contada ainda neste ciclo — todas as linhas já contadas completaram os ${CICLO_COLHEITA_DIAS} dias e estão liberadas de novo.</div>`;
+    html += `<div class="empty">Nenhuma linha contada ainda neste ciclo — todas as linhas já contadas completaram os ${cicloDoTipo(ctg.tipo)} dias e estão liberadas de novo.</div>`;
   } else {
-    html += `<table class="tbl"><thead><tr><th style="text-align:left;">Linha</th><th>Plantas</th><th>Total frutas</th><th></th></tr></thead><tbody>`;
+    html += `<table class="tbl"><thead><tr><th style="text-align:left;">Linha</th><th>Plantas</th><th>Total frutas</th><th>Entrou após</th><th></th></tr></thead><tbody>`;
     linhasNoCicloAtual.forEach((l) => {
       html += `<tr>
         <td style="text-align:left; font-weight:600;">${esc(l.numero)}</td>
         <td>${l.valores.length}</td>
         <td style="font-weight:700;${(Number(l.total) || 0) === 0 ? " color:#c2410c;" : ""}">${fmt(l.total,0)}${(Number(l.total) || 0) === 0 ? " ⚠️" : ""}</td>
+        <td style="font-size:12px;">${celulaIntervaloHTML(l)}</td>
         <td><button class="x-btn" onclick="removerLinhaContagem('${l.id}')">✕</button></td>
       </tr>`;
     });
@@ -3233,17 +3271,6 @@ function linhaDisponivelParaContar(tipo, setor, numero, mapaPronto) {
   return statusCicloLinhaComMapa(mapa, tipo, setor, numero);
 }
 
-// Urgência: colher uma linha que ainda está descansando. Pede confirmação + senha do supervisor
-// e a contagem fica marcada como "colheita antecipada" (aparece com ⚡ na aba Colheita e no Excel).
-// O descanso dessa linha passa a contar de novo a partir da data dessa contagem.
-function liberarColheitaAntecipada(linhasEmDescanso) {
-  const lista = linhasEmDescanso.map((x) => `Linha ${x.linha}: faltam ${x.faltam} dia${x.faltam > 1 ? "s" : ""}`).join("\n");
-  if (!confirm(`Ainda está no descanso (ciclo de ${CICLO_COLHEITA_DIAS} dias):\n\n${lista}\n\nSe for urgência e precisa colher agora, toque em OK — vai pedir a senha do supervisor e a contagem fica marcada como "colheita antecipada". O descanso dessa linha recomeça a contar de hoje.\n\nCancelar = não contar.`)) return false;
-  let liberado = false;
-  pedirSenha(() => { liberado = true; });
-  return liberado;
-}
-
 window.salvarLinhaContagem = function (forcarSemNumeros) {
   const ctg = S.contagem;
   if (!ctg.numLinha) return;
@@ -3266,11 +3293,11 @@ window.salvarLinhaContagem = function (forcarSemNumeros) {
 
   const status = linhaDisponivelParaContar(ctg.tipo, ctg.setor, ctg.numLinha);
   const antecipada = !status.disponivel;
-  if (antecipada && !liberarColheitaAntecipada([{ linha: ctg.numLinha, faltam: status.diasFaltam }])) return;
 
   S._contagemTravaAte = Date.now() + 1000;
   const total = ctg.valores.reduce((s, v) => s + (Number(v) || 0), 0);
   const payload = { tipo: ctg.tipo, setor: ctg.setor, numero: ctg.numLinha, valores: [...ctg.valores], total, data: ctg.dataContagem || todayISO(), criadoEm: new Date().toISOString(), ...(antecipada ? { antecipada: true, diasAntecipados: status.diasFaltam } : {}) };
+  if (antecipada) S._avisoContagem = { texto: `⚡ Linha ${ctg.numLinha} salva como colheita antecipada: entrou ${status.diasDesdeUltima} dias depois da anterior (faltavam ${status.diasFaltam} pro ciclo de ${cicloDoTipo(ctg.tipo)} dias). Já está registrado.`, ate: Date.now() + 30000 };
   // Avança pra próxima linha sozinho (se o número for numérico). No Híbrido e Anão Seco a
   // contagem é por amostra de 5 em 5 (5, 10, 15...) — então avança de 5 em 5, não linha a linha.
   const configAtual = TIPOS_CONTAGEM[ctg.tipo];
@@ -3350,11 +3377,12 @@ window.salvarDuasLinhasContagem = function () {
   const statusA = temA ? linhaDisponivelParaContar(ctg.tipo, ctg.setor, ctg.numLinha) : null;
   const statusB = temB ? linhaDisponivelParaContar(ctg.tipo, ctg.setor, ctg.numLinhaB) : null;
   const aDescanso = !!(statusA && !statusA.disponivel), bDescanso = !!(statusB && !statusB.disponivel);
+  // Sem senha e sem bloqueio: entrou antes do ciclo, salva normal e avisa (fica registrado ⚡ + dias).
   if (aDescanso || bDescanso) {
-    const emDescanso = [];
-    if (aDescanso) emDescanso.push({ linha: ctg.numLinha, faltam: statusA.diasFaltam });
-    if (bDescanso) emDescanso.push({ linha: ctg.numLinhaB, faltam: statusB.diasFaltam });
-    if (!liberarColheitaAntecipada(emDescanso)) return;
+    const partes = [];
+    if (aDescanso) partes.push(`linha ${ctg.numLinha}: ${statusA.diasDesdeUltima} dias depois da anterior, faltavam ${statusA.diasFaltam}`);
+    if (bDescanso) partes.push(`linha ${ctg.numLinhaB}: ${statusB.diasDesdeUltima} dias depois da anterior, faltavam ${statusB.diasFaltam}`);
+    S._avisoContagem = { texto: `⚡ Salvo como colheita antecipada (ciclo de ${cicloDoTipo(ctg.tipo)} dias) — ${partes.join(" · ")}.`, ate: Date.now() + 30000 };
   }
 
   const dataEscolhida = ctg.dataContagem || todayISO();
@@ -3434,7 +3462,54 @@ window.removerLinhaContagem = function (id) {
    "qual setor e qual linha eu entro colher hoje", cruzando com o ciclo de
    21 dias de descanso por linha (o mesmo cacho não volta antes disso).
    ========================================================================= */
-const CICLO_COLHEITA_DIAS = 21;
+const CICLO_PADRAO_DIAS = 21;
+// Ciclo = dias de descanso entre duas colheitas da MESMA linha. Cada tipo de coco tem o seu e dá pra
+// ajustar em Configurações → Ciclo de colheita (vale pra todos os aparelhos). Se a pessoa entra antes do
+// ciclo, o app não bloqueia nem pede senha: salva normal e registra "colheita antecipada" + quantos dias
+// depois da anterior ela entrou.
+function cicloDoTipo(tipo) {
+  const v = Number((((S.configColheita || {}).ciclos) || {})[tipo]);
+  return (Number.isFinite(v) && v >= 1 && v <= 90) ? Math.round(v) : CICLO_PADRAO_DIAS;
+}
+// Quantos dias depois da contagem ANTERIOR da mesma linha essa contagem foi feita (e quantos faltavam
+// pro ciclo completar). Calculado do histórico, então vale também pros registros antigos.
+function intervaloDaContagem(l) {
+  if (!l || !l.data) return null;
+  let anterior = "";
+  S.contagemLinhas.forEach((x) => {
+    if (x.tipo === l.tipo && x.setor === l.setor && String(x.numero) === String(l.numero) && x.data && x.data < l.data && x.data > anterior) anterior = x.data;
+  });
+  if (!anterior) return null;
+  const dias = Math.round((new Date(l.data + "T00:00:00") - new Date(anterior + "T00:00:00")) / 86400000);
+  return { dias, anterior, antes: Math.max(0, cicloDoTipo(l.tipo) - dias - 1) };
+}
+function celulaIntervaloHTML(l) {
+  const it = intervaloDaContagem(l);
+  if (!it) return `<span class="muted" style="font-size:11px;">1ª vez</span>`;
+  if (it.antes > 0) return `<b style="color:#b45309;">⚡ ${it.dias} d</b><div class="muted" style="font-size:10px;">${it.antes} antes do ciclo</div>`;
+  return `${it.dias} d`;
+}
+// Na prática, de quantos em quantos dias a mesma linha está sendo colhida (pra ajudar a decidir o ciclo).
+function mediaIntervaloReal(tipo) {
+  const porLinha = new Map();
+  S.contagemLinhas.forEach((l) => {
+    if (l.tipo !== tipo || !l.data) return;
+    const k = l.setor + "__" + String(l.numero);
+    if (!porLinha.has(k)) porLinha.set(k, new Set());
+    porLinha.get(k).add(l.data);
+  });
+  const gaps = [];
+  porLinha.forEach((set) => {
+    const d = [...set].sort();
+    for (let i = 1; i < d.length; i++) {
+      const g = Math.round((new Date(d[i] + "T00:00:00") - new Date(d[i - 1] + "T00:00:00")) / 86400000);
+      if (g >= 1 && g <= 120) gaps.push(g);
+    }
+  });
+  if (!gaps.length) return null;
+  const ciclo = cicloDoTipo(tipo);
+  return { media: gaps.reduce((a, b) => a + b, 0) / gaps.length, n: gaps.length, pctAntes: gaps.filter((g) => ciclo - g - 1 > 0).length / gaps.length };
+}
 const CACHO_REFERENCIA = { "Anão Verde": 18, "Híbrido": 25, "Anão Seco": 25 }; // só um lembrete na tela, não afeta cálculo nenhum
 
 S._colheitaTipo = "Anão Verde";
@@ -3486,7 +3561,7 @@ function statusCicloLinhaComMapa(mapa, tipo, setor, numero) {
   const dias = diasDesde(ultimaData);
   // O próprio dia da contagem já conta como o 1º dia do descanso — por isso "-1": contando hoje,
   // já mostra 20 dias faltando (não 21), e completa o ciclo no dia 21 depois da contagem.
-  const diasFaltam = Math.max(0, CICLO_COLHEITA_DIAS - dias - 1);
+  const diasFaltam = Math.max(0, cicloDoTipo(tipo) - dias - 1);
   return { disponivel: diasFaltam === 0, diasFaltam, ultima: ultimaData, diasDesdeUltima: dias };
 }
 
@@ -3633,7 +3708,7 @@ function renderColheitaInner() {
     const dataCurta = (iso) => brDate(iso).slice(0, 5);
     html += `<div class="card">
       <div style="font-size:11px; font-weight:700; text-transform:uppercase; color:#78716c; margin-bottom:4px;">🗓️ Plano de colheita por setor — ${esc(tipo)}</div>
-      <div class="muted" style="font-size:11px; margin-bottom:10px;">Em ordem de quem entrar primeiro. A data é quando o setor completa o ciclo de ${CICLO_COLHEITA_DIAS} dias da contagem mais recente; frutos = média das linhas contadas × ${config.linhasPorSetor} linhas; peso = frutos × peso por fruto da última carga do setor.</div>
+      <div class="muted" style="font-size:11px; margin-bottom:10px;">Em ordem de quem entrar primeiro. A data é quando o setor completa o ciclo de ${cicloDoTipo(tipo)} dias da contagem mais recente; frutos = média das linhas contadas × ${config.linhasPorSetor} linhas; peso = frutos × peso por fruto da última carga do setor.</div>
       <div style="background:#ecfdf5; border-radius:10px; padding:9px 12px; margin-bottom:12px; font-size:12.5px; line-height:1.6;">
         <div>✅ <b>Já liberado:</b> ${plano.jaLiberado.setores ? `${plano.jaLiberado.setores} setor${plano.jaLiberado.setores > 1 ? "es" : ""} · ${fmt(plano.jaLiberado.frutos, 0)} frutos · ≈ ${fmt(plano.jaLiberado.kg, 0)} kg` : "nenhum"}</div>
         <div>🟡 <b>Até 7 dias:</b> ${plano.ate7.setores ? `${plano.ate7.setores} setor${plano.ate7.setores > 1 ? "es" : ""} · ${fmt(plano.ate7.frutos, 0)} frutos · ≈ ${fmt(plano.ate7.kg, 0)} kg` : "nenhum"}</div>
@@ -3716,14 +3791,17 @@ function renderColheitaInner() {
       ${filaEntrada.length > TOP_FILA ? `<div class="muted" style="font-size:11px; margin-top:2px;">+ ${filaEntrada.length - TOP_FILA} outras disponíveis</div>` : ""}
     </div>` : ""}
     ${semRegistro.length > 0 ? `<div class="muted" style="font-size:11px; margin-bottom:8px;">Sem colheita registrada: ${semRegistro.map((x) => x.linha).join(", ")}</div>` : ""}
-    <div class="muted" style="font-size:11px; margin-bottom:8px;">🟢 disponível — 🟠 descansando (dias que faltam pro ciclo de ${CICLO_COLHEITA_DIAS} dias) — ⚡ última colheita foi antecipada (urgência)</div>
+    <div class="muted" style="font-size:11px; margin-bottom:8px;">🟢 disponível — 🟠 descansando (dias que faltam pro ciclo de ${cicloDoTipo(tipo)} dias) — ⚡ última colheita foi antes do ciclo (passe o dedo/toque na linha pra ver quantos dias depois da anterior)</div>
     <div style="display:flex; flex-wrap:wrap; gap:5px;">`;
   const antecipadas = new Set(S.contagemLinhas.filter((l) => l.tipo === tipo && l.setor === setor && l.antecipada).map((l) => String(l.numero) + "|" + l.data));
+  const ultimaPorLinhaGrade = new Map();
+  S.contagemLinhas.forEach((l) => { if (l.tipo === tipo && l.setor === setor) { const k = String(l.numero); if (contagemMaisRecente(l, ultimaPorLinhaGrade.get(k))) ultimaPorLinhaGrade.set(k, l); } });
   statusLinhas.forEach(({ linha, st }) => {
+    const itGrade = intervaloDaContagem(ultimaPorLinhaGrade.get(String(linha)));
     const cor = st.disponivel ? "#C6EFCE" : "#FED7AA";
     const corTexto = st.disponivel ? "#065f46" : "#9a3412";
     const foiAntecipada = st.ultima && antecipadas.has(String(linha) + "|" + st.ultima);
-    html += `<div title="${st.ultima ? "Última contagem: " + brDate(st.ultima) + (foiAntecipada ? " (colheita antecipada)" : "") : "Nunca contada"}" style="background:${cor}; color:${corTexto}; border-radius:6px; padding:4px 6px; font-size:10.5px; font-weight:700; min-width:30px; text-align:center;">
+    html += `<div title="${st.ultima ? "Última contagem: " + brDate(st.ultima) + (itGrade ? ` — entrou ${itGrade.dias} dias depois da anterior${itGrade.antes > 0 ? ` (${itGrade.antes} antes do ciclo)` : ""}` : "") : "Nunca contada"}" style="background:${cor}; color:${corTexto}; border-radius:6px; padding:4px 6px; font-size:10.5px; font-weight:700; min-width:30px; text-align:center;">
       ${linha}${foiAntecipada ? "⚡" : ""}${!st.disponivel ? `<div style="font-size:8.5px; font-weight:600;">${st.diasFaltam}d</div>` : ""}
     </div>`;
   });
@@ -4465,6 +4543,15 @@ function montarTextoResumoDia() {
     L.push(`• ${descHoje.bags} bag${descHoje.bags > 1 ? "s" : ""} · ${fmt(descHoje.cocos, 0)} cocos · ${fmt(descHoje.kg, 0)} kg`);
   }
 
+  // Colheita antes do ciclo hoje: sem senha, então aparece aqui pro supervisor acompanhar
+  const antecipadasHoje = S.contagemLinhas.filter((l) => l.data === hoje && l.antecipada);
+  if (antecipadasHoje.length) {
+    const grupos = new Map();
+    antecipadasHoje.forEach((l) => { const k = `${l.tipo} ${l.setor}`; if (!grupos.has(k)) grupos.set(k, []); grupos.get(k).push(l.numero); });
+    L.push("", "⚡ *Colheita antes do ciclo hoje*");
+    grupos.forEach((nums, k) => L.push(`• ${k}: linha${nums.length > 1 ? "s" : ""} ${[...new Set(nums)].sort((a, b) => Number(a) - Number(b)).join(", ")}`));
+  }
+
   // Romaneio seco: o que foi carregado hoje
   const bagsHoje = S.bags.filter((b) => b.dataCarregamento === hoje);
   const kgHoje = bagsHoje.reduce((s, b) => s + (Number(b.carregado1) || 0), 0);
@@ -4690,6 +4777,7 @@ function renderConfiguracoes() {
   </div>`;
 
   html += renderCartaoFuncoes();
+  html += renderCartaoCicloColheita();
 
   html += `<div class="card">
     <h3 style="margin-bottom:8px; font-size:13px;">🔒 Abas protegidas por senha</h3>
@@ -4781,7 +4869,7 @@ function calcEstimativaSetor(tipo, setor) {
   if (!regs.length) return null;
   const fim = regs.reduce((m, l) => (l.data > m ? l.data : m), "");
   const d = new Date(fim + "T00:00:00");
-  d.setDate(d.getDate() - (CICLO_COLHEITA_DIAS - 1));
+  d.setDate(d.getDate() - (cicloDoTipo(tipo) - 1));
   const inicioJanela = d.toISOString().slice(0, 10);
   const ultimaPorLinha = new Map();
   regs.filter((l) => l.data >= inicioJanela).forEach((l) => {
@@ -4831,12 +4919,12 @@ function calcPlanoColheita(tipo) {
   const linhas = cfg.setores.map((setor, ordemOriginal) => {
     const est = calcEstimativaSetor(tipo, setor);
     if (!est) return { setor, ordemOriginal, grupo: 3, sem: true };
-    const faltam = est.linhas.map((l) => Math.max(0, CICLO_COLHEITA_DIAS - diasDesde(l.data) - 1));
+    const faltam = est.linhas.map((l) => Math.max(0, cicloDoTipo(tipo) - diasDesde(l.data) - 1));
     const maxFaltam = Math.max(...faltam);
     const liberadas = faltam.filter((f) => f === 0).length;
     const pf = pesoPorFrutoDoSetor(setor, pontosPeso, ultimaGeral);
     const antiga = est.diasDesdeUltima > 30;
-    const diasLiberado = maxFaltam === 0 ? Math.max(0, est.diasDesdeUltima - (CICLO_COLHEITA_DIAS - 1)) : null;
+    const diasLiberado = maxFaltam === 0 ? Math.max(0, est.diasDesdeUltima - (cicloDoTipo(tipo) - 1)) : null;
     return {
       setor, ordemOriginal, sem: false, est, pf, antiga, maxFaltam, liberadas, diasLiberado,
       dataLibera: somarDiasISO(hoje, maxFaltam),
@@ -4881,7 +4969,7 @@ function calcPrevisaoLiberacao(tipo) {
     linhasTipo.forEach((linha) => {
       const u = ultimos.get(setor + "__" + String(linha));
       if (!u) { semRegistro++; return; }
-      const faltam = Math.max(0, CICLO_COLHEITA_DIAS - diasDesde(u.data) - 1);
+      const faltam = Math.max(0, cicloDoTipo(tipo) - diasDesde(u.data) - 1);
       const faixa = faixas.find((f) => faltam <= f.max) || faixas[faixas.length - 1];
       porFaixa[faixa.chave] += u.total * peso;
     });

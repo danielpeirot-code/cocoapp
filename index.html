@@ -265,7 +265,7 @@
       <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
     </div>
     <div class="header-linha2">
-      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v157</span>
+      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v159</span>
       <div class="spacer"></div>
       <span id="backupPill" class="backup-pill"></span>
       <button class="btn-export" onclick="exportarExcel()">⬇️ Excel</button>
@@ -277,6 +277,10 @@
     <div id="installBanner" class="install-banner">
       <span>📲 Instale este app na tela inicial pra abrir rapidinho, igual um app normal.</span>
       <button onclick="instalarApp()">Instalar</button>
+    </div>
+    <div id="updateBanner" class="install-banner" style="background:#ecfdf5; border-color:#86efac; color:#166534;">
+      <span id="updateBannerTxt">🔄 Tem versão nova do app.</span>
+      <button style="background:#16a34a;" onclick="forcarAtualizacaoApp()">Atualizar agora</button>
     </div>
     <div id="tabContent"></div>
     <input type="file" id="inputFotoCargaCamera" accept="image/*" capture="environment" multiple style="display:none" onchange="onFotosCargaSelecionadas(this)"/>
@@ -408,6 +412,7 @@ window.__state = {
 const S = window.__state;
 window.S = S; // necessário para os campos de formulário (oninput="S...") funcionarem
 
+const APP_VERSAO = "v159"; // mudar junto com o número do cabeçalho a cada atualização
 const TALHOES = ["A3A4", "B3B4", "C1C2", "C3C4", "D1", "D2", "D3", "D4"];
 const SETORES_ORIGEM_VERDE = [...TALHOES, "D1D2", "D3D4"]; // origem da carga verde: setores soltos (cargas antigas) e os pares atuais
 
@@ -422,7 +427,10 @@ const TIPOS_CONTAGEM = {
   // 5 em 5 (linha 5, 10, 15...) pra estimar o total do setor. Por isso o ciclo/disponibilidade na
   // aba Colheita só faz sentido mostrar essas linhas específicas, não todas de 1 até o fim.
   "Híbrido": { setores: ["A3A4", "B3B4", "C1C2", "C3C4"], linhasPorSetor: 40, plantasPadrao: 78, linhasAmostradas: [5,10,15,20,25,30,35] },
-  "Anão Seco": { setores: ["D1", "D2", "D3", "D4"], linhasPorSetor: 52, plantasPadrao: 45, linhasAmostradas: [5,10,15,20,25,30,35,40,45] },
+  // Anão Seco também passou a ser contado em PARES (D1D2 e D3D4), igual o Anão Verde: cada linha cruza
+  // os dois setores (45 + 45 = 90 plantas). Continua por amostra (5 em 5). As contagens antigas em
+  // D1, D2, D3 e D4 continuam guardadas (Excel, totais, indicadores).
+  "Anão Seco": { setores: ["D1D2", "D3D4"], linhasPorSetor: 52, plantasPadrao: 90, linhasAmostradas: [5,10,15,20,25,30,35,40,45] },
   // "censoCompleto": no Anão Verde não se faz amostragem — todas as 52 linhas são contadas de
   // verdade, uma por vez (uma atrás da outra). Por isso o resumo mostra soma real + progresso,
   // em vez da média×linhas que faz sentido só quando é estimativa por amostra.
@@ -4839,6 +4847,11 @@ function renderConfiguracoes() {
     </div>
   </div>`;
 
+  html += `<div class="card">
+    <h3 style="margin-bottom:8px; font-size:13px;">🔄 Atualização do app</h3>
+    <div class="muted" style="font-size:11.5px; margin-bottom:8px;">Versão neste aparelho: <b>${APP_VERSAO}</b>. Se o celular ficou preso numa versão antiga, toca aqui (precisa de internet). Nenhum dado é apagado.</div>
+    <button class="btn ghost" style="width:auto;" onclick="forcarAtualizacaoApp()">🔄 Forçar atualização</button>
+  </div>`;
   html += renderCartaoFuncoes();
   html += renderCartaoCicloColheita();
 
@@ -4958,7 +4971,10 @@ function textoPeriodoEstimativa(est) {
 // Peso por fruto: o peso médio do setor na ÚLTIMA carga em que ele entrou; se o setor nunca foi
 // carregado, usa o peso médio geral da última carga (marcado como "geral").
 function pesoPorFrutoDoSetor(setor, pontos, ultimaCargaGeral) {
-  const arr = pontos[setor] || [];
+  // Setor em par (ex: D1D2): os bags do romaneio seco ainda vêm como D1, D2... então junta os dois.
+  const partes = /^D\dD\d$/.test(setor) ? [setor, setor.slice(0, 2), setor.slice(2)] : [setor];
+  const arr = partes.flatMap((t) => pontos[t] || [])
+    .sort((a, b) => (a.data || "").localeCompare(b.data || "") || (Number(a.numero) || 0) - (Number(b.numero) || 0));
   for (let i = arr.length - 1; i >= 0; i--) if (arr[i].pesoMedio) return { peso: arr[i].pesoMedio, carga: arr[i].numero, geral: false };
   return ultimaCargaGeral ? { peso: ultimaCargaGeral.pesoMedio, carga: ultimaCargaGeral.numero, geral: true } : null;
 }
@@ -9500,6 +9516,43 @@ window.instalarApp = async function () {
 window.addEventListener("appinstalled", () => {
   document.getElementById("installBanner").classList.remove("show");
 });
+
+// ---- Atualização garantida ----
+// Às vezes o celular fica preso numa versão antiga guardada. Ao abrir (com internet), o app confere
+// a versão publicada no GitHub; se for mais nova, mostra a faixa "Atualizar agora". O botão (e o de
+// Configurações) apaga só os arquivos guardados do app e o service worker — dados do Firebase,
+// rascunhos e preferências (localStorage) continuam.
+window.forcarAtualizacaoApp = async function () {
+  if (!navigator.onLine) { alert("Sem internet agora. Conecta e tenta de novo."); return; }
+  try {
+    if ("serviceWorker" in navigator) {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map((r) => r.unregister()));
+    }
+    if (window.caches) {
+      const chaves = await caches.keys();
+      await Promise.all(chaves.filter((k) => !k.includes("-cdn-")).map((k) => caches.delete(k)));
+    }
+  } catch (e) { console.warn(e); }
+  location.replace(location.pathname + "?atualizado=" + Date.now());
+};
+function numVersao(v) { const m = String(v || "").match(/v(\d+)/); return m ? Number(m[1]) : 0; }
+async function verificarVersaoNova() {
+  if (!navigator.onLine) return;
+  try {
+    const res = await fetch("./?checarVersao=" + Date.now(), { cache: "no-store" });
+    const txt = await res.text();
+    const m = txt.match(/opacity:\.8;">(v\d+)<\/span>/);
+    if (m && numVersao(m[1]) > numVersao(APP_VERSAO)) {
+      document.getElementById("updateBannerTxt").textContent = `🔄 Tem versão nova do app (${m[1]}). Você está na ${APP_VERSAO}.`;
+      document.getElementById("updateBanner").classList.add("show");
+    }
+  } catch (e) { /* sem rede: tenta na próxima */ }
+}
+// Limpa o "?atualizado=..." do endereço depois de atualizar
+if (location.search.includes("atualizado=")) history.replaceState(null, "", location.pathname);
+window.addEventListener("load", () => setTimeout(verificarVersaoNova, 4000));
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") verificarVersaoNova(); });
 
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {

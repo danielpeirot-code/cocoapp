@@ -1,4 +1,4 @@
-const CACHE_NAME = "coco-campo-v158";
+const CACHE_NAME = "coco-campo-v159";
 // Bibliotecas de CDN com versão fixa na URL (Firebase, Chart.js, XLSX, jsPDF). Ficam num cache à parte,
 // que NÃO é apagado a cada versão do app: depois da 1ª vez, o app abre sem esperar baixar tudo de novo
 // e abre até sem internet.
@@ -16,7 +16,9 @@ const APP_SHELL = [
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL))
+    caches.open(CACHE_NAME).then((cache) =>
+      // "reload": pega da internet de verdade, não da memória do navegador (que podia guardar o index velho)
+      cache.addAll(APP_SHELL.map((u) => new Request(u, { cache: "reload" }))))
   );
   self.skipWaiting();
 });
@@ -57,9 +59,10 @@ function redeComLimite(request) {
     const timer = setTimeout(() => {
       guardadoOuErro().then((g) => { if (!respondido) { respondido = true; resolve(g); } }).catch(() => {});
     }, LIMITE_REDE_MS);
-    fetch(request).then((res) => {
+    // "no-cache": sempre confere com o GitHub se tem arquivo novo (antes podia vir da memória do navegador)
+    fetch(new Request(request.url, { cache: "no-cache", credentials: "same-origin" })).then((res) => {
       const copia = res.clone();
-      caches.open(CACHE_NAME).then((cache) => cache.put(request, copia)).catch(() => {});
+      if (res.ok) caches.open(CACHE_NAME).then((cache) => cache.put(request, copia)).catch(() => {});
       clearTimeout(timer);
       if (!respondido) { respondido = true; resolve(res); }
     }).catch((err) => {

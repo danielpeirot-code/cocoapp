@@ -265,10 +265,10 @@
       <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
     </div>
     <div class="header-linha2">
-      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v159</span>
+      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v160</span>
       <div class="spacer"></div>
       <span id="backupPill" class="backup-pill"></span>
-      <button class="btn-export" onclick="exportarExcel()">⬇️ Excel</button>
+      <button class="btn-export" onclick="abrirMenuExcel()">⬇️ Excel</button>
       <button class="btn-export" onclick="enviarBackupSheets()">📊 Sheets</button>
     </div>
   </div>
@@ -306,6 +306,9 @@
     <button class="fab-item" onclick="escolherFotoCamera()"><span class="ic">📷</span>Tirar foto agora</button>
     <button class="fab-item" onclick="escolherFotoGaleria()"><span class="ic">🖼️</span>Escolher da galeria</button>
   </div>
+
+  <div id="excelOverlay" class="fab-overlay" style="display:none; z-index:46;" onclick="fecharMenuExcel()"></div>
+  <div id="excelModal" class="card" style="display:none; position:fixed; left:12px; right:12px; top:8%; z-index:47; max-width:420px; margin:0 auto; max-height:84vh; overflow-y:auto; box-shadow:0 8px 24px rgba(0,0,0,.3);"></div>
 
   <div id="confirmOverlay" class="fab-overlay" style="display:none; z-index:44;" onclick="fecharConfirmAcao()"></div>
   <div id="confirmModal" class="card" style="display:none; position:fixed; left:16px; right:16px; top:30%; z-index:45; max-width:380px; margin:0 auto; box-shadow:0 8px 24px rgba(0,0,0,.3);">
@@ -412,7 +415,7 @@ window.__state = {
 const S = window.__state;
 window.S = S; // necessário para os campos de formulário (oninput="S...") funcionarem
 
-const APP_VERSAO = "v159"; // mudar junto com o número do cabeçalho a cada atualização
+const APP_VERSAO = "v160"; // mudar junto com o número do cabeçalho a cada atualização
 const TALHOES = ["A3A4", "B3B4", "C1C2", "C3C4", "D1", "D2", "D3", "D4"];
 const SETORES_ORIGEM_VERDE = [...TALHOES, "D1D2", "D3D4"]; // origem da carga verde: setores soltos (cargas antigas) e os pares atuais
 
@@ -9425,6 +9428,219 @@ function montarLinhasAplic(tiposList) {
   });
   return rows;
 }
+
+/* ---- Relatório de produção em Excel (v160) ----
+   Junta num arquivo só, pro período escolhido: coco seco descascado (bags: data da descasca,
+   setor, cocos, kg), coco verde colhido (cargas: data, setor, frutos), contagem (data, setor,
+   frutos) e descasca manual. Tem abas de resumo (geral, por dia, por setor, dia × setor) e as
+   abas de detalhe com cada lançamento. */
+S._excelPeriodo = S._excelPeriodo || { de: todayISO().slice(0, 8) + "01", ate: todayISO() };
+function periodoRapidoExcel(tipo) {
+  const hoje = todayISO();
+  if (tipo === "mes") return { de: hoje.slice(0, 8) + "01", ate: hoje };
+  if (tipo === "mesPassado") {
+    const d = new Date(hoje.slice(0, 8) + "01T00:00:00"); d.setDate(0);
+    const fim = d.toISOString().slice(0, 10);
+    return { de: fim.slice(0, 8) + "01", ate: fim };
+  }
+  if (tipo === "30") return { de: somarDiasISO(hoje, -29), ate: hoje };
+  if (tipo === "7") return { de: somarDiasISO(hoje, -6), ate: hoje };
+  if (tipo === "ano") return { de: hoje.slice(0, 4) + "-01-01", ate: hoje };
+  return { de: "", ate: "" }; // tudo
+}
+function renderMenuExcel() {
+  const p = S._excelPeriodo;
+  const rap = (t, r) => `<button class="btn ghost" style="width:auto; padding:6px 10px; font-size:12px;" onclick="S._excelPeriodo=periodoRapidoExcel('${t}'); renderMenuExcel();">${r}</button>`;
+  document.getElementById("excelModal").innerHTML = `
+    <h3 style="font-size:15px; margin-bottom:10px;">⬇️ Exportar para Excel</h3>
+    <div style="font-size:11px; font-weight:700; text-transform:uppercase; color:#78716c; margin-bottom:6px;">Período</div>
+    <div class="grid grid-2" style="margin-bottom:8px;">
+      <label class="field"><span>De</span><input type="date" value="${esc(p.de)}" onchange="S._excelPeriodo.de=this.value; renderMenuExcel();"/></label>
+      <label class="field"><span>Até</span><input type="date" value="${esc(p.ate)}" onchange="S._excelPeriodo.ate=this.value; renderMenuExcel();"/></label>
+    </div>
+    <div style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:8px;">
+      ${rap("7", "7 dias")}${rap("30", "30 dias")}${rap("mes", "Este mês")}${rap("mesPassado", "Mês passado")}${rap("ano", "Este ano")}${rap("tudo", "Tudo")}
+    </div>
+    <div class="muted" style="font-size:12px; margin-bottom:12px;">${p.de || p.ate ? `De <b>${p.de ? brDate(p.de) : "o início"}</b> até <b>${p.ate ? brDate(p.ate) : "hoje"}</b>` : "<b>Todo o histórico</b>"}</div>
+    <button class="btn" style="margin-bottom:6px;" onclick="exportarRelatorioProducao()">📑 Relatório de produção</button>
+    <div class="muted" style="font-size:11.5px; margin-bottom:14px;">Cocos colhidos e descascados por <b>data</b> e por <b>setor</b>: coco seco (bags), coco verde (cargas), contagem e descasca manual. Com resumo geral, por dia, por setor e cada lançamento.</div>
+    <button class="btn ghost" style="margin-bottom:6px;" onclick="fecharMenuExcel(); exportarExcel();">📦 Todos os dados do app</button>
+    <div class="muted" style="font-size:11.5px; margin-bottom:12px;">Tudo que está no app (romaneios, aplicações, estoque, ocorrências...), sem filtro de período. Serve de cópia de segurança.</div>
+    <div style="text-align:right;"><button class="btn ghost" style="width:auto;" onclick="fecharMenuExcel()">Fechar</button></div>`;
+}
+window.renderMenuExcel = renderMenuExcel;
+window.periodoRapidoExcel = periodoRapidoExcel;
+window.abrirMenuExcel = function () {
+  renderMenuExcel();
+  document.getElementById("excelOverlay").style.display = "block";
+  document.getElementById("excelModal").style.display = "block";
+};
+window.fecharMenuExcel = function () {
+  document.getElementById("excelOverlay").style.display = "none";
+  document.getElementById("excelModal").style.display = "none";
+};
+
+function dentroPeriodoExcel(data, p) {
+  const d = String(data || "").slice(0, 10);
+  if (!d) return !p.de && !p.ate; // sem data só entra quando é "tudo"
+  return (!p.de || d >= p.de) && (!p.ate || d <= p.ate);
+}
+const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+function ordemSetorExcel(t) {
+  const lista = [...TALHOES, "D1D2", "D3D4"];
+  const i = lista.indexOf(t); return i < 0 ? 99 : i;
+}
+function montarRelatorioProducao(p) {
+  const nomeDia = (d) => DIAS_CURTOS[new Date(d + "T00:00:00").getDay()];
+  const tipos = Object.keys(TIPOS_CONTAGEM);
+  // --- dados do período ---
+  const bags = S.bags.filter((b) => dentroPeriodoExcel(b.dataDescasca, p));
+  const verdes = S.cargasVerde.filter((c) => dentroPeriodoExcel(c.data, p));
+  const contagens = S.contagemLinhas.filter((l) => dentroPeriodoExcel(l.data, p));
+  const manuais = [];
+  S.cargas.forEach((c) => (c.descascaManual || []).forEach((d) => { if (dentroPeriodoExcel(d.data || c.data, p)) manuais.push({ c, d }); }));
+  const numCarga = (id) => { const c = S.cargas.find((x) => x.id === id); return c ? c.numero : ""; };
+
+  // --- acumuladores ---
+  const porDia = {}, porSetor = {}, diaSetor = {};
+  const dia = (d) => porDia[d] || (porDia[d] = { bags: 0, cocosSeco: 0, kgSeco: 0, kgCarregado: 0, cargasVerde: 0, frutosVerde: 0, contado: {}, manual: 0, manualR: 0 });
+  const setor = (t) => porSetor[t] || (porSetor[t] = { bags: 0, cocosSeco: 0, kgSeco: 0, cocosV: 0, kgV: 0, cargasVerde: 0, frutosVerde: 0, contado: {} });
+  const ds = (d, t, prod) => { const k = d + "|" + t + "|" + prod; return diaSetor[k] || (diaSetor[k] = { d, t, prod, qtd: 0, frutos: 0, kg: 0 }); };
+
+  bags.forEach((b) => {
+    const d = String(b.dataDescasca).slice(0, 10), t = b.talhao || "—";
+    const coco = Number(b.coco1) || 0, kg = Number(b.estocado1) || 0, carr = Number(b.carregado1) || 0;
+    const D = dia(d); D.bags++; D.cocosSeco += coco; D.kgSeco += kg; D.kgCarregado += carr;
+    const T = setor(t); T.bags++; T.cocosSeco += coco; T.kgSeco += kg; if (coco > 0 && kg > 0) { T.cocosV += coco; T.kgV += kg; }
+    const X = ds(d, t, "Coco seco descascado"); X.qtd++; X.frutos += coco; X.kg += kg;
+  });
+  verdes.forEach((c) => {
+    const d = String(c.data).slice(0, 10), t = setoresDaCargaVerde(c).join(" + ") || "—";
+    const fr = Number(c.quantidadeTotal) || 0;
+    const D = dia(d); D.cargasVerde++; D.frutosVerde += fr;
+    const T = setor(t); T.cargasVerde++; T.frutosVerde += fr;
+    const X = ds(d, t, "Coco verde colhido"); X.qtd++; X.frutos += fr;
+  });
+  contagens.forEach((l) => {
+    const d = l.data, t = l.setor || "—", fr = Number(l.total) || 0;
+    const D = dia(d); D.contado[l.tipo] = (D.contado[l.tipo] || 0) + fr;
+    const T = setor(t); T.contado[l.tipo] = (T.contado[l.tipo] || 0) + fr;
+    const X = ds(d, t, "Contagem " + l.tipo); X.qtd++; X.frutos += fr;
+  });
+  manuais.forEach(({ c, d }) => {
+    const dd = String(d.data || c.data).slice(0, 10), q = Number(d.quantidade) || 0;
+    const D = dia(dd); D.manual += q; D.manualR += q * (Number(d.valorUnidade) || 0);
+  });
+
+  // --- Resumo ---
+  const tot = Object.values(porDia).reduce((a, D) => {
+    a.bags += D.bags; a.cocosSeco += D.cocosSeco; a.kgSeco += D.kgSeco; a.kgCarregado += D.kgCarregado;
+    a.cargasVerde += D.cargasVerde; a.frutosVerde += D.frutosVerde; a.manual += D.manual; a.manualR += D.manualR;
+    tipos.forEach((tp) => { a.contado[tp] = (a.contado[tp] || 0) + (D.contado[tp] || 0); });
+    return a;
+  }, { bags: 0, cocosSeco: 0, kgSeco: 0, kgCarregado: 0, cargasVerde: 0, frutosVerde: 0, manual: 0, manualR: 0, contado: {} });
+  const cocosV = bags.reduce((s, b) => s + ((Number(b.coco1) > 0 && Number(b.estocado1) > 0) ? Number(b.coco1) : 0), 0);
+  const kgV = bags.reduce((s, b) => s + ((Number(b.coco1) > 0 && Number(b.estocado1) > 0) ? Number(b.estocado1) : 0), 0);
+  const dias = Object.keys(porDia).sort();
+  const resumo = [
+    ["Relatório de produção — Coco"],
+    ["Período", p.de || p.ate ? `${p.de ? brDate(p.de) : "início"} a ${p.ate ? brDate(p.ate) : "hoje"}` : "Todo o histórico"],
+    ["Gerado em", new Date().toLocaleString("pt-BR")],
+    ["Dias com lançamento", dias.length],
+    [],
+    ["COCO SECO (descasca)"],
+    ["Bags descascados", tot.bags],
+    ["Cocos descascados (frutos)", tot.cocosSeco],
+    ["Peso estocado (kg)", r2(tot.kgSeco)],
+    ["Peso médio por fruto (kg)", cocosV > 0 ? Number((kgV / cocosV).toFixed(3)) : ""],
+    ["Peso carregado desses bags (kg)", r2(tot.kgCarregado)],
+    [],
+    ["COCO VERDE (colheita)"],
+    ["Cargas", tot.cargasVerde],
+    ["Frutos colhidos", tot.frutosVerde],
+    [],
+    ["CONTAGEM (frutos contados)"],
+    ...tipos.map((tp) => [tp, tot.contado[tp] || 0]),
+    [],
+    ["DESCASCA MANUAL"],
+    ["Unidades", tot.manual],
+    ["Valor (R$)", r2(tot.manualR)],
+  ];
+
+  // --- Por dia ---
+  const linhasDia = dias.map((d) => {
+    const D = porDia[d];
+    const o = { "Data": brDate(d), "Dia": nomeDia(d), "Seco — bags": D.bags, "Seco — cocos descascados": D.cocosSeco, "Seco — kg estocado": r2(D.kgSeco),
+      "Verde — cargas": D.cargasVerde, "Verde — frutos colhidos": D.frutosVerde };
+    tipos.forEach((tp) => { o["Contado " + tp] = D.contado[tp] || 0; });
+    o["Descasca manual (unid)"] = D.manual;
+    return o;
+  });
+  if (linhasDia.length) {
+    const o = { "Data": "TOTAL", "Dia": "", "Seco — bags": tot.bags, "Seco — cocos descascados": tot.cocosSeco, "Seco — kg estocado": r2(tot.kgSeco),
+      "Verde — cargas": tot.cargasVerde, "Verde — frutos colhidos": tot.frutosVerde };
+    tipos.forEach((tp) => { o["Contado " + tp] = tot.contado[tp] || 0; });
+    o["Descasca manual (unid)"] = tot.manual;
+    linhasDia.push(o);
+  }
+
+  // --- Por setor ---
+  const linhasSetor = Object.keys(porSetor).sort((a, b) => ordemSetorExcel(a) - ordemSetorExcel(b) || a.localeCompare(b)).map((t) => {
+    const T = porSetor[t];
+    const o = { "Setor": t, "Seco — bags": T.bags, "Seco — cocos descascados": T.cocosSeco, "Seco — kg estocado": r2(T.kgSeco),
+      "Seco — kg por fruto": T.cocosV > 0 ? Number((T.kgV / T.cocosV).toFixed(3)) : "",
+      "Verde — cargas": T.cargasVerde, "Verde — frutos colhidos": T.frutosVerde };
+    tipos.forEach((tp) => { o["Contado " + tp] = T.contado[tp] || 0; });
+    return o;
+  });
+
+  // --- Dia × setor ---
+  const linhasDS = Object.values(diaSetor).sort((a, b) => a.d.localeCompare(b.d) || ordemSetorExcel(a.t) - ordemSetorExcel(b.t) || a.prod.localeCompare(b.prod))
+    .map((x) => ({ "Data": brDate(x.d), "Dia": nomeDia(x.d), "Setor": x.t, "O que": x.prod,
+      "Qtd lançamentos (bags / cargas / linhas)": x.qtd, "Frutos": x.frutos, "Kg": x.kg ? r2(x.kg) : "" }));
+
+  // --- Detalhes ---
+  const detBags = bags.slice().sort((a, b) => String(a.dataDescasca).localeCompare(String(b.dataDescasca)) || (Number(a.idBag) || 0) - (Number(b.idBag) || 0))
+    .map((b) => ({ "Data descasca": brDate(String(b.dataDescasca).slice(0, 10)), "Setor": b.talhao || "", "Nº Bag": b.idBag, "Nº Carga": numCarga(b.cargaId),
+      "Cocos (frutos)": Number(b.coco1) || 0, "Kg estocado": r2(b.estocado1), "Kg por fruto": (Number(b.coco1) > 0 && Number(b.estocado1) > 0) ? Number((b.estocado1 / b.coco1).toFixed(3)) : "",
+      "Data carregamento": b.dataCarregamento ? brDate(String(b.dataCarregamento).slice(0, 10)) : "", "Kg carregado": b.carregado1 ? r2(b.carregado1) : "" }));
+  const detVerde = verdes.slice().sort((a, b) => String(a.data).localeCompare(String(b.data)) || (Number(a.numero) || 0) - (Number(b.numero) || 0))
+    .map((c) => ({ "Data": brDate(c.data), "Nº Carga": c.numero, "Setor(es)": setoresDaCargaVerde(c).join(" + "), "Frutos": Number(c.quantidadeTotal) || 0,
+      "Coco seco junto (unid)": c.cocoSecoQtd || "", "Encarregado": c.encarregado || "", "Cliente": c.cliente || "", "Status": c.status === "arquivada" ? "Arquivada" : "Em andamento" }));
+  const detContagem = contagens.slice().sort((a, b) => String(a.data).localeCompare(String(b.data)) || String(a.setor).localeCompare(String(b.setor)) || (Number(a.numero) || 0) - (Number(b.numero) || 0))
+    .map((l) => ({ "Data": brDate(l.data), "Tipo": l.tipo, "Setor": l.setor, "Linha": l.numero, "Nº plantas": (l.valores || []).length, "Frutos contados": Number(l.total) || 0 }));
+  const detManual = manuais.sort((a, b) => String(a.d.data || a.c.data).localeCompare(String(b.d.data || b.c.data)))
+    .map(({ c, d }) => ({ "Data": brDate(String(d.data || c.data).slice(0, 10)), "Nº Carga": c.numero, "Colaborador": d.colaborador, "Quantidade": Number(d.quantidade) || 0,
+      "Valor/unid (R$)": Number(d.valorUnidade || 0), "Total (R$)": r2((Number(d.quantidade) || 0) * (Number(d.valorUnidade) || 0)) }));
+
+  return { resumo, linhasDia, linhasSetor, linhasDS, detBags, detVerde, detContagem, detManual };
+}
+window.montarRelatorioProducao = montarRelatorioProducao;
+
+window.exportarRelatorioProducao = function () {
+  const p = S._excelPeriodo;
+  if (p.de && p.ate && p.de > p.ate) { avisar("A data \"De\" está depois da data \"Até\"."); return; }
+  if (typeof XLSX === "undefined") { avisar("A ferramenta do Excel ainda não carregou. Conecta na internet e tenta de novo."); return; }
+  const R = montarRelatorioProducao(p);
+  const wb = XLSX.utils.book_new();
+  const folha = (rows, larguras) => {
+    const ws = rows.length ? XLSX.utils.json_to_sheet(rows) : XLSX.utils.aoa_to_sheet([["Nada lançado nesse período"]]);
+    if (rows.length) ws["!cols"] = Object.keys(rows[0]).map((k) => ({ wch: Math.max(10, Math.min(28, k.length + 2)) }));
+    return ws;
+  };
+  const wsR = XLSX.utils.aoa_to_sheet(R.resumo); wsR["!cols"] = [{ wch: 32 }, { wch: 26 }];
+  XLSX.utils.book_append_sheet(wb, wsR, "Resumo");
+  XLSX.utils.book_append_sheet(wb, folha(R.linhasDia), "Por dia");
+  XLSX.utils.book_append_sheet(wb, folha(R.linhasSetor), "Por setor");
+  XLSX.utils.book_append_sheet(wb, folha(R.linhasDS), "Dia x setor");
+  XLSX.utils.book_append_sheet(wb, folha(R.detBags), "Seco - bags");
+  XLSX.utils.book_append_sheet(wb, folha(R.detVerde), "Verde - cargas");
+  XLSX.utils.book_append_sheet(wb, folha(R.detContagem), "Contagem");
+  XLSX.utils.book_append_sheet(wb, folha(R.detManual), "Descasca manual");
+  const sufixo = p.de || p.ate ? `${p.de || "inicio"}_a_${p.ate || todayISO()}` : "tudo";
+  XLSX.writeFile(wb, `coco_producao_${sufixo}.xlsx`);
+  fecharMenuExcel();
+};
 
 window.exportarExcel = function () {
   const wb = XLSX.utils.book_new();

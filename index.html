@@ -265,7 +265,7 @@
       <button class="btn-tema" id="btnTema" onclick="alternarTema()" title="Trocar tema">☀️</button>
     </div>
     <div class="header-linha2">
-      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v160</span>
+      <span style="font-size:9px; color:#a7f3d0; opacity:.8;">v161</span>
       <div class="spacer"></div>
       <span id="backupPill" class="backup-pill"></span>
       <button class="btn-export" onclick="abrirMenuExcel()">⬇️ Excel</button>
@@ -415,7 +415,7 @@ window.__state = {
 const S = window.__state;
 window.S = S; // necessário para os campos de formulário (oninput="S...") funcionarem
 
-const APP_VERSAO = "v160"; // mudar junto com o número do cabeçalho a cada atualização
+const APP_VERSAO = "v161"; // mudar junto com o número do cabeçalho a cada atualização
 const TALHOES = ["A3A4", "B3B4", "C1C2", "C3C4", "D1", "D2", "D3", "D4"];
 const SETORES_ORIGEM_VERDE = [...TALHOES, "D1D2", "D3D4"]; // origem da carga verde: setores soltos (cargas antigas) e os pares atuais
 
@@ -1332,8 +1332,6 @@ function renderCargaCard(carga, linhasCalc, totalEstocado, totalCarregado, total
         <div class="grid grid-4" style="background:#fffbeb; border:1px solid #fde68a; border-radius:9px; padding:10px; margin-bottom:14px;">
           <label class="field"><span>Data do carregamento</span><input type="date" value="${esc(el.dataCarregamento)}" oninput="S._editLinha.dataCarregamento=this.value"/></label>
           <label class="field"><span>Carregado 1ª (kg)</span><input class="amarelo" type="number" value="${esc(el.carregado1)}" oninput="S._editLinha.carregado1=this.value; if(this.value && !S._editLinha.dataCarregamento){ S._editLinha.dataCarregamento=todayISO(); renderRomaneio(); }"/></label>
-          <label class="field"><span>5 cocos carreg. (g)</span><input class="amarelo" type="number" value="${esc(el.cincoCocosG)}" oninput="S._editLinha.cincoCocosG=this.value; if(this.value && !S._editLinha.cincoCocosData){ S._editLinha.cincoCocosData=todayISO(); renderRomaneio(); }"/></label>
-          <label class="field"><span>Data pesagem 5 cocos</span><input type="date" value="${esc(el.cincoCocosData)}" oninput="S._editLinha.cincoCocosData=this.value"/></label>
           <div class="field" style="justify-content:flex-end; flex-direction:row; gap:6px;">
             <button class="btn" style="width:auto; background:#0f766e;" onclick="salvarEdicaoLinha()">💾 Salvar</button>
             <button class="btn ghost" style="width:auto;" onclick="cancelarEdicaoLinha()">Cancelar</button>
@@ -1352,7 +1350,7 @@ function renderCargaCard(carga, linhasCalc, totalEstocado, totalCarregado, total
     if (linhasCalc.length > 0) {
       html += `<div class="tbl-wrap"><table class="tbl"><thead><tr>
         <th>Bag</th><th>Descasca</th><th>Talhão</th><th>Coco 1ª</th><th>Estoc.</th><th>Carreg.</th>
-        <th>Diferença</th><th>Desvio</th><th>kg/coco real</th><th>kg/coco amostra</th><th>Real x Amostra</th><th></th>
+        <th>Diferença</th><th>Desvio</th><th>kg/coco real</th><th></th>
       </tr></thead><tbody>`;
       linhasCalc.forEach((l) => {
         const pendente = !l.temCarregado;
@@ -1366,8 +1364,6 @@ function renderCargaCard(carga, linhasCalc, totalEstocado, totalCarregado, total
           <td class="${l.diferenca<0?'neg':'pos'}">${l.diferenca===null?"—":fmt(l.diferenca,0)}</td>
           <td>${fmtPct(l.desvio)}</td>
           <td>${fmt(l.mediaCarregado,3)}</td>
-          <td${l.cincoCocosData ? ` title="Pesagem em ${brDate(l.cincoCocosData)}"` : ""}>${fmt(l.mediaAmostrada,3)}</td>
-          <td>${fmtPct(l.comparacao)}</td>
           <td style="white-space:nowrap;">${arquivada ? "" : `<button class="x-btn" onclick="abrirEdicaoLinha('${carga.id}','${l.id}')">✏️</button><button class="x-btn" onclick="removeLinha('${carga.id}','${l.id}')">✕</button>`}</td>
         </tr>`;
       });
@@ -2221,8 +2217,6 @@ window.abrirEdicaoLinha = function (cargaId, linhaId) {
     coco1: linha.coco1 ?? "",
     estocado1: linha.estocado1 ?? "",
     carregado1: linha.carregado1 ?? "",
-    cincoCocosG: linha.cincoCocosG ?? "",
-    cincoCocosData: linha.cincoCocosData || "",
     dataCarregamento: linha.dataCarregamento || todayISO(),
   };
   renderRomaneio();
@@ -5193,10 +5187,10 @@ function renderPesoPorSetorHTML() {
   const arr = pontos[sel].slice(-12);
   html += `<div class="row-flex" style="font-size:12.5px; margin-bottom:2px;"><b>${esc(sel)} — peso médio por carga (kg/unid)</b><span>${kgTxt(arr[arr.length - 1].pesoMedio)}</span></div>
     ${miniLinhaSVG(arr.map((x) => x.pesoMedio), "#16a34a")}
-    <div class="tbl-wrap" style="margin-top:8px;"><table class="tbl" style="min-width:400px;"><thead><tr><th style="text-align:left;">Carga</th><th>Data</th><th>Bags</th><th>Cocos</th><th>kg</th><th>Peso médio</th><th>5 cocos</th></tr></thead><tbody>
-    ${arr.slice().reverse().map((x) => `<tr><td style="text-align:left; font-weight:600;">Nº ${esc(x.numero)}</td><td>${x.data ? brDate(x.data) : "—"}</td><td>${x.bags}</td><td>${fmt(x.coco, 0)}</td><td>${fmt(x.kg, 0)}</td><td style="font-weight:700;">${kgTxt(x.pesoMedio)}</td><td>${kgTxt(x.amostra)}</td></tr>`).join("")}
+    <div class="tbl-wrap" style="margin-top:8px;"><table class="tbl" style="min-width:400px;"><thead><tr><th style="text-align:left;">Carga</th><th>Data</th><th>Bags</th><th>Cocos</th><th>kg</th><th>Peso médio</th></tr></thead><tbody>
+    ${arr.slice().reverse().map((x) => `<tr><td style="text-align:left; font-weight:600;">Nº ${esc(x.numero)}</td><td>${x.data ? brDate(x.data) : "—"}</td><td>${x.bags}</td><td>${fmt(x.coco, 0)}</td><td>${fmt(x.kg, 0)}</td><td style="font-weight:700;">${kgTxt(x.pesoMedio)}</td></tr>`).join("")}
     </tbody></table></div>
-    <div class="muted" style="font-size:10.5px; margin-top:6px;">"5 cocos" = média da amostra de 5 cocos pesados antes do carregamento. Bag que ficou com o setor padrão (A3A4) sem trocar entra como A3A4 — vale conferir o setor ao lançar.</div>
+    <div class="muted" style="font-size:10.5px; margin-top:6px;">Bag que ficou com o setor padrão (A3A4) sem trocar entra como A3A4 — vale conferir o setor ao lançar.</div>
   </div>`;
   return html;
 }
@@ -9138,7 +9132,7 @@ function montarLinhasRomaneio() {
         "Cliente": carga.cliente, "Município": carga.municipio, "Estado": carga.estado, "Horário Saída": carga.horarioSaida, "NF/CT-e": carga.nfCte,
         "Nº Bag": l.idBag, "Data Descasca": l.dataDescasca, "Talhão": l.talhao, "Coco 1ª (frutos)": l.coco1,
         "Estocado 1ª (kg)": l.estocado1, "Data Carregamento": l.dataCarregamento, "Carregado 1ª (kg)": l.carregado1,
-        "Diferença (kg)": calc.diferenca, "5 cocos carregado (g)": l.cincoCocosG, "Data pesagem 5 cocos": l.cincoCocosData,
+        "Diferença (kg)": calc.diferenca,
       });
     });
   });
